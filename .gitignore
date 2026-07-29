@@ -21,6 +21,7 @@ sdkconfig.*
 .vscode/ipch/
 .idea/
 .serena/
+.vscode/
 .DS_Store
 Thumbs.db
 
