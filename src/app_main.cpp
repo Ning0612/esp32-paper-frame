@@ -4,6 +4,7 @@
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_psram.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -151,9 +152,19 @@ extern "C" void app_main()
             esp_err_to_name(runtime_result));
     }
 
+    const esp_err_t network_stack_result = esp_netif_init();
+    if (network_stack_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "network_stack_init_failed=%s; health server disabled",
+            esp_err_to_name(network_stack_result));
+    }
+
     httpd_handle_t health_server = nullptr;
     const esp_err_t health_result =
-        pf_web::start_health_server(&health_server);
+        network_stack_result == ESP_OK
+            ? pf_web::start_health_server(&health_server)
+            : network_stack_result;
     if (health_result != ESP_OK) {
         ESP_LOGE(
             kTag,
