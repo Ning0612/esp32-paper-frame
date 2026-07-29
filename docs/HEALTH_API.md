@@ -3,8 +3,9 @@
 ## `GET /api/v1/health`
 
 此 route 是永久公開的最小健康狀態，不要求登入。Phase 1 只啟動
-`esp_http_server` 與註冊 handler，不建立 AP、STA 或 netif；因此實際網路
-存取延至 Phase 3 驗證。
+`esp_http_server` 與註冊 handler；底層 TCP/IP／esp-netif runtime 會先完成
+初始化，但不建立 `esp_netif_t` interface，也不啟動 AP 或 STA。因此實際
+網路存取延至 Phase 3 驗證。
 
 成功時回傳 `200 application/json` 與 `Cache-Control: no-store`：
 

@@ -10,22 +10,21 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | --- | --- |
 | 需求與分階段計畫 | 已建立 |
 | Phase 0 repository baseline | 已完成 |
-| Phase 1 persistence/runtime/health foundations | 韌體與 host tests 已完成；待實機 boot／mount／embedded test |
-| ESP32-S3 USB 連線 | COM7，Espressif USB Serial/JTAG |
-| 模組／Flash／PSRAM profile | ESP32-S3-N16R8；build 已固定 16 MB Flash／8 MB octal PSRAM，待實機 boot 交叉驗證 |
-| 7.3 吋 e-Paper HAT (E) | 使用者回報已接上；pin map 與 driver 留待 Phase 2 |
+| Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
+| ESP32-S3 USB 連線 | 本次驗證以 CH343 COM11 上傳、native USB COM10 監看；重新插拔後需重新辨識 |
+| 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
+| 7.3 吋 e-Paper HAT (E) | 已確認可接；精確 pin map 與 driver 留待 Phase 2 |
 | 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
 | 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |
 
-目前已有可編譯的原生 ESP-IDF Phase 1 診斷韌體；clean build 已通過，尚未
-完成 on-device boot。請勿只用 USB descriptor 推斷完整 board 型號；燒錄後
-仍須以 boot log 交叉驗證 physical Flash 與 PSRAM。
+目前已有可編譯並通過實機 smoke test 的原生 ESP-IDF Phase 1 韌體。板上
+runtime queue test 也已通過；Wi-Fi、電子紙與可選感測器尚未開始整合。
 
 ## 開發基線
 
 - Windows 11 / PowerShell 5.1
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.11.26
-- Python 3.12 project venv
+- Python 3.13 project venv
 - PlatformIO Core 6.1.19
 - PlatformIO Espressif 32 platform（版本由 Phase 1 build 固定）
 - Native ESP-IDF
@@ -33,7 +32,7 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 建立工具環境：
 
 ```powershell
-uv venv --seed --python 3.12 .venv
+uv venv --seed --python 3.13 .venv
 uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 .\.venv\Scripts\pio.exe --version
 ```
@@ -42,12 +41,15 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 
 ```powershell
 .\.venv\Scripts\pio.exe run
-.\.venv\Scripts\pio.exe run --target upload --upload-port COM7
-.\.venv\Scripts\pio.exe device monitor --port COM7 --baud 115200
+$uploadPort = 'COMx'
+$monitorPort = 'COMy'
+.\.venv\Scripts\pio.exe run --target upload --upload-port $uploadPort
+.\.venv\Scripts\pio.exe device monitor --port $monitorPort --baud 115200
 ```
 
-只有在 COM7 仍對應 `VID_303A&PID_4001` 時才可直接使用上述 upload port；
-裝置重新枚舉後需重新確認。
+每次 upload 前都必須重新確認 port 與 USB hardware ID。同一塊板的 CH343
+UART 與 ESP32-S3 native USB console 可能是不同 COM port，且 native USB
+在 ROM download mode 與應用程式執行時可能重新枚舉。
 
 ## 文件
 

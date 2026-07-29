@@ -1,6 +1,6 @@
 # PaperFrame MVP 實作計畫
 
-狀態：規劃完成，尚未開始韌體實作
+狀態：Phase 1 已完成；Phase 2 尚未開始
 
 需求基線：`Guild.md` v0.1
 
@@ -123,8 +123,9 @@ snapshot 或 result endpoint 取得。Display、storage 與 OTA 共享的臨界�
 - NVS schema version、ConfigManager、FileSystemManager 與啟動復原入口。
 - RuntimeCoordinator 的 command/result queue 與 snapshot 最小 contract。
 - 最小 `esp_http_server` 與公開 health handler/route contract，供後續長操作
-  responsiveness 測試；Phase 1 不提前建立 AP/netif，也不得暴露設定或管理
-  操作。
+  responsiveness 測試；Phase 1 只初始化 httpd 所需的 TCP/IP／esp-netif
+  runtime，不建立 `esp_netif_t` interface、不啟動 AP/STA，也不得暴露設定
+  或管理操作。
 
 驗收：
 
@@ -429,4 +430,6 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [x] 保留 `Guild.md` 作為原始匯入快照；其跳脫 Markdown 不在初始化時
   原地改寫，若需可讀版將另建衍生需求文件。
 - [x] 補齊 Phase 0 的 README、reference provenance、license 決策與 `.gitignore`。
-- [ ] 完成 G1 board 決策後開始 Phase 1。
+- [x] 完成 G1 board 決策與 Phase 1 build、host／embedded tests、實機
+  boot／mount 驗證。
+- [ ] 完成 G2 pin map 與 G3 display driver 決策後開始 Phase 2。
