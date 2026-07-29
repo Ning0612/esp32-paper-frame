@@ -30,6 +30,14 @@ USB VID/PID 只能確認 COM7 是 Espressif native USB 介面，不能單獨證�
 - [ ] 最小韌體以 capability heap API 驗證 PSRAM 可用容量。
 - [ ] 驗證 USB reset 後 COM port 是否保持為 COM7。
 
+### G1 連線嘗試
+
+`esptool 5.3.0 --port COM7 chip-id` 可開啟 COM7，但自動 reset 後沒有收到
+ROM serial data。此結果與未進 download mode 一致，也可能涉及 reset control、
+USB／driver 或連線時序；未執行任何 erase/write。下一次查詢前先以 BOOT
+（GPIO0 low）＋RESET/EN 手動進入 ROM download mode，再據結果縮小原因，
+不原樣重試自動 reset。
+
 ### Phase 2 前仍需完成
 
 - e-Paper SPI、BUSY、RST、DC、CS 精確 pin map。

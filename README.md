@@ -9,9 +9,9 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | 項目 | 狀態 |
 | --- | --- |
 | 需求與分階段計畫 | 已建立 |
-| Phase 0 repository baseline | 進行中 |
+| Phase 0 repository baseline | 已完成 |
 | ESP32-S3 USB 連線 | COM7，Espressif USB Serial/JTAG |
-| 精確 board／Flash／PSRAM | 待 G1 實機驗證 |
+| 精確 board／Flash／PSRAM | G1 進行中；待手動 download mode 後讀取 |
 | 7.3 吋 e-Paper HAT (E) | 使用者回報已接上；pin map 與 driver 留待 Phase 2 |
 | 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
 | 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |

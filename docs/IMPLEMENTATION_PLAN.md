@@ -122,8 +122,9 @@ snapshot 或 result endpoint 取得。Display、storage 與 OTA 共享的臨界�
 - 初版雙 OTA partition table，分離 `webfs`／`imagefs`。
 - NVS schema version、ConfigManager、FileSystemManager 與啟動復原入口。
 - RuntimeCoordinator 的 command/result queue 與 snapshot 最小 contract。
-- 最小 `esp_http_server` 與公開 health endpoint，供後續長操作 responsiveness
-  測試；不得提前暴露設定或管理操作。
+- 最小 `esp_http_server` 與公開 health handler/route contract，供後續長操作
+  responsiveness 測試；Phase 1 不提前建立 AP/netif，也不得暴露設定或管理
+  操作。
 
 驗收：
 
@@ -131,7 +132,8 @@ snapshot 或 result endpoint 取得。Display、storage 與 OTA 共享的臨界�
 - 裝置可 boot，不因缺少面板或感測器而 boot loop。
 - partition offset/size 不重疊，實機可掛載兩個 filesystem。
 - NVS 空白、schema 相同、可遷移版本與不支援版本都有測試。
-- health endpoint 可在 runtime queue 閒置或忙碌時回應，且只輸出非敏感資料。
+- health serializer/handler 在 runtime queue 閒置或忙碌時都不等待 queue、
+  filesystem 或硬體，且只輸出非敏感資料。實際經網路存取延至 Phase 3。
 
 建議 commits：
 
@@ -160,8 +162,8 @@ snapshot 或 result endpoint 取得。Display、storage 與 OTA 共享的臨界�
   176,000 bytes、直向圖片區 182,400 bytes。
 - pattern/golden test 驗證六色、邊界 pixel、直向旋轉與狀態列位置。
 - fake panel 驗證只有 DisplayTask 觸發 SPI lifecycle。
-- 實機驗證 BUSY timeout 期間 Phase 1 health endpoint 仍可回應，刷新完成後
-  panel sleep。
+- fake/concurrency test 驗證 BUSY timeout 不阻塞 Phase 1 health handler；
+  實機經網路存取在 Phase 3 驗證。刷新完成後 panel sleep。
 
 建議 commits：
 
@@ -207,6 +209,8 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - 其餘未登入的 GET 與 mutation 都回 401；需保護的 POST、PUT、DELETE
   缺少／錯誤 CSRF 時被拒絕。公開 endpoint 只回安全資料。
 - AP 無 Internet 時所有 WebUI asset 仍可載入。
+- 經 AP 與 STA 實機驗證 health endpoint 在 display command 忙碌或 timeout
+  時仍可回應。
 
 建議 commits：
 
@@ -424,5 +428,5 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [x] 建立分階段 MVP 計畫與 commit 邊界。
 - [x] 保留 `Guild.md` 作為原始匯入快照；其跳脫 Markdown 不在初始化時
   原地改寫，若需可讀版將另建衍生需求文件。
-- [ ] 補齊 Phase 0 的 README、reference provenance、license 決策與 `.gitignore`。
+- [x] 補齊 Phase 0 的 README、reference provenance、license 決策與 `.gitignore`。
 - [ ] 完成 G1 board 決策後開始 Phase 1。
