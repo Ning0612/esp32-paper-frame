@@ -8,6 +8,7 @@ idf_component_register(
         esp_netif
         esp_system
         pf_config
+        pf_display
         pf_runtime
         pf_storage
         pf_web
