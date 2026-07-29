@@ -10,6 +10,7 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | --- | --- |
 | 需求與分階段計畫 | 已建立 |
 | Phase 0 repository baseline | 已完成 |
+| Phase 1 persistence/runtime/health foundations | 韌體與 host tests 已完成；待實機 boot／mount／embedded test |
 | ESP32-S3 USB 連線 | COM7，Espressif USB Serial/JTAG |
 | 模組／Flash／PSRAM profile | ESP32-S3-N16R8；build 已固定 16 MB Flash／8 MB octal PSRAM，待實機 boot 交叉驗證 |
 | 7.3 吋 e-Paper HAT (E) | 使用者回報已接上；pin map 與 driver 留待 Phase 2 |

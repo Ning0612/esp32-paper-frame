@@ -11,6 +11,7 @@
 #include "pf_config/config_manager.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/filesystem_manager.hpp"
+#include "pf_web/health_server.hpp"
 
 namespace {
 
@@ -148,6 +149,20 @@ extern "C" void app_main()
             kTag,
             "runtime_coordinator_init_failed=%s; continuing without queues",
             esp_err_to_name(runtime_result));
+    }
+
+    httpd_handle_t health_server = nullptr;
+    const esp_err_t health_result =
+        pf_web::start_health_server(&health_server);
+    if (health_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "health_server_start_failed=%s; continuing degraded",
+            esp_err_to_name(health_result));
+    } else {
+        ESP_LOGI(
+            kTag,
+            "health_server_ready route=/api/v1/health network=not_configured");
     }
 
     while (true) {

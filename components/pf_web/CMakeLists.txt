@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "health_server.cpp"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        esp_http_server
+        esp_timer
+        pf_runtime
+)

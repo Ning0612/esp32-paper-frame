@@ -9,6 +9,7 @@ idf_component_register(
         pf_config
         pf_runtime
         pf_storage
+        pf_web
         spi_flash
 )
 
