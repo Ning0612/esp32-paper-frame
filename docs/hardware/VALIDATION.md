@@ -151,9 +151,16 @@ Runtime on-device test 使用獨立設定，避免與 host test 或一般 firmwa
 此命令會覆寫 `webfs`，並以空 image 覆寫 `imagefs`、清除所有使用者圖片；
 一般 firmware upload／OTA 不得包含這兩個 image。
 
-### Phase 2 前仍需完成
+### Phase 2 G2/G3 決策
 
-- e-Paper SPI、BUSY、RST、DC、CS 精確 pin map。
-- 面板電源與 logic level。
-- `epd7in3e` driver 版本、授權、BUSY polarity 與 timeout。
-- 實機確認 GPIO35、GPIO36、GPIO37 未被配置給周邊。
+G2/G3 已由 [ADR-0003](../adr/0003-fix-phase2-display-integration.md) 固定：
+
+- e-Paper 使用 3.3 V；DIN/CLK/CS/DC/RST/BUSY 分別為
+  GPIO11/12/10/13/14/4。
+- GPIO5 保留給 ADC、GPIO6 保留給 DHT、GPIO8/9 保留給 I²C SDA/SCL。
+- GPIO33–37 不配置給任何周邊。
+- `epd7in3e` 固定到 Waveshare upstream commit `06e8344`、MIT permission
+  notice、六色 native mapping、active-low BUSY 與 60 秒 hard timeout。
+
+這些是接線與實作 gate，不是面板已刷新成功的證據。仍待 Phase 2 driver
+完成後執行六色 pattern、刷新時間、deep sleep 與 forced-BUSY 實機驗證。

@@ -1,6 +1,6 @@
 # PaperFrame MVP 實作計畫
 
-狀態：Phase 1 已完成；Phase 2 尚未開始
+狀態：Phase 1 已完成；Phase 2 進行中
 
 需求基線：`Guild.md` v0.1
 
@@ -432,4 +432,4 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [x] 補齊 Phase 0 的 README、reference provenance、license 決策與 `.gitignore`。
 - [x] 完成 G1 board 決策與 Phase 1 build、host／embedded tests、實機
   boot／mount 驗證。
-- [ ] 完成 G2 pin map 與 G3 display driver 決策後開始 Phase 2。
+- [x] 完成 G2 pin map 與 G3 display driver 決策後開始 Phase 2。

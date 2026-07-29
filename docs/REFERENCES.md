@@ -34,3 +34,21 @@ PaperFrame 採 MIT License，與三個同作者參考專案一致。MIT 相容�
 
 Phase 1 會在 `platformio.ini` 固定實際通過 build 與實機 smoke 的 platform
 版本；文件中的 `latest` 連結只供查閱，不作為可重現版本規格。
+
+## Phase 2 Waveshare driver baseline
+
+- 產品／接線：
+  [7.3inch e-Paper HAT (E) manual](https://www.waveshare.com/wiki/7.3inch_e-Paper_HAT_%28E%29_Manual)
+- Upstream：[waveshare/e-Paper](https://github.com/waveshare/e-Paper)
+- 固定 commit：`06e834491bf62023a1b86a481b4530978883d2c4`
+- 固定來源與 SHA-256：
+  - `RaspberryPi_JetsonNano/c/lib/e-Paper/EPD_7in3e.c`：
+    `010E08A7053219076E707EBE2210BEF7C38ABB11EB8F975418F451EA8D9D895C`
+  - `RaspberryPi_JetsonNano/c/lib/e-Paper/EPD_7in3e.h`：
+    `D454685677EAC06CEEA24F9E64BE05782491E41491050C7A7B78186AEF73BD66`
+  - `RaspberryPi_JetsonNano/python/lib/waveshare_epd/epd7in3e.py`：
+    `7E12ECECFF0A75C84EEB32B2A324B3CECA49D08E1A108175A467C8417BD64572`
+
+三個來源檔均帶有 Waveshare MIT permission notice。實際 pin map、六色 native
+code、BUSY timeout 與 lifecycle 決策固定於
+[ADR-0003](adr/0003-fix-phase2-display-integration.md)。

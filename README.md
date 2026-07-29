@@ -11,9 +11,10 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | 需求與分階段計畫 | 已建立 |
 | Phase 0 repository baseline | 已完成 |
 | Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
+| Phase 2 display/renderer ownership | G2/G3 已固定；packed framebuffer 開始實作 |
 | ESP32-S3 USB 連線 | 本次驗證以 CH343 COM11 上傳、native USB COM10 監看；重新插拔後需重新辨識 |
 | 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
-| 7.3 吋 e-Paper HAT (E) | 已確認可接；精確 pin map 與 driver 留待 Phase 2 |
+| 7.3 吋 e-Paper HAT (E) | 3.3 V 與 GPIO4/10–14 pin map 已固定；尚待 driver 實機刷新 |
 | 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
 | 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |
 
