@@ -40,6 +40,11 @@ serial data。此結果可能涉及 boot strapping、reset control、USB 接孔�
 N16R8 profile 完成 clean build，後續以持續按住 BOOT 或改接板上 UART USB
 介面建立新證據。
 
+### Phase 1 尚未實機驗證
+
+- NVS 空白初始化與重開機後 schema／設定保存。
+- NVS 初始化失敗時，韌體維持 degraded boot 且不自動擦除 partition。
+
 ### Phase 2 前仍需完成
 
 - e-Paper SPI、BUSY、RST、DC、CS 精確 pin map。

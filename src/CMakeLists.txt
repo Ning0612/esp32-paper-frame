@@ -6,5 +6,6 @@ idf_component_register(
     REQUIRES
         esp_hw_support
         esp_system
+        pf_config
         spi_flash
 )

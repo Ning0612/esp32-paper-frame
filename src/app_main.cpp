@@ -8,6 +8,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "pf_config/config_manager.hpp"
 
 namespace {
 
@@ -65,6 +66,21 @@ extern "C" void app_main()
 {
     ESP_LOGI(kTag, "PaperFrame Phase 1 bring-up");
     log_hardware_profile();
+
+    const pf_config::StartupResult config_result = pf_config::initialize();
+    if (config_result.error == ESP_OK) {
+        ESP_LOGI(
+            kTag,
+            "config_schema=%" PRIu32 " action=%s",
+            pf_config::kCurrentSchemaVersion,
+            pf_config::to_string(config_result.action));
+    } else {
+        ESP_LOGE(
+            kTag,
+            "config_init_failed=%s action=%s; continuing degraded",
+            esp_err_to_name(config_result.error),
+            pf_config::to_string(config_result.action));
+    }
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
