@@ -76,6 +76,21 @@ GPIO4 已分配給 BUSY，不得再作為 light-sensor ADC。
 `0x4` 不屬於 palette v1，不得沿用 upstream quantizer 把它默默映射為黑色。
 每個 byte 的高 nibble 是偶數 x pixel，低 nibble 是下一個奇數 x pixel。
 
+ESP-IDF transport 固定使用 SPI2、mode 0、MSB-first 與 2 MHz 起始 clock。
+2 MHz 是在 upstream 各平台設定不一致時採取的保守初始值；只有實機波形與
+刷新驗證通過後才能另行提高。GPIO10 由 SPI master hardware CS 控制，每個
+command 是一筆 1-byte transaction；同一 register 的 data bytes 合併為一筆
+transaction。192,000-byte framebuffer 分成 4,096-byte transactions，最後
+一筆 3,584 bytes，共 47 筆；各筆之間 CS 會 deassert。
+
+Driver 只接受非 null、恰好 192,000 bytes 的 native full frame，且必須在
+任何 reset、SPI 或 panel command 前拒絕錯誤大小。呼叫為同步借用：return
+前 caller 不得修改 buffer，也不得進行會關閉 flash cache 的寫入；return
+後 driver 不保留 pointer。ESP-IDF adapter 先把每個 chunk 複製到 4 KiB
+internal DMA-capable bounce buffer，再啟動 polling transaction，因此不要求
+PSRAM source 本身具備 DMA alignment。後續 DisplayTask／StorageWorker 仍須
+序列化 framebuffer 讀取與 flash 寫入。
+
 BUSY 低電位表示 busy，高電位表示 idle。每個單獨 BUSY wait 的 hard
 timeout 為 60 秒；整筆 display command 會包含多次 wait，end-to-end
 上限不宣稱為 60 秒。逾時後不在同一 command 內重試或繼續送 panel
@@ -83,17 +98,32 @@ command；driver deassert CS、釋放 SPI transaction，回報 `busy_timeout`，
 並把 panel sleep 狀態標為 unknown。下一個 display command 必須從
 hardware reset 與完整 initialization 重新開始。
 
-成功刷新依 upstream sequence 執行 power-on、display refresh，以及
-`POWER_OFF (0x02), 0x00` 並等待 BUSY。緊接的 sleep sequence 再送一次
-`POWER_OFF (0x02), 0x00`、等待 BUSY，最後送 deep-sleep
-`0x07, 0xA5`。第二次 power-off 暫不省略，除非後續另有實機證據與 ADR
-取代本決策；單獨的 `POWER_OFF` 不視為已進入 deep sleep。
+每次 `refresh_and_sleep()` 不論前一狀態是 cold、成功 deep sleep 或
+unknown，都從 reset high 20 ms、low 2 ms、high 20 ms、BUSY wait 與
+30 ms delay 開始，再送完整 upstream register initialization：
+`AA/01/00/03/05/06/08/30/50/60/61/84/E3`，接著 `POWER_ON (0x04)` 與
+BUSY wait。之後送 `DATA_START (0x10)` 與 47 筆 framebuffer transaction，
+再依 C driver 的 refresh sequence 送：
+
+1. `POWER_ON (0x04)`，BUSY wait。
+2. 第二組 `0x06` 參數 `6F 1F 17 49`。
+3. `DISPLAY_REFRESH (0x12), 0x00`，BUSY wait。
+4. `POWER_OFF (0x02), 0x00`，BUSY wait。
+5. sleep sequence 再送一次 `POWER_OFF (0x02), 0x00`，BUSY wait。
+6. `DEEP_SLEEP (0x07), 0xA5`。
+
+第二次 power-off 暫不省略，除非後續另有實機證據與 ADR 取代本決策；
+單獨的 `POWER_OFF` 不視為已進入 deep sleep。任一 transport error 或
+BUSY timeout 都立即停止後續 sequence、把 state 設為 unknown；只有完整
+送出 `0x07, 0xA5` 才標記 deep sleep。
 
 ## Consequences
 
 - Phase 2 可在感測器未安裝時開始，且不會占用其保留 GPIO。
 - Packed framebuffer primitive 不配置 PSRAM；它只操作 caller 提供的
   buffer，實際 PSRAM ownership 留給後續 renderer／DisplayTask。
+- Driver adapter 固定使用 4 KiB internal DMA bounce buffer；不直接把
+  caller 的 PSRAM pointer 交給 SPI DMA。
 - slot `0x4` 或其他保留 nibble 必須在 encoder／upload 驗證時被拒絕。
 - 單一 stuck BUSY wait 最長會阻塞 DisplayTask 60 秒；整筆 command 可能
   包含多次成功 wait，不在本 ADR 保證 end-to-end 60 秒上限。HTTP handler

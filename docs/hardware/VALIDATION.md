@@ -164,3 +164,22 @@ G2/G3 已由 [ADR-0003](../adr/0003-fix-phase2-display-integration.md) 固定：
 
 這些是接線與實作 gate，不是面板已刷新成功的證據。仍待 Phase 2 driver
 完成後執行六色 pattern、刷新時間、deep sleep 與 forced-BUSY 實機驗證。
+
+### 2026-07-30 — Phase 2 panel-driver 驗證
+
+- `pio test -e native` 通過全部 25 個 host test，其中 7 個覆蓋
+  `epd7in3e` command trace、active-low BUSY、timeout、錯誤中止與 deep
+  sleep 狀態。
+- `pio run -e paperframe-s3` 成功，ESP-IDF adapter 已編入正式韌體。
+- 六色直條 pattern 的 embedded test firmware 可成功建置。
+- 當次連線辨識為 CH343 UART `COM11`（VID:PID `1A86:55D3`）與 ESP32-S3
+  native USB `COM10`（VID:PID `303A:1001`）。
+- CH343 自動 reset、手動 BOOT/RST 後的 no-reset UART 連線，以及 native
+  USB no-reset 連線都未收到 ROM download response；最後分別回報
+  `No serial data received` 與 `Write timeout`。
+- OTA metadata read 也在 ROM handshake 前失敗，因此沒有讀取或改寫 flash，
+  測試韌體未上傳，既有 app、NVS、webfs 與 imagefs 均未變更。
+
+本次不能宣稱六色 mapping、實際刷新時間或 refresh 後 panel sleep 已在實機
+通過。下一次硬體驗證必須先恢復可重現的 ROM download path，再上傳既有
+embedded pattern test；forced-BUSY 仍只允許 fake 或隔離治具測試。

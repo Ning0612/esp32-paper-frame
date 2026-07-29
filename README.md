@@ -11,15 +11,16 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | 需求與分階段計畫 | 已建立 |
 | Phase 0 repository baseline | 已完成 |
 | Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
-| Phase 2 display/renderer ownership | G2/G3 已固定；packed framebuffer 開始實作 |
+| Phase 2 display/renderer ownership | packed framebuffer 與 `epd7in3e` driver 已通過 host/build 驗證；renderer 待實作 |
 | ESP32-S3 USB 連線 | 本次驗證以 CH343 COM11 上傳、native USB COM10 監看；重新插拔後需重新辨識 |
 | 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
-| 7.3 吋 e-Paper HAT (E) | 3.3 V 與 GPIO4/10–14 pin map 已固定；尚待 driver 實機刷新 |
+| 7.3 吋 e-Paper HAT (E) | 3.3 V 與 GPIO4/10–14 pin map 已固定；pattern-test 韌體可建置，實機刷新待驗證 |
 | 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
 | 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |
 
 目前已有可編譯並通過實機 smoke test 的原生 ESP-IDF Phase 1 韌體。板上
-runtime queue test 也已通過；Wi-Fi、電子紙與可選感測器尚未開始整合。
+runtime queue test 也已通過；電子紙 driver component 已整合但尚未完成
+實機 pattern test，Wi-Fi 與可選感測器尚未開始整合。
 
 ## 開發基線
 
