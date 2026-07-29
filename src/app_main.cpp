@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pf_config/config_manager.hpp"
+#include "pf_storage/filesystem_manager.hpp"
 
 namespace {
 
@@ -81,6 +82,24 @@ extern "C" void app_main()
             esp_err_to_name(config_result.error),
             pf_config::to_string(config_result.action));
     }
+
+    const pf_storage::FileSystemSnapshot filesystem_snapshot =
+        pf_storage::mount_all();
+    const auto log_filesystem = [](const char* label,
+                                   const pf_storage::FileSystemStatus& status) {
+        ESP_LOGI(
+            kTag,
+            "filesystem=%s mounted=%s total=%u used=%u mount_status=%s "
+            "info_status=%s",
+            label,
+            status.mounted ? "true" : "false",
+            static_cast<unsigned>(status.total_bytes),
+            static_cast<unsigned>(status.used_bytes),
+            esp_err_to_name(status.mount_error),
+            esp_err_to_name(status.info_error));
+    };
+    log_filesystem("webfs", filesystem_snapshot.webfs);
+    log_filesystem("imagefs", filesystem_snapshot.imagefs);
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));

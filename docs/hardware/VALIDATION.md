@@ -44,6 +44,30 @@ N16R8 profile 完成 clean build，後續以持續按住 BOOT 或改接板上 UA
 
 - NVS 空白初始化與重開機後 schema／設定保存。
 - NVS 初始化失敗時，韌體維持 degraded boot 且不自動擦除 partition。
+- `webfs`／`imagefs` 各自製作 LittleFS image 後可獨立掛載。
+- 任一 filesystem 缺失或損壞時不自動格式化，另一個仍可掛載且系統繼續 boot。
+
+先完成韌體 build，再以相同 CMake build graph 產生尺寸與 partition table
+一致的 factory images：
+
+```powershell
+.\.pio\packages\tool-cmake\bin\cmake.exe --build `
+  .\.pio\build\paperframe-s3 `
+  --target littlefs_webfs_bin littlefs_imagefs_bin
+```
+
+成功後會產生 `.pio\build\paperframe-s3\webfs.bin` 與
+`.pio\build\paperframe-s3\imagefs.bin`。只有新機 factory provisioning 或
+明確要清空兩個 filesystem 時，才可執行：
+
+```powershell
+.\.venv\Scripts\python.exe -m esptool --chip esp32s3 --port <COM> write-flash `
+  0x510000 .pio\build\paperframe-s3\webfs.bin `
+  0x630000 .pio\build\paperframe-s3\imagefs.bin
+```
+
+此命令會覆寫 `webfs`，並以空 image 覆寫 `imagefs`、清除所有使用者圖片；
+一般 firmware upload／OTA 不得包含這兩個 image。
 
 ### Phase 2 前仍需完成
 

@@ -1,6 +1,7 @@
 # Project-local Python and PlatformIO tooling
 .venv/
 .pio/
+managed_components/
 
 # Native ESP-IDF and CMake outputs
 build/
