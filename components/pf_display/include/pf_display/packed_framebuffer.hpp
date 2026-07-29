@@ -8,9 +8,12 @@ namespace pf_display {
 
 inline constexpr std::size_t kPanelWidth = 800;
 inline constexpr std::size_t kPanelHeight = 480;
+inline constexpr std::size_t kStatusBarHeight = 40;
 inline constexpr std::size_t kLandscapeImageHeight = 440;
 inline constexpr std::size_t kPortraitImageWidth = 480;
 inline constexpr std::size_t kPortraitImageHeight = 760;
+inline constexpr std::size_t kPortraitLogicalHeight =
+    kPortraitImageHeight + kStatusBarHeight;
 inline constexpr std::uint8_t kPaletteVersion = 1;
 
 enum class Color : std::uint8_t {
@@ -50,6 +53,10 @@ inline constexpr std::size_t kLandscapeImageBytes =
     checked_packed_buffer_bytes(kPanelWidth, kLandscapeImageHeight).bytes;
 inline constexpr std::size_t kPortraitImageBytes =
     checked_packed_buffer_bytes(kPortraitImageWidth, kPortraitImageHeight).bytes;
+inline constexpr std::size_t kLandscapeStatusBytes =
+    checked_packed_buffer_bytes(kPanelWidth, kStatusBarHeight).bytes;
+inline constexpr std::size_t kPortraitStatusBytes =
+    checked_packed_buffer_bytes(kPortraitImageWidth, kStatusBarHeight).bytes;
 
 constexpr std::uint8_t native_code(const Color color)
 {
@@ -194,5 +201,8 @@ private:
 static_assert(kFullFramebufferBytes == 192000U);
 static_assert(kLandscapeImageBytes == 176000U);
 static_assert(kPortraitImageBytes == 182400U);
+static_assert(kLandscapeStatusBytes == 16000U);
+static_assert(kPortraitStatusBytes == 9600U);
+static_assert(kPortraitLogicalHeight == kPanelWidth);
 
 }  // namespace pf_display
