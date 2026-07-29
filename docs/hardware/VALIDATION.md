@@ -119,14 +119,34 @@ queue capacity、non-blocking overflow 與 snapshot publish/read，結果 1/1
 - NVS 初始化失敗時，韌體維持 degraded boot 且不自動擦除 partition。
 - 任一 filesystem 缺失或損壞時不自動格式化，另一個仍可掛載且系統繼續 boot。
 
-Runtime on-device test 使用獨立設定，避免與 host test 或一般 firmware
-`app_main` 混合：
+Runtime on-device tests 使用獨立 environment，避免不同 test app 共用
+ESP-IDF CMake scaffold。Windows 上先完成 build，再重用同一 build graph
+做 upload/test：
 
 ```powershell
 .\.venv\Scripts\pio.exe test `
   --project-conf platformio-embedded.ini `
   -e paperframe-s3-embedded-test `
-  -f test_runtime_coordinator
+  --without-uploading --without-testing
+
+.\.venv\Scripts\pio.exe test `
+  --project-conf platformio-embedded.ini `
+  -e paperframe-s3-embedded-test `
+  --without-building
+```
+
+DisplayTask 實機測試使用另一個 environment，流程相同：
+
+```powershell
+.\.venv\Scripts\pio.exe test `
+  --project-conf platformio-embedded.ini `
+  -e paperframe-s3-display-test `
+  --without-uploading --without-testing
+
+.\.venv\Scripts\pio.exe test `
+  --project-conf platformio-embedded.ini `
+  -e paperframe-s3-display-test `
+  --without-building
 ```
 
 先完成韌體 build，再以相同 CMake build graph 產生尺寸與 partition table
@@ -240,3 +260,30 @@ table、OTA metadata、NVS、`webfs` 或 `imagefs`。
 - 一般刷新時間的實測數值；
 - refresh 後 panel sleep 的電流量測；
 - forced-BUSY 隔離治具測試。
+
+### 2026-07-30 — DisplayTask lifecycle 實機通過
+
+Phase 2 DisplayTask 已整合為正式 app 的唯一 panel/SPI owner。Frame data
+使用兩個 192,000-byte PSRAM slot 與 generation token；producer 提交後不再
+持有可寫 lease，FreeRTOS queue 不保存 framebuffer pointer 或內容。
+
+驗證結果：
+
+- `pio test -e native`：36/36 通過；新增測試涵蓋 lease transfer、stale
+  token、queue rollback、pool reset、BUSY/transport result mapping，以及
+  display worker 阻塞時 health serialization 仍可完成。
+- `test_runtime_coordinator` embedded test：1/1 通過；驗證 command queue
+  overflow、queued/refreshing/failed snapshot transition 與共享
+  flash/display gate。
+- `test_display_task` embedded test：1/1 通過，總耗時 36.792 秒。提交呼叫
+  在 100 ms gate 內返回；DisplayTask 對實際面板送出六色 full frame，最後
+  result 為 `completed/refreshed_and_slept`，runtime snapshot 為
+  `deep_sleep`。
+- 測試 app 完成後執行標準單命令 upload。PlatformIO 自動選到 native USB
+  `COM10`，只擦除 `0x10000`–`0x75fff`、寫入 414,960-byte 正式 app，
+  data hash 驗證成功並 hard reset。bootloader、partition、OTA metadata、
+  NVS、`webfs` 與 `imagefs` 均未改寫。
+
+本次 `deep_sleep` 證據來自完整 command/result contract 與 driver state；
+尚未以電流表量測面板 sleep 功耗。forced-BUSY 仍只在 fake driver 通過，
+實機測試仍需隔離治具。

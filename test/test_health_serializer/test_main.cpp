@@ -20,6 +20,12 @@ pf_runtime::RuntimeSnapshot ready_snapshot()
         .config = pf_runtime::ServiceState::ready,
         .webfs = pf_runtime::ServiceState::ready,
         .imagefs = pf_runtime::ServiceState::ready,
+        .display = pf_runtime::DisplayState::unknown,
+        .active_display_request_id = 0,
+        .queued_display_count = 0,
+        .last_display_request_id = 0,
+        .last_display_outcome = pf_runtime::DisplayOutcome::none,
+        .last_display_stage = 0,
     };
 }
 

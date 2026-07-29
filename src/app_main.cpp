@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pf_config/config_manager.hpp"
+#include "pf_display/display_task_esp_idf.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/filesystem_manager.hpp"
 #include "pf_web/health_server.hpp"
@@ -95,7 +96,7 @@ pf_runtime::ServiceState state_from_filesystem(
 
 extern "C" void app_main()
 {
-    ESP_LOGI(kTag, "PaperFrame Phase 1 bring-up");
+    ESP_LOGI(kTag, "PaperFrame Phase 2 display runtime");
     const HardwareProfile hardware = log_hardware_profile();
 
     const pf_config::StartupResult config_result = pf_config::initialize();
@@ -142,6 +143,12 @@ extern "C" void app_main()
         .config = state_from_error(config_result.error),
         .webfs = state_from_filesystem(filesystem_snapshot.webfs),
         .imagefs = state_from_filesystem(filesystem_snapshot.imagefs),
+        .display = pf_runtime::DisplayState::unknown,
+        .active_display_request_id = 0,
+        .queued_display_count = 0,
+        .last_display_request_id = 0,
+        .last_display_outcome = pf_runtime::DisplayOutcome::none,
+        .last_display_stage = 0,
     };
     const esp_err_t runtime_result =
         pf_runtime::coordinator().initialize(initial_snapshot);
@@ -150,6 +157,16 @@ extern "C" void app_main()
             kTag,
             "runtime_coordinator_init_failed=%s; continuing without queues",
             esp_err_to_name(runtime_result));
+    } else {
+        const esp_err_t display_result =
+            pf_display::display_task().start(
+                pf_runtime::coordinator());
+        if (display_result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "display_task_start_failed=%s; continuing degraded",
+                esp_err_to_name(display_result));
+        }
     }
 
     const esp_err_t network_stack_result = esp_netif_init();

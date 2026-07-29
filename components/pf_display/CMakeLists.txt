@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS
+        "display_task_esp_idf.cpp"
         "epd7in3e_esp_idf.cpp"
     INCLUDE_DIRS
         "include"
@@ -9,4 +10,5 @@ idf_component_register(
         esp_timer
         freertos
         heap
+        pf_runtime
 )

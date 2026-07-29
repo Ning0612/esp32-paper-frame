@@ -91,6 +91,24 @@ internal DMA-capable bounce buffer，再啟動 polling transaction，因此不�
 PSRAM source 本身具備 DMA alignment。後續 DisplayTask／StorageWorker 仍須
 序列化 framebuffer 讀取與 flash 寫入。
 
+DisplayTask 使用兩個 192,000-byte PSRAM slot。Producer 只能在
+`FrameWriteLease` 有效時取得 mutable pointer；提交後 queue 僅攜帶
+`{slot, generation}` token，write lease 立即失效。DisplayTask 驗證 token
+並把 slot 從 queued 轉為 displaying 後，才取得 read lease 傳給 driver；
+driver return 後 slot 才能回到 free 並遞增 generation。queue 滿時提交立即
+失敗並恢復原 write lease，不等待、不觸碰面板，也不隱式合併或覆蓋 request。
+因此舊 token、double submit 與 producer 在 refresh 期間重用同一 slot 都會
+被拒絕。
+
+DisplayTask 是 ESP-IDF transport 與 driver 的唯一建構者。它在 driver
+lifecycle 外層取得 RuntimeCoordinator 的單一 flash/display gate，return
+後釋放；未來 StorageWorker 的 imagefs、catalog 與 OTA flash write 必須使用
+同一 gate。frame-pool state transition 不在持有 gate 時等待，避免形成反向
+lock order。HTTP handler 不取得此 gate，只讀 immutable runtime snapshot。
+Snapshot 分開記錄目前 active request 與 queued count；刷新中再排入下一張
+不得把 `refreshing` 回退成 `queued`，目前 command 完成且 queue 仍有資料時
+才轉為 `queued`。
+
 BUSY 低電位表示 busy，高電位表示 idle。每個單獨 BUSY wait 的 hard
 timeout 為 60 秒；整筆 display command 會包含多次 wait，end-to-end
 上限不宣稱為 60 秒。逾時後不在同一 command 內重試或繼續送 panel
@@ -121,14 +139,14 @@ BUSY timeout 都立即停止後續 sequence、把 state 設為 unknown；只有�
 
 - Phase 2 可在感測器未安裝時開始，且不會占用其保留 GPIO。
 - Packed framebuffer primitive 不配置 PSRAM；它只操作 caller 提供的
-  buffer，實際 PSRAM ownership 留給後續 renderer／DisplayTask。
+  buffer；DisplayTask 的兩個 lease-managed full-frame slot 配置於 PSRAM。
 - Driver adapter 固定使用 4 KiB internal DMA bounce buffer；不直接把
   caller 的 PSRAM pointer 交給 SPI DMA。
 - slot `0x4` 或其他保留 nibble 必須在 encoder／upload 驗證時被拒絕。
 - 單一 stuck BUSY wait 最長會阻塞 DisplayTask 60 秒；整筆 command 可能
   包含多次成功 wait，不在本 ADR 保證 end-to-end 60 秒上限。HTTP handler
-  不得因此阻塞；command/result queue 與健康狀態仍由後續 DisplayTask
-  commit 驗證。
+  不得因此阻塞；command/result queue、獨立 worker 與 runtime snapshot
+  已由 DisplayTask host/embedded tests 驗證。
 - 沒有 PWR control pin；BUSY timeout 時無法宣稱 panel 已 sleep。
 
 ## Verification
@@ -137,6 +155,10 @@ BUSY timeout 都立即停止後續 sequence、把 state 設為 unknown；只有�
   非法輸入不改寫 buffer。
 - Driver fake test 必須驗證 active-low BUSY、60 秒 timeout、成功 deep sleep
   與 timeout 後不再送 command。
+- DisplayTask host tests 驗證 lease transfer、stale generation、queue
+  rollback、result mapping，以及 blocked worker 不阻塞 health serialization。
+- Embedded tests 驗證 queue/snapshot/gate 狀態與實際面板 lifecycle；成功
+  result 只能在 driver 回報 deep sleep 後發布。
 - 實機 pattern test 依六色區塊確認 mapping，再量測一般刷新時間。
 - forced-BUSY 預設只在 fake driver 執行。實機測試僅能使用隔離治具，或
   先斷開 HAT BUSY output 並驗證不會發生 output contention；HAT 仍連接時
