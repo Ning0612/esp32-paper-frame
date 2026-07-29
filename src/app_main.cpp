@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pf_config/config_manager.hpp"
+#include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/filesystem_manager.hpp"
 
 namespace {
@@ -17,7 +18,12 @@ constexpr char kTag[] = "paperframe";
 constexpr std::uint32_t kExpectedFlashBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kExpectedPsramBytes = 8U * 1024U * 1024U;
 
-void log_hardware_profile()
+struct HardwareProfile {
+    bool flash_ready;
+    bool psram_ready;
+};
+
+HardwareProfile log_hardware_profile()
 {
     esp_chip_info_t chip_info{};
     esp_chip_info(&chip_info);
@@ -59,6 +65,28 @@ void log_hardware_profile()
     ESP_LOGI(
         kTag,
         "optional_sensors=not_configured gpio_probe=skipped");
+
+    return {
+        flash_result == ESP_OK && flash_bytes == kExpectedFlashBytes,
+        psram_ready && psram_bytes >= kExpectedPsramBytes,
+    };
+}
+
+pf_runtime::ServiceState state_from_error(const esp_err_t error)
+{
+    return error == ESP_OK
+               ? pf_runtime::ServiceState::ready
+               : pf_runtime::ServiceState::degraded;
+}
+
+pf_runtime::ServiceState state_from_filesystem(
+    const pf_storage::FileSystemStatus& status)
+{
+    return status.mounted &&
+                   status.mount_error == ESP_OK &&
+                   status.info_error == ESP_OK
+               ? pf_runtime::ServiceState::ready
+               : pf_runtime::ServiceState::degraded;
 }
 
 }  // namespace
@@ -66,7 +94,7 @@ void log_hardware_profile()
 extern "C" void app_main()
 {
     ESP_LOGI(kTag, "PaperFrame Phase 1 bring-up");
-    log_hardware_profile();
+    const HardwareProfile hardware = log_hardware_profile();
 
     const pf_config::StartupResult config_result = pf_config::initialize();
     if (config_result.error == ESP_OK) {
@@ -100,6 +128,27 @@ extern "C" void app_main()
     };
     log_filesystem("webfs", filesystem_snapshot.webfs);
     log_filesystem("imagefs", filesystem_snapshot.imagefs);
+
+    const pf_runtime::RuntimeSnapshot initial_snapshot{
+        .sequence = 1,
+        .flash =
+            hardware.flash_ready ? pf_runtime::ServiceState::ready
+                                 : pf_runtime::ServiceState::degraded,
+        .psram =
+            hardware.psram_ready ? pf_runtime::ServiceState::ready
+                                 : pf_runtime::ServiceState::degraded,
+        .config = state_from_error(config_result.error),
+        .webfs = state_from_filesystem(filesystem_snapshot.webfs),
+        .imagefs = state_from_filesystem(filesystem_snapshot.imagefs),
+    };
+    const esp_err_t runtime_result =
+        pf_runtime::coordinator().initialize(initial_snapshot);
+    if (runtime_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "runtime_coordinator_init_failed=%s; continuing without queues",
+            esp_err_to_name(runtime_result));
+    }
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));

@@ -46,6 +46,18 @@ N16R8 profile 完成 clean build，後續以持續按住 BOOT 或改接板上 UA
 - NVS 初始化失敗時，韌體維持 degraded boot 且不自動擦除 partition。
 - `webfs`／`imagefs` 各自製作 LittleFS image 後可獨立掛載。
 - 任一 filesystem 缺失或損壞時不自動格式化，另一個仍可掛載且系統繼續 boot。
+- Runtime command／result queues 在滿載時立即失敗，不阻塞呼叫端。
+- Snapshot 在 queue 忙碌時仍可讀取，且只呈現已發布的完整狀態。
+
+Runtime on-device test 使用獨立設定，避免與 host test 或一般 firmware
+`app_main` 混合：
+
+```powershell
+.\.venv\Scripts\pio.exe test `
+  --project-conf platformio-embedded.ini `
+  -e paperframe-s3-embedded-test `
+  -f test_runtime_coordinator
+```
 
 先完成韌體 build，再以相同 CMake build graph 產生尺寸與 partition table
 一致的 factory images：

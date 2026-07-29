@@ -7,6 +7,7 @@ idf_component_register(
         esp_hw_support
         esp_system
         pf_config
+        pf_runtime
         pf_storage
         spi_flash
 )
