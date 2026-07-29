@@ -4,6 +4,31 @@
 上的已驗證燒錄方式。COM 編號會在重新插拔或切換 ROM／app 後改變，命令中的
 `COM10` 只是 2026-07-30 實測值，不得永久寫入設定。
 
+## 日常開發：單一命令
+
+目前 PaperFrame app 正常執行且 native USB 沒有被 monitor 佔用時，只需：
+
+```powershell
+.\.venv\Scripts\pio.exe run -e paperframe-s3 -t upload
+```
+
+不需指定 COM、不需按 BOOT/RST，也不需將 GPIO0/GPIO46 接地。專案設定會：
+
+1. 依 board manifest 的 VID:PID `303A:1001` 自動選擇 ESP32-S3 native USB，
+   不會選到板載 CH343 或其他 USB serial device；
+2. 以 esptool `usb_reset` 讓正在執行的 app 進入 ROM download mode；
+3. 只擦寫 `ota_0` 的 app image（目前 offset `0x10000`）；
+4. 保留 bootloader、partition table、OTA metadata、NVS、`webfs` 與
+   `imagefs`，完成 hash 驗證後 hard reset。
+
+成功輸出應包含 `Auto-detected: COM...`、`USB mode: USB-Serial/JTAG`、
+`Hash of data verified.` 與 `Hard resetting via RTS pin...`。若目前是空白板、
+RGB demo、native USB 被停用，或 app 已損壞到無法接受 `usb_reset`，才改用
+下方「首次或復原時進入 ROM」流程。
+
+此命令是 Phase 8 正式 OTA 導入前的開發流程；開始切換 active OTA slot 後，
+必須改由 OTA contract 選擇非執行中 slot，不得直接沿用固定的 `0x10000`。
+
 ## USB 介面
 
 | 介面 | Windows hardware ID | 用途 |
@@ -95,6 +120,9 @@ if ((Get-Item -LiteralPath $autoOtaData -ErrorAction Stop).Length -ne 0x2000) {
 若失敗，回到前一節同時拉低 `GPIO0`、`GPIO46` 的流程。
 
 ## App-only 開發燒錄
+
+日常操作使用本文件開頭的 PlatformIO 單一命令。下列低階流程保留給首次
+bring-up、備份／還原與 uploader 診斷。
 
 先建立正式韌體：
 

@@ -217,6 +217,24 @@ ROM。最後將測試前的完整 `ota_0` 備份原樣寫回，written data hash
 通過並 hard reset；裝置已恢復測試前 app。可重現步驟見
 [ESP32-S3 燒錄操作](FLASHING.md)。
 
+### 2026-07-30 — PlatformIO native USB 單命令燒錄通過
+
+專案將 PlatformIO esptool reset 設為 `usb_reset`，並以 post extra script
+把 routine upload 限制為 app image。`envdump` 確認最終 uploader flags
+沒有 bootloader、partition table 或 `ota_data_initial.bin`。
+
+在 GPIO0/GPIO46 都未接地、native USB 與 CH343 同時存在的情況下，執行：
+
+```powershell
+.\.venv\Scripts\pio.exe run -e paperframe-s3 -t upload
+```
+
+PlatformIO 依 VID:PID `303A:1001` 自動選到 native USB `COM10`，esptool
+確認 `USB mode: USB-Serial/JTAG`，只擦除 `0x10000`–`0x69fff` 並寫入
+365,632-byte app image。寫入後 data hash 驗證成功並自動 hard reset；
+裝置重新枚舉為同一 native USB hardware ID。未改寫 bootloader、partition
+table、OTA metadata、NVS、`webfs` 或 `imagefs`。
+
 仍待驗證：
 
 - 一般刷新時間的實測數值；

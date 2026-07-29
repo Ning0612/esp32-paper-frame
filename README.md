@@ -39,16 +39,18 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 .\.venv\Scripts\pio.exe --version
 ```
 
-韌體骨架建立後的標準 build 與 port 盤點命令：
+韌體的標準 build、native USB 單命令 upload 與 port 盤點命令：
 
 ```powershell
 .\.venv\Scripts\pio.exe run
+.\.venv\Scripts\pio.exe run -e paperframe-s3 -t upload
 .\.venv\Scripts\pio.exe device list
 ```
 
-每次 upload 前都必須重新確認 port 與 USB hardware ID。已驗證的標準路徑是
-ESP32-S3 native USB；首次或復原時需在 reset 同時拉低 GPIO0、GPIO46。
-完整安全步驟、app-only slot 限制與測試後恢復方式見
+標準 upload 會依 VID:PID `303A:1001` 自動選擇 ESP32-S3 native USB，以
+`usb_reset` 進入 ROM、只更新目前開發用 app offset，完成後自動重置。首次、
+RGB demo 或 app 損壞無法自動 reset 時，才需在 reset 同時拉低
+GPIO0、GPIO46。完整安全步驟、app-only slot 限制與測試後恢復方式見
 [ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)。
 
 ## 文件
