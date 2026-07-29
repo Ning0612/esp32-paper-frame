@@ -338,7 +338,7 @@ runtime snapshot；Internet 不可用不會把已連線 STA 切回 provisioning 
   897,589 bytes（34.2%）。
 - native USB 單命令 upload 自動選到 `COM10`，只擦除
   `0x10000`–`0xebfff` 並寫入 898,000-byte app；data hash 驗證成功。
-- 空白 credential 實機啟動 `PaperFrame-Setup-3AED`，固定 IP
+- 空白 credential 實機啟動 `PaperFrame-Setup-[masked]`，固定 IP
   `192.168.4.1`，DHCP server 成功啟動；log 未輸出 AP password 或任何
   STA credential。
 
@@ -348,3 +348,41 @@ brownout。依產品狀態規則修正為 provisioning／offline retry 暫停 ca
 AP 專用引導畫面、portal、credential 儲存與 STA 成功路徑仍屬後續 Phase 3
 commit，不在本段宣稱完成。Windows WLAN 掃描因系統 Location 權限關閉而
 無法從主機列舉 SSID；AP 啟動證據來自 ESP-IDF mode、DHCP 與 service log。
+
+### 2026-07-30 — Offline provisioning portal 部署與 STA smoke 通過
+
+本段對應 Phase 3 的第二個 commit 邊界，只包含 AP 引導畫面、離線 portal、
+Wi-Fi scan/config pipeline、credential commit lifecycle 與 bootstrap route
+policy；不把尚未實作的管理 session、CSRF 或 Recovery AP login 宣稱完成。
+
+驗證結果：
+
+- `pio test -e native`：88/88 通過；包含隨機 AP password formatter、AP
+  golden payload／QR escaping、credential codec 與 secret guard、表單解析、
+  HTTP receive deadline、request/status lifecycle、bootstrap access policy、
+  scan 去重／排序／過濾及既有 Phase 1–2 regression tests。
+- `pio run -e paperframe-s3` clean build 成功；RAM 56,560 bytes（17.3%），
+  Flash 934,649 bytes（35.7%）。新增 component dependency 後第一次 incremental
+  build 沿用舊 CMake graph 而缺 include path；依已驗證修法 clean 後成功，
+  不是 source compile failure。
+- `littlefs_webfs_bin` 產生 1,048,576-byte `webfs.bin`，SHA-256
+  `050AC7BAA87E46606A9EC0DD30C33C1AC204E6917C62A1A19B9D7CC57D0D509F`。
+  只寫入 `0x510000`–`0x60ffff`，esptool data hash 驗證通過；未改寫
+  `imagefs`、NVS、app 或 OTA metadata。
+- 標準 PlatformIO 單命令 upload 自動選到 native USB `COM10`，只擦除
+  `0x10000`–`0xf4fff` 並寫入 935,056-byte app；data hash 驗證通過並
+  hard reset。
+- 裝置保留既有 Wi-Fi credential 並成功進 STA；以遮蔽後的晶片 hardware
+  ID 對應私有 DHCP 位址。實機
+  `GET /api/v1/health` 回 `200`、`status=ready`、五個 service 都為
+  `ready`、`wifi=connected`。
+- 實機 `/`、`style.css`、`ui.js`、`favicon.svg` 均回 `200`，回傳大小分別
+  3,529、7,013、6,637、326 bytes，與本次 `data/web` 完全一致。STA
+  未登入的 scan GET 與虛構 config POST 均回 `401`、`Cache-Control:
+  no-store`，config request 在 access check 即被拒絕，未改動 NVS。
+
+本次沒有清除使用者既有 NVS 來強迫進首次 AP，因此最新 artifact 的
+blank-NVS scan／credential save／約 1 秒 reboot 尚未做板上端到端驗證；
+先前版本已驗證 AP screen 在 radio 前完成、AP/DHCP 可啟動。待 Phase 3
+auth commit 可安全操作 Recovery AP 後，再補最新 artifact 的 AP scan、
+登入、CSRF、credential save 與 STA reconnect 全流程。

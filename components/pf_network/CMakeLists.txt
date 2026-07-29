@@ -4,9 +4,12 @@ idf_component_register(
     INCLUDE_DIRS
         "include"
     REQUIRES
+        bootloader_support
         esp_event
+        esp_hw_support
         esp_netif
         esp_wifi
         freertos
+        pf_config
         pf_runtime
 )

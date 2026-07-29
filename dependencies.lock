@@ -1,4 +1,11 @@
 dependencies:
+  espressif/qrcode:
+    component_hash: 31e70991ce22f28d73a4386417fc9c0993f61e1aab1832474fd9e3db8da9dcbd
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.2.0
   idf:
     source:
       type: idf
@@ -14,7 +21,8 @@ dependencies:
       type: service
     version: 1.20.4
 direct_dependencies:
+- espressif/qrcode
 - joltwallet/littlefs
-manifest_hash: 60eb6246a4074e356970ba3c0ac9eaa11e57b48dba034f0a474ec9f233799cad
+manifest_hash: 5d4493b0392fd912a7fcdcf799a1517ee1d352dfb70451fbe1d2fdb9962e262e
 target: esp32s3
 version: 2.0.0

@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "ap_screen.cpp"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        pf_config
+        pf_display
+        qrcode
+)

@@ -4,6 +4,7 @@
 
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "pf_config/secure_memory.hpp"
 
 namespace pf_config {
 namespace {
@@ -12,6 +13,10 @@ constexpr char kNamespace[] = "pf_config";
 constexpr char kSchemaKey[] = "schema_ver";
 constexpr char kRefreshMinutesKey[] = "refresh_min";
 constexpr char kTimezoneKey[] = "timezone";
+constexpr char kNetworkNamespace[] = "pf_wifi";
+constexpr char kNetworkCredentialKey[] = "credentials";
+constexpr char kAuthenticationNamespace[] = "pf_auth";
+constexpr char kManagementPasswordHashKey[] = "password_hash";
 
 esp_err_t initialize_nvs()
 {
@@ -137,6 +142,108 @@ StartupResult initialize()
         result,
         result == ESP_OK,
         result == ESP_OK ? plan.record : ConfigRecord{},
+    };
+}
+
+NetworkCredentialLoadResult load_network_credentials()
+{
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kNetworkNamespace, NVS_READONLY, &handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        return {ESP_OK, false, {}};
+    }
+    if (result != ESP_OK) {
+        return {result, false, {}};
+    }
+
+    NetworkCredentialBlob blob{};
+    std::size_t length = sizeof(blob);
+    result = nvs_get_blob(
+        handle,
+        kNetworkCredentialKey,
+        &blob,
+        &length);
+    nvs_close(handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        secure_zero(blob);
+        return {ESP_OK, false, {}};
+    }
+    if (result != ESP_OK || length != sizeof(blob)) {
+        secure_zero(blob);
+        return {
+            result == ESP_OK ? ESP_ERR_INVALID_SIZE : result,
+            false,
+            {},
+        };
+    }
+
+    NetworkCredentials credentials{};
+    const bool decoded =
+        decode_network_credentials(blob, credentials);
+    secure_zero(blob);
+    if (!decoded) {
+        return {ESP_ERR_INVALID_CRC, false, {}};
+    }
+    return {ESP_OK, true, credentials};
+}
+
+esp_err_t save_network_credentials(
+    const NetworkCredentials& credentials)
+{
+    NetworkCredentialBlob blob{};
+    if (!encode_network_credentials(credentials, blob)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kNetworkNamespace, NVS_READWRITE, &handle);
+    if (result != ESP_OK) {
+        secure_zero(blob);
+        return result;
+    }
+    result = nvs_set_blob(
+        handle,
+        kNetworkCredentialKey,
+        &blob,
+        sizeof(blob));
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    secure_zero(blob);
+    return result;
+}
+
+ManagementPasswordStatus management_password_status()
+{
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kAuthenticationNamespace, NVS_READONLY, &handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        return {ESP_OK, false};
+    }
+    if (result != ESP_OK) {
+        return {result, false};
+    }
+
+    std::size_t length = 0U;
+    result = nvs_get_blob(
+        handle,
+        kManagementPasswordHashKey,
+        nullptr,
+        &length);
+    nvs_close(handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        return {ESP_OK, false};
+    }
+    if (result != ESP_OK) {
+        return {result, false};
+    }
+    return {
+        length > 0U ? ESP_OK : ESP_ERR_INVALID_SIZE,
+        length > 0U,
     };
 }
 

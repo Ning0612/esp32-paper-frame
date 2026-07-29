@@ -198,6 +198,58 @@ sequence/state，停止並重新判定 active slot；不得把 `0x10000` 當作�
 - `0x630000` 的 `imagefs`；
 - NVS、partition table 或 eFuse。
 
+## WebUI-only 更新
+
+只有 `data/web/` 內容變更時才需另外更新 `webfs`；日常 app-only upload
+不會自動更新 WebUI。先建置精確 target：
+
+```powershell
+.\.pio\packages\tool-cmake\bin\cmake.exe `
+  --build .pio\build\paperframe-s3 `
+  --target littlefs_webfs_bin
+
+if ($LASTEXITCODE -ne 0) {
+  throw 'webfs build failed; do not continue to write-flash.'
+}
+$webfs = Get-Item -LiteralPath `
+  '.pio\build\paperframe-s3\webfs.bin' -ErrorAction Stop
+if ($webfs.Length -ne 0x100000) {
+  throw 'webfs image is not exactly the partition size; refusing write.'
+}
+$webfsSha256 = (Get-FileHash -Algorithm SHA256 `
+  -LiteralPath $webfs.FullName).Hash
+Write-Host "webfs SHA-256: $webfsSha256"
+```
+
+確認 `$nativePort` 是當次 VID:PID `303A:1001` 的 native USB COM，且沒有
+monitor 占用後，只寫入 `webfs` 的固定開發 partition：
+
+```powershell
+.\.venv\Scripts\python.exe -m esptool `
+  --chip esp32s3 `
+  --port $nativePort `
+  --baud 460800 `
+  --before usb-reset `
+  --after hard-reset `
+  write-flash `
+  --flash-mode dio `
+  --flash-freq 80m `
+  --flash-size 16MB `
+  0x510000 $webfs.FullName
+
+if ($LASTEXITCODE -ne 0) {
+  throw 'Writing webfs failed; stop without touching imagefs.'
+}
+```
+
+成功輸出必須包含 `Hash of data verified.`；若沒有這行，即使 command exit
+code 為 0 也不得把本次 WebUI-only 更新記為已驗證。
+
+此流程只覆寫 `0x510000`–`0x60ffff`，保留 app、NVS、OTA metadata、
+`imagefs` 與使用者圖片。不得把 factory provisioning 的空
+`imagefs.bin` 加入 WebUI-only 命令。partition layout 變更後，必須先重新
+核對 partition table，不能沿用此 offset。
+
 ## Embedded e-Paper pattern test
 
 建立六色直條測試韌體：

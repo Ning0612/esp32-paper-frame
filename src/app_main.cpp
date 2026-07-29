@@ -1,4 +1,5 @@
 #include <cinttypes>
+#include <cstring>
 
 #include "esp_chip_info.h"
 #include "esp_flash.h"
@@ -13,11 +14,14 @@
 #include "pf_carousel/scheduler.hpp"
 #include "pf_carousel/welcome_frame.hpp"
 #include "pf_config/config_manager.hpp"
+#include "pf_config/secure_memory.hpp"
 #include "pf_display/display_task_esp_idf.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
+#include "pf_provisioning/ap_screen.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/filesystem_manager.hpp"
 #include "pf_web/health_server.hpp"
+#include "pf_web/provisioning_service.hpp"
 
 namespace {
 
@@ -29,6 +33,12 @@ constexpr std::uint64_t kCarouselRetryMs = 1000U;
 struct HardwareProfile {
     bool flash_ready;
     bool psram_ready;
+};
+
+struct AccessPointPresenterContext {
+    bool display_started = false;
+    bool payload_valid = false;
+    pf_provisioning::AccessPointScreenPayload last_payload{};
 };
 
 HardwareProfile log_hardware_profile()
@@ -102,11 +112,89 @@ std::uint64_t monotonic_ms()
     return static_cast<std::uint64_t>(esp_timer_get_time()) / 1000U;
 }
 
+esp_err_t present_access_point_screen(
+    void* const context,
+    const pf_network::AccessPointInfo& info)
+{
+    auto* const presenter =
+        static_cast<AccessPointPresenterContext*>(context);
+    if (presenter == nullptr || !presenter->display_started) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    pf_provisioning::AccessPointScreenPayload payload{};
+    const pf_config::SecureZeroGuard payload_guard(payload);
+    if (!pf_provisioning::build_access_point_screen_payload(
+            info.ssid,
+            info.password,
+            info.device_suffix,
+            payload)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (presenter->payload_valid &&
+        pf_provisioning::same_access_point_screen_payload(
+            presenter->last_payload,
+            payload)) {
+        ESP_LOGI(
+            kTag,
+            "provisioning_screen_unchanged refresh_skipped=true");
+        return ESP_OK;
+    }
+
+    pf_display::FrameWriteLease frame =
+        pf_display::display_task().try_acquire_frame();
+    if (!frame.valid()) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (!pf_provisioning::render_access_point_screen(
+            frame.data(),
+            frame.size(),
+            payload)) {
+        return ESP_FAIL;
+    }
+    const std::uint32_t request_id =
+        pf_runtime::coordinator().allocate_request_id();
+    const pf_display::SubmitStatus submitted =
+        pf_display::display_task().try_submit_refresh(
+            request_id,
+            frame);
+    if (submitted != pf_display::SubmitStatus::accepted) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    while (true) {
+        pf_runtime::RuntimeResult result{};
+        if (pf_runtime::coordinator().try_take_terminal_result(
+                request_id,
+                result)) {
+            if (result.display_outcome ==
+                pf_runtime::DisplayOutcome::refreshed_and_slept) {
+                presenter->last_payload = payload;
+                presenter->payload_valid = true;
+                ESP_LOGI(
+                    kTag,
+                    "provisioning_screen_ready request=%" PRIu32,
+                    request_id);
+                return ESP_OK;
+            }
+            ESP_LOGE(
+                kTag,
+                "provisioning_screen_terminal_failure request=%" PRIu32
+                " outcome=%u stage=%u",
+                request_id,
+                static_cast<unsigned>(result.display_outcome),
+                static_cast<unsigned>(result.driver_stage));
+            return ESP_FAIL;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100U));
+    }
+}
+
 }  // namespace
 
 extern "C" void app_main()
 {
-    ESP_LOGI(kTag, "PaperFrame Phase 3 network runtime");
+    ESP_LOGI(kTag, "PaperFrame Phase 3 provisioning runtime");
     const HardwareProfile hardware = log_hardware_profile();
 
     const pf_config::StartupResult config_result = pf_config::initialize();
@@ -122,6 +210,44 @@ extern "C" void app_main()
             "config_init_failed=%s action=%s; continuing degraded",
             esp_err_to_name(config_result.error),
             pf_config::to_string(config_result.action));
+    }
+    pf_config::NetworkCredentialLoadResult stored_credentials =
+        config_result.error == ESP_OK
+            ? pf_config::load_network_credentials()
+            : pf_config::NetworkCredentialLoadResult{
+                  config_result.error,
+                  false,
+                  {},
+              };
+    if (stored_credentials.error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "network_credential_load_failed=%s; using provisioning AP",
+            esp_err_to_name(stored_credentials.error));
+    } else {
+        ESP_LOGI(
+            kTag,
+            "network_credentials_configured=%s",
+            stored_credentials.configured ? "true" : "false");
+    }
+    const pf_config::ManagementPasswordStatus password_status =
+        config_result.error == ESP_OK
+            ? pf_config::management_password_status()
+            : pf_config::ManagementPasswordStatus{
+                  config_result.error,
+                  false,
+              };
+    if (password_status.error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "management_password_status_failed=%s; "
+            "bootstrap access disabled",
+            esp_err_to_name(password_status.error));
+    } else {
+        ESP_LOGI(
+            kTag,
+            "management_password_configured=%s",
+            password_status.configured ? "true" : "false");
     }
 
     const pf_storage::FileSystemSnapshot filesystem_snapshot =
@@ -192,14 +318,33 @@ extern "C" void app_main()
             esp_err_to_name(network_stack_result));
     }
 
-    const pf_network::NetworkCredentials network_credentials{};
+    pf_network::NetworkCredentials network_credentials{};
+    if (stored_credentials.error == ESP_OK &&
+        stored_credentials.configured) {
+        network_credentials.configured = true;
+        std::memcpy(
+            network_credentials.ssid,
+            stored_credentials.credentials.ssid,
+            sizeof(network_credentials.ssid));
+        std::memcpy(
+            network_credentials.password,
+            stored_credentials.credentials.password,
+            sizeof(network_credentials.password));
+    }
+    pf_config::secure_zero(stored_credentials.credentials);
+    AccessPointPresenterContext ap_presenter{
+        .display_started = display_started,
+    };
     const esp_err_t network_service_result =
         network_stack_result == ESP_OK &&
                 runtime_result == ESP_OK
             ? pf_network::network_service().start(
                   pf_runtime::coordinator(),
-                  network_credentials)
+                  network_credentials,
+                  &present_access_point_screen,
+                  &ap_presenter)
             : ESP_ERR_INVALID_STATE;
+    pf_config::secure_zero(network_credentials);
     if (network_service_result != ESP_OK) {
         ESP_LOGE(
             kTag,
@@ -207,10 +352,38 @@ extern "C" void app_main()
             esp_err_to_name(network_service_result));
     }
 
+    const esp_err_t provisioning_store_result =
+        config_result.error != ESP_OK
+            ? config_result.error
+            : runtime_result != ESP_OK
+                  ? runtime_result
+                  : pf_web::provisioning_service().start(
+                        pf_runtime::coordinator());
+    if (provisioning_store_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "provisioning_store_start_failed=%s",
+            esp_err_to_name(provisioning_store_result));
+    }
+
     httpd_handle_t health_server = nullptr;
+    const bool initial_bootstrap =
+        stored_credentials.error == ESP_OK &&
+        !stored_credentials.configured &&
+        password_status.error == ESP_OK &&
+        !password_status.configured;
+    const pf_web::HealthServerAccessConfig web_access{
+        .initial_bootstrap = initial_bootstrap,
+        .management_password_configured =
+            password_status.error == ESP_OK
+                ? password_status.configured
+                : true,
+    };
     const esp_err_t health_result =
         network_stack_result == ESP_OK
-            ? pf_web::start_health_server(&health_server)
+            ? pf_web::start_health_server(
+                  &health_server,
+                  web_access)
             : network_stack_result;
     if (health_result != ESP_OK) {
         ESP_LOGE(

@@ -7,7 +7,9 @@
 #include "esp_event.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "pf_network/scan_results.hpp"
 #include "pf_network/state_machine.hpp"
 
 namespace pf_runtime {
@@ -33,13 +35,37 @@ struct AccessPointInfo {
     char device_suffix[5]{};
 };
 
+enum class ScanState : std::uint8_t {
+    idle,
+    scanning,
+    ready,
+    failed,
+};
+
+inline constexpr std::size_t kMaximumScanResults = 16U;
+
+struct ScanSnapshot {
+    ScanState state = ScanState::idle;
+    esp_err_t error = ESP_OK;
+    std::uint32_t generation = 0U;
+    std::size_t count = 0U;
+    ScanResult results[kMaximumScanResults]{};
+};
+
+using AccessPointPresenter = esp_err_t (*)(
+    void* context,
+    const AccessPointInfo& info);
+
 class NetworkService {
 public:
     esp_err_t start(
         pf_runtime::RuntimeCoordinator& runtime,
-        const NetworkCredentials& credentials);
+        const NetworkCredentials& credentials,
+        AccessPointPresenter presenter = nullptr,
+        void* presenter_context = nullptr);
 
-    bool access_point_info(AccessPointInfo& destination) const;
+    bool request_scan();
+    bool scan_snapshot(ScanSnapshot& destination);
 
 private:
     static constexpr UBaseType_t kEventQueueLength = 8U;
@@ -49,7 +75,6 @@ private:
         pdMS_TO_TICKS(15000U);
     static constexpr TickType_t kActionRetryDelayTicks =
         pdMS_TO_TICKS(1000U);
-
     static void task_entry(void* context);
     static void event_handler(
         void* context,
@@ -63,6 +88,9 @@ private:
     esp_err_t apply(NetworkAction action);
     esp_err_t start_station();
     esp_err_t start_access_point();
+    void begin_scan();
+    void collect_scan_results();
+    void fail_scan(esp_err_t error);
     void publish_state();
     bool enqueue_event(NetworkEvent event);
     bool build_access_point_info();
@@ -78,9 +106,15 @@ private:
         kEventQueueLength * sizeof(NetworkEvent)]{};
     StaticTask_t task_control_{};
     StackType_t task_stack_[kTaskStackWords]{};
+    StaticSemaphore_t scan_mutex_control_{};
+    SemaphoreHandle_t scan_mutex_ = nullptr;
     esp_event_handler_instance_t wifi_event_instance_ = nullptr;
     esp_event_handler_instance_t ip_event_instance_ = nullptr;
-    bool access_point_info_ready_ = false;
+    AccessPointPresenter presenter_ = nullptr;
+    void* presenter_context_ = nullptr;
+    ScanSnapshot scan_snapshot_{};
+    bool scan_request_pending_ = false;
+    bool presentation_confirmed_ = false;
 };
 
 NetworkService& network_service();
