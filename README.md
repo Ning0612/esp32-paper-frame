@@ -11,16 +11,16 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | 需求與分階段計畫 | 已建立 |
 | Phase 0 repository baseline | 已完成 |
 | Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
-| Phase 2 display/renderer ownership | packed framebuffer 與 `epd7in3e` driver 已通過 host/build 驗證；renderer 待實作 |
-| ESP32-S3 USB 連線 | 本次驗證以 CH343 COM11 上傳、native USB COM10 監看；重新插拔後需重新辨識 |
+| Phase 2 display/renderer ownership | packed framebuffer、`epd7in3e` driver 與實機六色 pattern 已通過；renderer 待實作 |
+| ESP32-S3 USB 連線 | native USB 已驗證 ROM 燒錄與 app console；首次復原需 GPIO0/GPIO46 同時接地，COM 需重新辨識 |
 | 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
-| 7.3 吋 e-Paper HAT (E) | 3.3 V 與 GPIO4/10–14 pin map 已固定；pattern-test 韌體可建置，實機刷新待驗證 |
+| 7.3 吋 e-Paper HAT (E) | GPIO4/10–14 driver 實機顯示黑／黃／紅／藍／綠／白正確；sleep 電流量測待驗證 |
 | 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
 | 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |
 
 目前已有可編譯並通過實機 smoke test 的原生 ESP-IDF Phase 1 韌體。板上
-runtime queue test 也已通過；電子紙 driver component 已整合但尚未完成
-實機 pattern test，Wi-Fi 與可選感測器尚未開始整合。
+runtime queue test 與電子紙六色 pattern test 也已通過；Wi-Fi、renderer
+與可選感測器尚未開始整合。
 
 ## 開發基線
 
@@ -39,19 +39,17 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 .\.venv\Scripts\pio.exe --version
 ```
 
-韌體骨架建立後的標準命令：
+韌體骨架建立後的標準 build 與 port 盤點命令：
 
 ```powershell
 .\.venv\Scripts\pio.exe run
-$uploadPort = 'COMx'
-$monitorPort = 'COMy'
-.\.venv\Scripts\pio.exe run --target upload --upload-port $uploadPort
-.\.venv\Scripts\pio.exe device monitor --port $monitorPort --baud 115200
+.\.venv\Scripts\pio.exe device list
 ```
 
-每次 upload 前都必須重新確認 port 與 USB hardware ID。同一塊板的 CH343
-UART 與 ESP32-S3 native USB console 可能是不同 COM port，且 native USB
-在 ROM download mode 與應用程式執行時可能重新枚舉。
+每次 upload 前都必須重新確認 port 與 USB hardware ID。已驗證的標準路徑是
+ESP32-S3 native USB；首次或復原時需在 reset 同時拉低 GPIO0、GPIO46。
+完整安全步驟、app-only slot 限制與測試後恢復方式見
+[ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)。
 
 ## 文件
 
@@ -60,6 +58,7 @@ UART 與 ESP32-S3 native USB console 可能是不同 COM port，且 native USB
 - [參考來源與授權](docs/REFERENCES.md)
 - [架構決策](docs/adr/README.md)
 - [硬體驗證紀錄](docs/hardware/VALIDATION.md)
+- [ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)
 - [貢獻與自動化工作規則](AGENTS.md)
 
 ## License

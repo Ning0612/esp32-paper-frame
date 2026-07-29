@@ -183,3 +183,42 @@ G2/G3 已由 [ADR-0003](../adr/0003-fix-phase2-display-integration.md) 固定：
 本次不能宣稱六色 mapping、實際刷新時間或 refresh 後 panel sleep 已在實機
 通過。下一次硬體驗證必須先恢復可重現的 ROM download path，再上傳既有
 embedded pattern test；forced-BUSY 仍只允許 fake 或隔離治具測試。
+
+### 2026-07-30 — native USB ROM 與六色 pattern 實機通過
+
+前一節的 ROM blocker 已用以下不同方法解決：
+
+1. `GPIO0` 與 `GPIO46` 同時固定接到 `GND` 後按 `RST`。
+2. CH343 `COM11` 仍未輸出 ROM 資料；ESP32-S3 native USB `COM10`
+   則明確輸出：
+
+   ```text
+   boot:0x0 (DOWNLOAD(USB/UART0))
+   waiting for download
+   ```
+
+3. 關閉占用 COM10 的 monitor 後，`esptool --before no-reset` 經 native
+   USB 成功連線並讀取 OTA metadata。
+
+OTA metadata 第一份 entry 為 sequence 1、state `VALID`，第二份 entry
+全為 erased bytes，因此本次 active app 是 `ota_0`（`0x10000`，
+`0x280000` bytes）。操作先完整備份 `ota_0`，再只把 218,944-byte
+embedded pattern-test app 寫到 `0x10000`；未改寫 bootloader、partition
+table、OTA metadata、NVS、webfs 或 imagefs。`esptool` 寫入後 hash 驗證
+通過。
+
+拔除 GPIO0/GPIO46 接地線並按 RST 後，使用者確認面板依序正確顯示六條
+垂直色帶：黑、黃、紅、藍、綠、白。這完成 palette/nibble/SPI/panel
+command 的端到端視覺驗證。當次 console monitor 在 USB 交接時斷線，未保留
+Unity 尾端輸出，因此不把視覺結果延伸宣稱為 deep-sleep 電流已量測。
+
+測試 app 執行後，native USB `--before usb-reset` 已可免接 straps 自動進
+ROM。最後將測試前的完整 `ota_0` 備份原樣寫回，written data hash 驗證
+通過並 hard reset；裝置已恢復測試前 app。可重現步驟見
+[ESP32-S3 燒錄操作](FLASHING.md)。
+
+仍待驗證：
+
+- 一般刷新時間的實測數值；
+- refresh 後 panel sleep 的電流量測；
+- forced-BUSY 隔離治具測試。

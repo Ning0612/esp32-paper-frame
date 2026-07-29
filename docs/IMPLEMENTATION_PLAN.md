@@ -433,3 +433,5 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [x] 完成 G1 board 決策與 Phase 1 build、host／embedded tests、實機
   boot／mount 驗證。
 - [x] 完成 G2 pin map 與 G3 display driver 決策後開始 Phase 2。
+- [x] `epd7in3e` driver 通過 host/build 與實機六色 pattern 驗證；refresh
+  時間、panel sleep 電流與 forced-BUSY 隔離治具仍列為硬體待驗證項。
