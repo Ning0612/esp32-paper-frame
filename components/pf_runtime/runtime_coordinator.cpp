@@ -227,6 +227,17 @@ std::uint32_t RuntimeCoordinator::allocate_request_id()
     return request_id;
 }
 
+void RuntimeCoordinator::update_network(
+    const WifiState wifi,
+    const InternetState internet)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    snapshot_.wifi = wifi;
+    snapshot_.internet = internet;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
 void RuntimeCoordinator::update_display_started(
     const std::uint32_t request_id)
 {

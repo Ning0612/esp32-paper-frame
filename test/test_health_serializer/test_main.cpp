@@ -20,6 +20,8 @@ pf_runtime::RuntimeSnapshot ready_snapshot()
         .config = pf_runtime::ServiceState::ready,
         .webfs = pf_runtime::ServiceState::ready,
         .imagefs = pf_runtime::ServiceState::ready,
+        .wifi = pf_runtime::WifiState::provisioning,
+        .internet = pf_runtime::InternetState::unknown,
         .display = pf_runtime::DisplayState::unknown,
         .active_display_request_id = 0,
         .queued_display_count = 0,
@@ -45,7 +47,9 @@ void test_ready_snapshot_serializes_without_sensitive_fields()
     TEST_ASSERT_EQUAL_STRING(
         "{\"status\":\"ready\",\"sequence\":12,\"uptime_ms\":3456,"
         "\"services\":{\"flash\":\"ready\",\"psram\":\"ready\","
-        "\"config\":\"ready\",\"webfs\":\"ready\",\"imagefs\":\"ready\"}}",
+        "\"config\":\"ready\",\"webfs\":\"ready\",\"imagefs\":\"ready\"},"
+        "\"network\":{\"wifi\":\"provisioning\","
+        "\"internet\":\"unknown\"}}",
         output);
     TEST_ASSERT_NULL(std::strstr(output, "ssid"));
     TEST_ASSERT_NULL(std::strstr(output, "password"));

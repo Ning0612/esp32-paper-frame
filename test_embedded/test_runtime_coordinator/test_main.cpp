@@ -24,6 +24,8 @@ void test_runtime_queues_and_snapshot()
         .config = pf_runtime::ServiceState::ready,
         .webfs = pf_runtime::ServiceState::ready,
         .imagefs = pf_runtime::ServiceState::degraded,
+        .wifi = pf_runtime::WifiState::unknown,
+        .internet = pf_runtime::InternetState::unknown,
         .display = pf_runtime::DisplayState::unknown,
         .active_display_request_id = 0,
         .queued_display_count = 0,
@@ -43,6 +45,18 @@ void test_runtime_queues_and_snapshot()
     runtime.publish_snapshot(updated);
     TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
     TEST_ASSERT_EQUAL_UINT32(updated.sequence, observed.sequence);
+
+    runtime.update_network(
+        pf_runtime::WifiState::provisioning,
+        pf_runtime::InternetState::unknown);
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_runtime::WifiState::provisioning),
+        static_cast<int>(observed.wifi));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_runtime::InternetState::unknown),
+        static_cast<int>(observed.internet));
+    TEST_ASSERT_EQUAL_UINT32(updated.sequence + 1U, observed.sequence);
 
     for (std::uint32_t index = 0; index < 4; ++index) {
         const pf_runtime::RuntimeCommand command{

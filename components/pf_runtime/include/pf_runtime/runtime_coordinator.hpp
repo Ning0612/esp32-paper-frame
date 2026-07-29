@@ -32,6 +32,9 @@ public:
         RuntimeResult& result);
     std::uint32_t allocate_request_id();
 
+    void update_network(
+        WifiState wifi,
+        InternetState internet);
     void update_display_started(std::uint32_t request_id);
     void update_display_finished(
         std::uint32_t request_id,

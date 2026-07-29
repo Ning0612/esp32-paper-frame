@@ -12,16 +12,17 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | Phase 0 repository baseline | 已完成 |
 | Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
 | Phase 2 display/renderer ownership | packed framebuffer、renderer、`epd7in3e` driver、DisplayTask 與 carousel core/welcome lifecycle 已通過 |
+| Phase 3 provisioning/auth/WebUI | AP／STA state machine 與空白 credential provisioning AP 已通過；portal、auth 與 WebUI shell 進行中 |
 | ESP32-S3 USB 連線 | native USB 已驗證 ROM 燒錄與 app console；首次復原需 GPIO0/GPIO46 同時接地，COM 需重新辨識 |
 | 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
 | 7.3 吋 e-Paper HAT (E) | GPIO4/10–14 driver 實機顯示黑／黃／紅／藍／綠／白正確；sleep 電流量測待驗證 |
 | 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
 | 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |
 
-目前已有可編譯並通過實機 smoke test 的原生 ESP-IDF Phase 2 韌體。板上
-runtime queue、DisplayTask lifecycle、電子紙六色 pattern 與空圖庫 welcome
-refresh 均已通過；catalog-backed 圖片輪播在 Phase 5 接入，Wi-Fi 與可選
-感測器尚未開始整合。
+目前已有可編譯並通過實機 smoke test 的原生 ESP-IDF Phase 3 開發中韌體。
+板上 runtime queue、DisplayTask lifecycle、電子紙六色 pattern、空圖庫
+welcome refresh 與 provisioning AP 均已通過；catalog-backed 圖片輪播在
+Phase 5 接入，portal/auth/WebUI 仍在 Phase 3 進行，可選感測器尚未整合。
 
 ## 開發基線
 

@@ -11,6 +11,7 @@ idf_component_register(
         pf_carousel
         pf_config
         pf_display
+        pf_network
         pf_runtime
         pf_storage
         pf_web

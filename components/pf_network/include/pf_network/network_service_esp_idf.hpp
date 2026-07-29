@@ -1,0 +1,88 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+#include "esp_err.h"
+#include "esp_event.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "pf_network/state_machine.hpp"
+
+namespace pf_runtime {
+class RuntimeCoordinator;
+}
+
+namespace pf_network {
+
+inline constexpr std::size_t kWifiSsidCapacity = 33U;
+inline constexpr std::size_t kWifiPasswordCapacity = 65U;
+inline constexpr std::size_t kAccessPointSsidCapacity = 32U;
+inline constexpr std::size_t kAccessPointPasswordCapacity = 16U;
+
+struct NetworkCredentials {
+    bool configured = false;
+    char ssid[kWifiSsidCapacity]{};
+    char password[kWifiPasswordCapacity]{};
+};
+
+struct AccessPointInfo {
+    char ssid[kAccessPointSsidCapacity]{};
+    char password[kAccessPointPasswordCapacity]{};
+    char device_suffix[5]{};
+};
+
+class NetworkService {
+public:
+    esp_err_t start(
+        pf_runtime::RuntimeCoordinator& runtime,
+        const NetworkCredentials& credentials);
+
+    bool access_point_info(AccessPointInfo& destination) const;
+
+private:
+    static constexpr UBaseType_t kEventQueueLength = 8U;
+    static constexpr std::uint32_t kTaskStackWords = 6144U;
+    static constexpr UBaseType_t kTaskPriority = 5U;
+    static constexpr TickType_t kStaAttemptTimeoutTicks =
+        pdMS_TO_TICKS(15000U);
+    static constexpr TickType_t kActionRetryDelayTicks =
+        pdMS_TO_TICKS(1000U);
+
+    static void task_entry(void* context);
+    static void event_handler(
+        void* context,
+        esp_event_base_t event_base,
+        std::int32_t event_id,
+        void* event_data);
+
+    void task_main();
+    void perform_action_chain(NetworkAction action);
+    esp_err_t initialize_wifi();
+    esp_err_t apply(NetworkAction action);
+    esp_err_t start_station();
+    esp_err_t start_access_point();
+    void publish_state();
+    bool enqueue_event(NetworkEvent event);
+    bool build_access_point_info();
+
+    pf_runtime::RuntimeCoordinator* runtime_ = nullptr;
+    NetworkCredentials credentials_{};
+    AccessPointInfo access_point_{};
+    NetworkStateMachine state_machine_{};
+    QueueHandle_t event_queue_ = nullptr;
+    TaskHandle_t task_handle_ = nullptr;
+    StaticQueue_t event_queue_control_{};
+    std::uint8_t event_queue_storage_[
+        kEventQueueLength * sizeof(NetworkEvent)]{};
+    StaticTask_t task_control_{};
+    StackType_t task_stack_[kTaskStackWords]{};
+    esp_event_handler_instance_t wifi_event_instance_ = nullptr;
+    esp_event_handler_instance_t ip_event_instance_ = nullptr;
+    bool access_point_info_ready_ = false;
+};
+
+NetworkService& network_service();
+
+}  // namespace pf_network

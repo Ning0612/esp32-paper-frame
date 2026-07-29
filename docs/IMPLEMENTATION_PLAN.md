@@ -1,6 +1,6 @@
 # PaperFrame MVP 實作計畫
 
-狀態：Phase 2 已完成；Phase 3 待開始
+狀態：Phase 2 已完成；Phase 3 進行中
 
 需求基線：`Guild.md` v0.1
 
@@ -438,3 +438,6 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [x] 完成 Phase 2 renderer、DisplayTask owner contract、30 分鐘／5 分鐘
   輪播核心與空圖庫 welcome frame；catalog-backed 圖片載入依計畫在
   Phase 4–5 接入。
+- [ ] Phase 3：AP／STA 純狀態機、NetworkServiceTask 與空白 credential
+  provisioning AP 已完成實機驗證；portal、credential transaction、
+  auth/CSRF 與 WebUI shell 待完成。

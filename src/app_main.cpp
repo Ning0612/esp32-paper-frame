@@ -14,6 +14,7 @@
 #include "pf_carousel/welcome_frame.hpp"
 #include "pf_config/config_manager.hpp"
 #include "pf_display/display_task_esp_idf.hpp"
+#include "pf_network/network_service_esp_idf.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/filesystem_manager.hpp"
 #include "pf_web/health_server.hpp"
@@ -105,7 +106,7 @@ std::uint64_t monotonic_ms()
 
 extern "C" void app_main()
 {
-    ESP_LOGI(kTag, "PaperFrame Phase 2 display runtime");
+    ESP_LOGI(kTag, "PaperFrame Phase 3 network runtime");
     const HardwareProfile hardware = log_hardware_profile();
 
     const pf_config::StartupResult config_result = pf_config::initialize();
@@ -152,6 +153,8 @@ extern "C" void app_main()
         .config = state_from_error(config_result.error),
         .webfs = state_from_filesystem(filesystem_snapshot.webfs),
         .imagefs = state_from_filesystem(filesystem_snapshot.imagefs),
+        .wifi = pf_runtime::WifiState::unknown,
+        .internet = pf_runtime::InternetState::unknown,
         .display = pf_runtime::DisplayState::unknown,
         .active_display_request_id = 0,
         .queued_display_count = 0,
@@ -189,6 +192,21 @@ extern "C" void app_main()
             esp_err_to_name(network_stack_result));
     }
 
+    const pf_network::NetworkCredentials network_credentials{};
+    const esp_err_t network_service_result =
+        network_stack_result == ESP_OK &&
+                runtime_result == ESP_OK
+            ? pf_network::network_service().start(
+                  pf_runtime::coordinator(),
+                  network_credentials)
+            : ESP_ERR_INVALID_STATE;
+    if (network_service_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "network_service_start_failed=%s; continuing degraded",
+            esp_err_to_name(network_service_result));
+    }
+
     httpd_handle_t health_server = nullptr;
     const esp_err_t health_result =
         network_stack_result == ESP_OK
@@ -202,7 +220,7 @@ extern "C" void app_main()
     } else {
         ESP_LOGI(
             kTag,
-            "health_server_ready route=/api/v1/health network=not_configured");
+            "health_server_ready route=/api/v1/health");
     }
 
     const std::uint32_t refresh_minutes =
@@ -245,6 +263,16 @@ extern "C" void app_main()
                         carousel.next_due_ms()));
                 active_carousel_request_id = 0U;
             }
+        }
+
+        pf_runtime::RuntimeSnapshot runtime_snapshot{};
+        const bool normal_network_mode =
+            pf_runtime::coordinator().read_snapshot(runtime_snapshot) &&
+            runtime_snapshot.wifi ==
+                pf_runtime::WifiState::connected;
+        if (!normal_network_mode) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
         }
 
         const pf_carousel::CarouselDecision decision =

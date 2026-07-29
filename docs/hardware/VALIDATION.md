@@ -318,3 +318,33 @@ Phase 2 DisplayTask 已整合為正式 app 的唯一 panel/SPI owner。Frame dat
 內建畫面預期為藍色外框、六色狀態條與黑色 `PF` 標記。console 與
 DisplayTask lifecycle 已端到端通過；本次沒有以電流表量測 sleep 功耗，
 也未把未接入 catalog 的真實圖片輪播誤記為實機通過。
+
+### 2026-07-30 — Phase 3 provisioning AP state machine 實機通過
+
+本段加入 `NetworkServiceTask` 與可在 host 驗證的 AP／STA 狀態機。
+ESP-IDF Wi-Fi event callback 只投遞事件，STA/AP mode 切換、連線 timeout
+及有限次 retry 都由 owner task 執行。Wi-Fi 與 Internet 狀態分開保存在
+runtime snapshot；Internet 不可用不會把已連線 STA 切回 provisioning AP。
+
+驗證結果：
+
+- `pio test -e native`：59/59 通過，其中 9 個 network-state tests 覆蓋
+  空白 credential、STA 成功、Internet unreachable、錯誤密碼等價的
+  timeout/disconnect retry、次數耗盡 fallback AP、Recovery AP、AP action
+  failure 有限重試、Wi-Fi 初始化失敗的明確 failed 狀態與無效 policy。
+- `test_runtime_coordinator` embedded test：1/1 通過，包含
+  `wifi=provisioning`／`internet=unknown` 的原子 snapshot update。
+- `pio run -e paperframe-s3` 成功；RAM 52,384 bytes（16.0%），Flash
+  897,589 bytes（34.2%）。
+- native USB 單命令 upload 自動選到 `COM10`，只擦除
+  `0x10000`–`0xebfff` 並寫入 898,000-byte app；data hash 驗證成功。
+- 空白 credential 實機啟動 `PaperFrame-Setup-3AED`，固定 IP
+  `192.168.4.1`，DHCP server 成功啟動；log 未輸出 AP password 或任何
+  STA credential。
+
+第一次實機整合在 Wi-Fi 射頻啟動與電子紙 welcome 同時刷新時觸發
+brownout。依產品狀態規則修正為 provisioning／offline retry 暫停 carousel，
+只有 `wifi=connected` 才排入圖片刷新；重新燒錄後連續監看 30 秒未再重啟。
+AP 專用引導畫面、portal、credential 儲存與 STA 成功路徑仍屬後續 Phase 3
+commit，不在本段宣稱完成。Windows WLAN 掃描因系統 Location 權限關閉而
+無法從主機列舉 SSID；AP 啟動證據來自 ESP-IDF mode、DHCP 與 service log。

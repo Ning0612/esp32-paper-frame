@@ -39,7 +39,8 @@ inline SerializeResult serialize_health(
         output_size,
         "{\"status\":\"%s\",\"sequence\":%lu,\"uptime_ms\":%llu,"
         "\"services\":{\"flash\":\"%s\",\"psram\":\"%s\","
-        "\"config\":\"%s\",\"webfs\":\"%s\",\"imagefs\":\"%s\"}}",
+        "\"config\":\"%s\",\"webfs\":\"%s\",\"imagefs\":\"%s\"},"
+        "\"network\":{\"wifi\":\"%s\",\"internet\":\"%s\"}}",
         !snapshot_valid
             ? "unknown"
             : (is_ready(snapshot) ? "ready" : "degraded"),
@@ -49,7 +50,9 @@ inline SerializeResult serialize_health(
         pf_runtime::to_string(snapshot.psram),
         pf_runtime::to_string(snapshot.config),
         pf_runtime::to_string(snapshot.webfs),
-        pf_runtime::to_string(snapshot.imagefs));
+        pf_runtime::to_string(snapshot.imagefs),
+        pf_runtime::to_string(snapshot.wifi),
+        pf_runtime::to_string(snapshot.internet));
 
     if (written < 0 ||
         static_cast<std::size_t>(written) >= output_size) {
