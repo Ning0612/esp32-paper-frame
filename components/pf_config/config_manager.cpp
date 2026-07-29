@@ -78,13 +78,13 @@ StartupResult initialize()
 {
     esp_err_t result = initialize_nvs();
     if (result != ESP_OK) {
-        return {SchemaAction::unavailable, result};
+        return {SchemaAction::unavailable, result, false, {}};
     }
 
     nvs_handle_t handle = 0;
     result = nvs_open(kNamespace, NVS_READWRITE, &handle);
     if (result != ESP_OK) {
-        return {SchemaAction::unavailable, result};
+        return {SchemaAction::unavailable, result, false, {}};
     }
 
     StoredConfig stored{};
@@ -94,7 +94,12 @@ StartupResult initialize()
     if (!stored.schema_present &&
         version_result != ESP_ERR_NVS_NOT_FOUND) {
         nvs_close(handle);
-        return {SchemaAction::reject_corrupt, version_result};
+        return {
+            SchemaAction::reject_corrupt,
+            version_result,
+            false,
+            {},
+        };
     }
 
     if (stored.schema_present &&
@@ -112,7 +117,7 @@ StartupResult initialize()
         }
         if (result != ESP_OK) {
             nvs_close(handle);
-            return {SchemaAction::unavailable, result};
+            return {SchemaAction::unavailable, result, false, {}};
         }
     }
 
@@ -127,7 +132,12 @@ StartupResult initialize()
         result = ESP_OK;
     }
     nvs_close(handle);
-    return {plan.action, result};
+    return {
+        plan.action,
+        result,
+        result == ESP_OK,
+        result == ESP_OK ? plan.record : ConfigRecord{},
+    };
 }
 
 }  // namespace pf_config

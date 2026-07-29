@@ -287,3 +287,34 @@ Phase 2 DisplayTask 已整合為正式 app 的唯一 panel/SPI owner。Frame dat
 本次 `deep_sleep` 證據來自完整 command/result contract 與 driver state；
 尚未以電流表量測面板 sleep 功耗。forced-BUSY 仍只在 fake driver 通過，
 實機測試仍需隔離治具。
+
+### 2026-07-30 — Phase 2 carousel welcome lifecycle 實機通過
+
+輪播核心固定 30 分鐘預設與 5 分鐘硬下限，支援順序／隨機、新圖片
+`shown_once` 優先、手動選擇保持完整週期，以及 invalid/disabled 圖片排除。
+空圖庫只排入一次內建 welcome/status frame；完成後不週期性重刷相同畫面。
+實際 catalog 與 PFR1 frame source 依計畫在 Phase 4–5 接入。
+
+驗證結果：
+
+- `pio test -e native`：50/50 通過，其中 14 個 carousel tests 使用 fake
+  monotonic clock 覆蓋 interval、空圖庫、順序／隨機、新圖、手動、失敗
+  退避、未提交重試、每次開機 welcome 與 stale decision；welcome frame
+  幾何與無效 buffer 亦有 golden checks。
+- `test_runtime_coordinator` embedded test：1/1 通過；除 queue/snapshot 外，
+  驗證全域 request ID、接受命令前保留 terminal-result slot、容量耗盡時
+  拒絕新命令，以及按 ID 完成／消費與釋放後恢復；較新的完成結果不會使
+  較早的 carousel request 永久卡在 in-flight。
+- ESP-IDF 6 啟用 `MINIMAL_BUILD`，只編譯 `main` 與明確相依元件，排除
+  未使用的 RGB LCD driver；`pio run -e paperframe-s3` 成功，RAM
+  27,148 bytes（8.3%），Flash 414,277 bytes（15.8%）。
+- 標準單命令 upload 自動選到 native USB `COM10`，只擦除
+  `0x10000`–`0x75fff` 並寫入 414,688-byte app；data hash 驗證成功並
+  hard reset，未改寫其他 partition。
+- 實機 console 回報
+  `carousel_request=1 outcome=1 next_due_ms=1832147`；`outcome=1` 對應
+  `refreshed_and_slept`，deadline 約為實際完成時間後 30 分鐘。
+
+內建畫面預期為藍色外框、六色狀態條與黑色 `PF` 標記。console 與
+DisplayTask lifecycle 已端到端通過；本次沒有以電流表量測 sleep 功耗，
+也未把未接入 catalog 的真實圖片輪播誤記為實機通過。

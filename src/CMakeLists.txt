@@ -7,6 +7,8 @@ idf_component_register(
         esp_hw_support
         esp_netif
         esp_system
+        esp_timer
+        pf_carousel
         pf_config
         pf_display
         pf_runtime

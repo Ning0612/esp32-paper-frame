@@ -7,8 +7,11 @@
 #include "esp_netif.h"
 #include "esp_psram.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "pf_carousel/scheduler.hpp"
+#include "pf_carousel/welcome_frame.hpp"
 #include "pf_config/config_manager.hpp"
 #include "pf_display/display_task_esp_idf.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
@@ -20,6 +23,7 @@ namespace {
 constexpr char kTag[] = "paperframe";
 constexpr std::uint32_t kExpectedFlashBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kExpectedPsramBytes = 8U * 1024U * 1024U;
+constexpr std::uint64_t kCarouselRetryMs = 1000U;
 
 struct HardwareProfile {
     bool flash_ready;
@@ -92,6 +96,11 @@ pf_runtime::ServiceState state_from_filesystem(
                : pf_runtime::ServiceState::degraded;
 }
 
+std::uint64_t monotonic_ms()
+{
+    return static_cast<std::uint64_t>(esp_timer_get_time()) / 1000U;
+}
+
 }  // namespace
 
 extern "C" void app_main()
@@ -152,6 +161,7 @@ extern "C" void app_main()
     };
     const esp_err_t runtime_result =
         pf_runtime::coordinator().initialize(initial_snapshot);
+    bool display_started = false;
     if (runtime_result != ESP_OK) {
         ESP_LOGE(
             kTag,
@@ -166,6 +176,8 @@ extern "C" void app_main()
                 kTag,
                 "display_task_start_failed=%s; continuing degraded",
                 esp_err_to_name(display_result));
+        } else {
+            display_started = true;
         }
     }
 
@@ -193,7 +205,96 @@ extern "C" void app_main()
             "health_server_ready route=/api/v1/health network=not_configured");
     }
 
+    const std::uint32_t refresh_minutes =
+        config_result.record_available
+            ? config_result.record.refresh_minutes
+            : pf_config::kDefaultRefreshMinutes;
+    pf_carousel::CarouselScheduler carousel{
+        pf_carousel::CarouselConfig{
+            refresh_minutes,
+            pf_carousel::CarouselMode::sequential,
+            0x50465231U,
+        },
+    };
+    pf_carousel::CarouselDecision active_carousel_decision{};
+    std::uint32_t active_carousel_request_id = 0U;
+
     while (true) {
+        const std::uint64_t now_ms = monotonic_ms();
+        if (carousel.in_flight() &&
+            active_carousel_request_id != 0U) {
+            pf_runtime::RuntimeResult terminal_result{};
+            if (pf_runtime::coordinator().try_take_terminal_result(
+                    active_carousel_request_id,
+                    terminal_result)) {
+                const bool succeeded =
+                    terminal_result.display_outcome ==
+                    pf_runtime::DisplayOutcome::refreshed_and_slept;
+                carousel.complete(
+                    active_carousel_decision,
+                    succeeded,
+                    now_ms);
+                ESP_LOGI(
+                    kTag,
+                    "carousel_request=%" PRIu32
+                    " outcome=%u next_due_ms=%llu",
+                    active_carousel_request_id,
+                    static_cast<unsigned>(
+                        terminal_result.display_outcome),
+                    static_cast<unsigned long long>(
+                        carousel.next_due_ms()));
+                active_carousel_request_id = 0U;
+            }
+        }
+
+        const pf_carousel::CarouselDecision decision =
+            carousel.poll(now_ms, nullptr, 0U);
+        if (display_started &&
+            decision.kind ==
+                pf_carousel::DecisionKind::display_welcome) {
+            pf_display::FrameWriteLease frame =
+                pf_display::display_task().try_acquire_frame();
+            if (frame.valid() &&
+                pf_carousel::render_welcome_frame(
+                    frame.data(),
+                    frame.size())) {
+                const std::uint32_t request_id =
+                    pf_runtime::coordinator().allocate_request_id();
+                const pf_display::SubmitStatus submit =
+                    pf_display::display_task().try_submit_refresh(
+                        request_id,
+                        frame);
+                if (submit == pf_display::SubmitStatus::accepted) {
+                    active_carousel_decision = decision;
+                    active_carousel_request_id = request_id;
+                    ESP_LOGI(
+                        kTag,
+                        "carousel_welcome_queued request=%" PRIu32,
+                        request_id);
+                } else {
+                    carousel.abandon(
+                        decision,
+                        now_ms + kCarouselRetryMs);
+                    ESP_LOGW(
+                        kTag,
+                        "carousel_welcome_submit_deferred status=%u",
+                        static_cast<unsigned>(submit));
+                }
+            } else {
+                carousel.abandon(
+                    decision,
+                    now_ms + kCarouselRetryMs);
+                ESP_LOGW(
+                    kTag,
+                    "carousel_welcome_frame_unavailable");
+            }
+        } else if (
+            decision.kind != pf_carousel::DecisionKind::wait) {
+            carousel.abandon(
+                decision,
+                now_ms + kCarouselRetryMs);
+        }
+
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

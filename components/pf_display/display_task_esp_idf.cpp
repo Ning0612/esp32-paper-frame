@@ -193,10 +193,16 @@ void DisplayTask::process_command(
 void DisplayTask::publish_result(
     const pf_runtime::RuntimeResult& result)
 {
+    if (!runtime_->retain_terminal_result(result)) {
+        ESP_LOGE(
+            kTag,
+            "terminal result retention failed; request=%lu snapshot only",
+            static_cast<unsigned long>(result.request_id));
+    }
     if (!runtime_->try_publish_result(result)) {
         ESP_LOGW(
             kTag,
-            "result queue full; request=%lu outcome=%u retained in snapshot",
+            "result event queue full; request=%lu outcome=%u",
             static_cast<unsigned long>(result.request_id),
             static_cast<unsigned>(result.display_outcome));
     }

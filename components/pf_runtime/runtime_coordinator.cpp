@@ -9,6 +9,12 @@ esp_err_t RuntimeCoordinator::initialize(
         return ESP_ERR_INVALID_STATE;
     }
 
+    portENTER_CRITICAL(&snapshot_lock_);
+    next_request_id_ = 1U;
+    for (TerminalResultSlot& slot : terminal_results_) {
+        slot = {};
+    }
+    portEXIT_CRITICAL(&snapshot_lock_);
     publish_snapshot(initial_snapshot);
 
     command_queue_ = xQueueCreateStatic(
@@ -69,6 +75,13 @@ bool RuntimeCoordinator::try_submit_command(
         return false;
     }
 
+    const bool requires_terminal_result =
+        command.kind == CommandKind::refresh_display;
+    if (requires_terminal_result &&
+        !reserve_terminal_result(command.request_id)) {
+        return false;
+    }
+
     DisplayState previous_display = DisplayState::unknown;
     if (command.kind == CommandKind::refresh_display) {
         portENTER_CRITICAL(&snapshot_lock_);
@@ -94,6 +107,7 @@ bool RuntimeCoordinator::try_submit_command(
         }
         ++snapshot_.sequence;
         portEXIT_CRITICAL(&snapshot_lock_);
+        release_terminal_reservation(command.request_id);
     }
     return submitted;
 }
@@ -124,6 +138,93 @@ bool RuntimeCoordinator::try_receive_result(RuntimeResult& result)
 {
     return result_queue_ != nullptr &&
            xQueueReceive(result_queue_, &result, 0) == pdTRUE;
+}
+
+bool RuntimeCoordinator::retain_terminal_result(
+    const RuntimeResult& result)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    for (TerminalResultSlot& slot : terminal_results_) {
+        if (slot.occupied &&
+            slot.request_id == result.request_id) {
+            slot.result = result;
+            slot.completed = true;
+            portEXIT_CRITICAL(&snapshot_lock_);
+            return true;
+        }
+    }
+    portEXIT_CRITICAL(&snapshot_lock_);
+    return false;
+}
+
+bool RuntimeCoordinator::try_take_terminal_result(
+    const std::uint32_t request_id,
+    RuntimeResult& result)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    for (TerminalResultSlot& slot : terminal_results_) {
+        if (slot.occupied && slot.completed &&
+            slot.request_id == request_id) {
+            result = slot.result;
+            slot = {};
+            portEXIT_CRITICAL(&snapshot_lock_);
+            return true;
+        }
+    }
+    portEXIT_CRITICAL(&snapshot_lock_);
+    return false;
+}
+
+bool RuntimeCoordinator::reserve_terminal_result(
+    const std::uint32_t request_id)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    TerminalResultSlot* available = nullptr;
+    for (TerminalResultSlot& slot : terminal_results_) {
+        if (slot.occupied && slot.request_id == request_id) {
+            portEXIT_CRITICAL(&snapshot_lock_);
+            return false;
+        }
+        if (!slot.occupied && available == nullptr) {
+            available = &slot;
+        }
+    }
+    if (available != nullptr) {
+        available->occupied = true;
+        available->completed = false;
+        available->request_id = request_id;
+        available->result = {};
+    }
+    portEXIT_CRITICAL(&snapshot_lock_);
+    return available != nullptr;
+}
+
+void RuntimeCoordinator::release_terminal_reservation(
+    const std::uint32_t request_id)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    for (TerminalResultSlot& slot : terminal_results_) {
+        if (slot.occupied && !slot.completed &&
+            slot.request_id == request_id) {
+            slot = {};
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
+std::uint32_t RuntimeCoordinator::allocate_request_id()
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    std::uint32_t request_id = next_request_id_++;
+    if (request_id == 0U) {
+        request_id = next_request_id_++;
+    }
+    if (next_request_id_ == 0U) {
+        ++next_request_id_;
+    }
+    portEXIT_CRITICAL(&snapshot_lock_);
+    return request_id;
 }
 
 void RuntimeCoordinator::update_display_started(

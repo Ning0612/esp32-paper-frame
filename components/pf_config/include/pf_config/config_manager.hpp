@@ -8,6 +8,8 @@ namespace pf_config {
 struct StartupResult {
     SchemaAction action;
     esp_err_t error;
+    bool record_available;
+    ConfigRecord record;
 };
 
 StartupResult initialize();
