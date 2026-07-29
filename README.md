@@ -11,13 +11,14 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | 需求與分階段計畫 | 已建立 |
 | Phase 0 repository baseline | 已完成 |
 | ESP32-S3 USB 連線 | COM7，Espressif USB Serial/JTAG |
-| 精確 board／Flash／PSRAM | G1 進行中；待手動 download mode 後讀取 |
+| 模組／Flash／PSRAM profile | ESP32-S3-N16R8；build 已固定 16 MB Flash／8 MB octal PSRAM，待實機 boot 交叉驗證 |
 | 7.3 吋 e-Paper HAT (E) | 使用者回報已接上；pin map 與 driver 留待 Phase 2 |
 | 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
 | 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |
 
-目前 repository 尚未有可燒錄韌體。請勿把 USB descriptor 當作完整 board
-型號；Phase 1 會先讀取 chip/flash 資訊，再以最小診斷韌體驗證 PSRAM。
+目前已有可編譯的原生 ESP-IDF Phase 1 診斷韌體；clean build 已通過，尚未
+完成 on-device boot。請勿只用 USB descriptor 推斷完整 board 型號；燒錄後
+仍須以 boot log 交叉驗證 physical Flash 與 PSRAM。
 
 ## 開發基線
 
@@ -31,7 +32,7 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 建立工具環境：
 
 ```powershell
-uv venv --python 3.12 .venv
+uv venv --seed --python 3.12 .venv
 uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 .\.venv\Scripts\pio.exe --version
 ```

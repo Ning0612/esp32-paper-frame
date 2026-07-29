@@ -5,7 +5,8 @@
 # Native ESP-IDF and CMake outputs
 build/
 sdkconfig
-sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults
 
 # Local secrets and runtime data
 .env

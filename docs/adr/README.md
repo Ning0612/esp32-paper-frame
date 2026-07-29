@@ -31,3 +31,4 @@ NNNN-short-imperative-title.md
 ## Index
 
 - [ADR-0001：建立專案技術與授權基線](0001-project-foundations.md)
+- [ADR-0002：固定 ESP32-S3-N16R8 開發 profile](0002-esp32-s3-n16r8-profile.md)

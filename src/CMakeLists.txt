@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "app_main.cpp"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        esp_hw_support
+        esp_system
+        spi_flash
+)

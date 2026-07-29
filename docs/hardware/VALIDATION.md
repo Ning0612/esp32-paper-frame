@@ -4,6 +4,7 @@
 
 ### 使用者提供狀態
 
+- 模組標示為 `ESP32-S3-N16R8`。
 - ESP32-S3 與 7.3 吋 e-Paper HAT (E) 已接上。
 - 光敏電阻未接。
 - 溫溼度感測器未接。
@@ -32,11 +33,12 @@ USB VID/PID 只能確認 COM7 是 Espressif native USB 介面，不能單獨證�
 
 ### G1 連線嘗試
 
-`esptool 5.3.0 --port COM7 chip-id` 可開啟 COM7，但自動 reset 後沒有收到
-ROM serial data。此結果與未進 download mode 一致，也可能涉及 reset control、
-USB／driver 或連線時序；未執行任何 erase/write。下一次查詢前先以 BOOT
-（GPIO0 low）＋RESET/EN 手動進入 ROM download mode，再據結果縮小原因，
-不原樣重試自動 reset。
+`esptool 5.3.0 --port COM7 chip-id` 可開啟 COM7，但 default reset、手動
+BOOT/RESET 後的 no-reset，以及 native USB 的 usb-reset 都沒有收到 ROM
+serial data。此結果可能涉及 boot strapping、reset control、USB 接孔／driver、
+外接周邊或連線時序；未執行任何 erase/write。停止重複 esptool 嘗試，先用
+N16R8 profile 完成 clean build，後續以持續按住 BOOT 或改接板上 UART USB
+介面建立新證據。
 
 ### Phase 2 前仍需完成
 
