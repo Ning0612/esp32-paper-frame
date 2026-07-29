@@ -20,5 +20,9 @@ sdkconfig.*
 .vscode/.browse.c_cpp.db*
 .vscode/ipch/
 .idea/
+.serena/
 .DS_Store
 Thumbs.db
+
+AGENTS.md
+CLAUDE.md
