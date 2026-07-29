@@ -16,6 +16,7 @@ sdkconfig.*
 *.log
 
 # Editor and operating-system state
+.codex-remote-attachments/
 .vscode/.browse.c_cpp.db*
 .vscode/ipch/
 .idea/
