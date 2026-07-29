@@ -1,0 +1,21 @@
+# Project-local Python and PlatformIO tooling
+.venv/
+.pio/
+
+# Native ESP-IDF and CMake outputs
+build/
+sdkconfig
+sdkconfig.old
+
+# Local secrets and runtime data
+.env
+.env.*
+!.env.example
+*.log
+
+# Editor and operating-system state
+.vscode/.browse.c_cpp.db*
+.vscode/ipch/
+.idea/
+.DS_Store
+Thumbs.db
