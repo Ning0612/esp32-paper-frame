@@ -254,12 +254,16 @@
                     <input id="image-filename" maxlength="96" value="paperframe.pfr1" autocomplete="off">
                   </label>
                 </div>
-                <div class="image-checks">
-                  <label><input id="image-mirror-x" type="checkbox"> 水平鏡像</label>
-                  <label><input id="image-mirror-y" type="checkbox"> 垂直鏡像</label>
-                  <label><input id="image-rotate" type="checkbox"> 順時針 90°</label>
+                <div class="image-transform-buttons" role="group" aria-label="圖片變換">
+                  <button id="image-mirror-x" class="plain-button transform-button" type="button" disabled
+                          title="將目前工作影像左右翻轉一次">水平鏡像</button>
+                  <button id="image-mirror-y" class="plain-button transform-button" type="button" disabled
+                          title="將目前工作影像上下翻轉一次">垂直鏡像</button>
+                  <button id="image-rotate" class="plain-button transform-button" type="button" disabled
+                          title="將目前工作影像順時針旋轉 90 度">順時針旋轉 90°</button>
                 </div>
-                <button id="image-process" class="primary-button" type="button" disabled>處理圖片</button>
+                <p class="field-hint">每按一次就立即套用一次；可連續按下累積變換。</p>
+                <button id="image-process" class="primary-button" type="button" disabled>重新處理圖片</button>
                 <p id="image-status" class="save-status" role="status" aria-live="polite">請先選擇圖片。</p>
               </section>
 

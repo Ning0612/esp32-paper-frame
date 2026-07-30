@@ -46,7 +46,7 @@ header_size + filename_length + payload_length
 
 ## Flags 與轉換 metadata
 
-`flags` 只記錄 browser pipeline 已套用的幾何操作，供診斷與重現使用：
+`flags` 只記錄 browser pipeline 已套用的幾何操作，供診斷使用：
 
 | Bit | Name | Meaning |
 | ---: | --- | --- |
@@ -54,9 +54,11 @@ header_size + filename_length + payload_length
 | `0x0002` | `mirror_y` | 垂直鏡像已套用 |
 | `0x0004` | `rotate_90_cw` | 順時針旋轉 90° 已套用 |
 
-Browser 的固定處理順序為：水平鏡像、垂直鏡像、順時針旋轉、裁切或 fit、
-縮放、六色量化與 dithering。flags 不要求韌體再次套用這些操作；它們只是
-已輸出的 raster metadata。旋轉後的最終尺寸必須仍符合 orientation profile。
+Browser 會先正規化 EXIF 方向，再依管理介面按鈕的點擊順序把水平鏡像、垂直
+鏡像或順時針旋轉 90° 套用到目前的工作影像；每次點擊只套用一次，之後才進行
+裁切或 fit、縮放、六色量化與 dithering。`flags` 只記錄該類操作是否曾經套用，
+不編碼點擊次數或順序，也不要求韌體再次套用幾何操作；它們只是已輸出 raster
+的診斷 metadata。旋轉後的最終尺寸必須仍符合 orientation profile。
 
 ## 尺寸、palette 與 payload
 

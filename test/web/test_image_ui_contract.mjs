@@ -16,9 +16,20 @@ for (const id of [
 ]) {
   assert.ok(html.includes(`id="${id}"`), id);
 }
+for (const id of ["image-mirror-x", "image-mirror-y", "image-rotate"]) {
+  assert.ok(html.includes(`<button id="${id}"`), `${id} button`);
+}
 assert.ok(ui.includes("readExifOrientation"));
 assert.ok(ui.includes("image_quantize_worker.js"));
 assert.ok(ui.includes("PaperFramePfr1.packPfr1"));
+assert.ok(ui.includes('applyImageTransform("mirror-x")'));
+assert.ok(ui.includes('applyImageTransform("mirror-y")'));
+assert.ok(ui.includes('applyImageTransform("rotate-90-cw")'));
+assert.ok(ui.includes("imageSelectionRevision"));
+assert.ok(ui.includes("selectionRevision !== imageSelectionRevision"));
+assert.ok(ui.includes("cancelQuantizeWorker"));
+assert.ok(html.includes('class="image-transform-buttons"'));
+assert.ok(!html.includes('id="image-mirror-x" type="checkbox"'));
 assert.ok(css.includes(".sidebar[hidden] + .content { grid-column: 1 / -1; }"));
 assert.ok(!ui.includes("/api/v1/images"));
 console.log("image_ui_contract: 2 tests passed");

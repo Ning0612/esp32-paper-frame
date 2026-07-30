@@ -39,6 +39,16 @@ function testMirrorAndRotateAreSeparateOperations() {
   assert.deepEqual(pixel(rotated, 0, 1), pixel(source, 0, 0));
 }
 
+function testRepeatedButtonOperationsApplyOneTransformPerClick() {
+  const source = makeLabeledRaster(2, 2);
+  const rotatedOnce = pipeline.rotate90Cw(source);
+  const rotatedTwice = pipeline.rotate90Cw(rotatedOnce);
+  assert.deepEqual([rotatedOnce.width, rotatedOnce.height], [2, 2]);
+  assert.deepEqual([rotatedTwice.width, rotatedTwice.height], [2, 2]);
+  assert.deepEqual(pixel(rotatedTwice, 0, 0), pixel(source, 1, 1));
+  assert.deepEqual(pixel(rotatedTwice, 1, 1), pixel(source, 0, 0));
+}
+
 function testTransparentPixelsFlattenToWhite() {
   const source = pipeline.makeRaster(1, 2, new Uint8ClampedArray([
     0, 0, 0, 0,
@@ -103,9 +113,10 @@ function testExifReaderExtractsJpegOrientationAndFailsClosed() {
 
 testExifOrientationSixRotatesClockwise();
 testMirrorAndRotateAreSeparateOperations();
+testRepeatedButtonOperationsApplyOneTransformPerClick();
 testTransparentPixelsFlattenToWhite();
 testEveryFitModeProducesTheRequestedDimensions();
 testProcessOrderNormalizesExifBeforeUserOperations();
 testInvalidInputsFailClosed();
 testExifReaderExtractsJpegOrientationAndFailsClosed();
-console.log("image_pipeline: 7 tests passed");
+console.log("image_pipeline: 8 tests passed");

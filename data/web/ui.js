@@ -41,6 +41,7 @@
   const imageMirrorX = $("#image-mirror-x");
   const imageMirrorY = $("#image-mirror-y");
   const imageRotate = $("#image-rotate");
+  const imageTransformButtons = [imageMirrorX, imageMirrorY, imageRotate];
   const imageProcessButton = $("#image-process");
   const imageStatus = $("#image-status");
   const imageOutputDimensions = $("#image-output-dimensions");
@@ -62,10 +63,15 @@
   let currentView = "dashboard";
   let lastRuntime = null;
   let imageSourceRaster = null;
+  let imageBaseRaster = null;
+  let imageWorkingRaster = null;
   let imageExifOrientation = 1;
   let imageFileName = "paperframe.pfr1";
   let imagePfr1 = null;
+  let imageTransformFlags = 0;
   let imageRevision = 0;
+  let imageSelectionRevision = 0;
+  let activeQuantizeWorker = null;
   const maxSourceBytes = 32 * 1024 * 1024;
   const maxSourcePixels = 16 * 1024 * 1024;
 
@@ -333,56 +339,99 @@
     };
   }
 
+  function cancelQuantizeWorker() {
+    const active = activeQuantizeWorker;
+    if (active) {
+      activeQuantizeWorker = null;
+      active.cancel();
+    }
+  }
+
   function quantizeWithWorker(raster, mode, requestId) {
     if (!window.Worker) {
       return Promise.resolve(window.PaperFrameQuantizer.quantize(raster, mode));
     }
     return new Promise((resolve, reject) => {
       const worker = new Worker("/image_quantize_worker.js");
+      const state = { worker, cancel: null };
+      activeQuantizeWorker = state;
+      let settled = false;
+      const finish = (callback) => {
+        if (settled) return;
+        settled = true;
+        if (activeQuantizeWorker === state) activeQuantizeWorker = null;
+        worker.terminate();
+        callback();
+      };
+      state.cancel = () => finish(() => reject(new Error("quantize_cancelled")));
       const source = new Uint8ClampedArray(raster.data);
       worker.onmessage = (event) => {
-        worker.terminate();
         const result = event.data || {};
-        if (!result.ok || result.id !== requestId) {
-          reject(new Error(result.error || "quantize_failed"));
-          return;
-        }
-        resolve({
-          width: result.width,
-          height: result.height,
-          data: new Uint8ClampedArray(result.data),
-          codes: new Uint8Array(result.codes),
+        finish(() => {
+          if (!result.ok || result.id !== requestId) {
+            reject(new Error(result.error || "quantize_failed"));
+            return;
+          }
+          resolve({
+            width: result.width,
+            height: result.height,
+            data: new Uint8ClampedArray(result.data),
+            codes: new Uint8Array(result.codes),
+          });
         });
       };
       worker.onerror = () => {
-        worker.terminate();
-        reject(new Error("quantize_worker_failed"));
+        finish(() => reject(new Error("quantize_worker_failed")));
       };
-      worker.postMessage({
-        id: requestId,
-        width: raster.width,
-        height: raster.height,
-        data: source.buffer,
-        mode,
-      }, [source.buffer]);
+      try {
+        worker.postMessage({
+          id: requestId,
+          width: raster.width,
+          height: raster.height,
+          data: source.buffer,
+          mode,
+        }, [source.buffer]);
+      } catch (error) {
+        finish(() => reject(error));
+      }
     });
   }
 
+  function applyImageTransform(transform) {
+    if (!imageWorkingRaster) return;
+    if (transform === "mirror-x") {
+      imageWorkingRaster = window.PaperFrameImage.mirror(imageWorkingRaster, true, false);
+      imageTransformFlags |= 0x0001;
+    } else if (transform === "mirror-y") {
+      imageWorkingRaster = window.PaperFrameImage.mirror(imageWorkingRaster, false, true);
+      imageTransformFlags |= 0x0002;
+    } else if (transform === "rotate-90-cw") {
+      imageWorkingRaster = window.PaperFrameImage.rotate90Cw(imageWorkingRaster);
+      imageTransformFlags |= 0x0004;
+    } else {
+      return;
+    }
+    void processImage();
+  }
+
   async function processImage() {
-    if (!imageSourceRaster) return;
+    if (!imageWorkingRaster || !imageBaseRaster) return;
     const requestId = ++imageRevision;
+    const workingRaster = imageWorkingRaster;
+    const transformFlags = imageTransformFlags;
+    cancelQuantizeWorker();
     imageProcessButton.disabled = true;
     downloadPfr1.disabled = true;
     imagePfr1 = null;
     imageStatus.className = "save-status";
-    imageStatus.textContent = "正在套用 EXIF、鏡像、旋轉與 fit…";
+    imageStatus.textContent = "正在套用已按下的變換與 fit…";
     try {
       const profile = window.PaperFrameImage.ORIENTATION_PROFILES[imageOrientation.value];
-      const processed = window.PaperFrameImage.processRaster(imageSourceRaster, {
-        exifOrientation: imageExifOrientation,
-        mirrorX: imageMirrorX.checked,
-        mirrorY: imageMirrorY.checked,
-        rotate90Cw: imageRotate.checked,
+      const processed = window.PaperFrameImage.processRaster(workingRaster, {
+        exifOrientation: 1,
+        mirrorX: false,
+        mirrorY: false,
+        rotate90Cw: false,
         fit: imageFit.value,
         targetWidth: profile.width,
         targetHeight: profile.height,
@@ -390,9 +439,7 @@
       if (requestId !== imageRevision) return;
       drawRaster(
         previewOriginal,
-        window.PaperFrameImage.flattenOnWhite(
-          window.PaperFrameImage.orientExif(imageSourceRaster, imageExifOrientation),
-        ),
+        imageBaseRaster,
       );
       drawRaster(previewProcessed, processed);
       imageStatus.textContent = "正在由離線 worker 做六色量化…";
@@ -400,13 +447,10 @@
       if (requestId !== imageRevision) return;
       drawRaster(previewSixColor, quantized);
       drawFramePreview(previewFrame, quantized);
-      const flags = (imageMirrorX.checked ? 0x0001 : 0) |
-        (imageMirrorY.checked ? 0x0002 : 0) |
-        (imageRotate.checked ? 0x0004 : 0);
       const packed = window.PaperFramePfr1.packPfr1(quantized, {
         filename: imageFilename.value.trim() || imageFileName,
         orientation: imageOrientation.value,
-        flags,
+        flags: transformFlags,
         dithering: imageDither.value,
       });
       imagePfr1 = packed;
@@ -426,28 +470,49 @@
       imageOutputSize.textContent = "未知";
       imageOutputOrientation.textContent = "未知";
     } finally {
-      if (requestId === imageRevision) imageProcessButton.disabled = !imageSourceRaster;
+      if (requestId === imageRevision) imageProcessButton.disabled = !imageWorkingRaster;
     }
   }
 
   async function selectImageFile(file) {
-    if (!file) return;
+    const selectionRevision = ++imageSelectionRevision;
     imageRevision += 1;
+    cancelQuantizeWorker();
+    imageBaseRaster = null;
+    imageWorkingRaster = null;
+    imageTransformFlags = 0;
+    imageTransformButtons.forEach((button) => { button.disabled = true; });
     imageProcessButton.disabled = true;
     downloadPfr1.disabled = true;
     imageStatus.className = "save-status";
     imageStatus.textContent = "正在讀取本機圖片…";
+    if (!file) {
+      imageSourceRaster = null;
+      imageStatus.textContent = "請先選擇圖片。";
+      return;
+    }
     try {
       const decoded = await decodeImageFile(file);
+      if (selectionRevision !== imageSelectionRevision) return;
       imageSourceRaster = decoded.raster;
       imageExifOrientation = decoded.exifOrientation;
+      imageBaseRaster = window.PaperFrameImage.flattenOnWhite(
+        window.PaperFrameImage.orientExif(imageSourceRaster, imageExifOrientation),
+      );
+      imageWorkingRaster = imageBaseRaster;
       imageFileName = defaultPfr1Name(file.name);
       imageFilename.value = imageFileName;
       imageSourceInfo.textContent = `${file.name} · ${decoded.raster.width} × ${decoded.raster.height} · EXIF ${imageExifOrientation}`;
       imageProcessButton.disabled = false;
+      imageTransformButtons.forEach((button) => { button.disabled = false; });
       await processImage();
     } catch {
+      if (selectionRevision !== imageSelectionRevision) return;
       imageSourceRaster = null;
+      imageBaseRaster = null;
+      imageWorkingRaster = null;
+      imageTransformFlags = 0;
+      imageTransformButtons.forEach((button) => { button.disabled = true; });
       imageProcessButton.disabled = true;
       imageStatus.className = "save-status error";
       imageStatus.textContent = "無法讀取圖片；請選擇瀏覽器支援的本機格式。";
@@ -484,11 +549,14 @@
   $$(".nav-link[data-view]").forEach((link) => link.addEventListener("click", () => showView(link.dataset.view)));
   refreshDashboard.addEventListener("click", () => loadDashboard());
   imageSourceInput.addEventListener("change", () => selectImageFile(imageSourceInput.files[0]));
-  [imageOrientation, imageFit, imageDither, imageMirrorX, imageMirrorY, imageRotate].forEach((control) => {
+  [imageOrientation, imageFit, imageDither].forEach((control) => {
     control.addEventListener("change", () => { if (imageSourceRaster) processImage(); });
   });
   imageFilename.addEventListener("change", () => { if (imageSourceRaster) processImage(); });
   imageProcessButton.addEventListener("click", () => processImage());
+  imageMirrorX.addEventListener("click", () => applyImageTransform("mirror-x"));
+  imageMirrorY.addEventListener("click", () => applyImageTransform("mirror-y"));
+  imageRotate.addEventListener("click", () => applyImageTransform("rotate-90-cw"));
   downloadPfr1.addEventListener("click", downloadImagePfr1);
 
   function showAuthenticated(token) {
