@@ -1,8 +1,10 @@
 idf_component_register(
     SRCS
+        "catalog.cpp"
         "filesystem_manager.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES
+        pf_image
         joltwallet__littlefs
 )
