@@ -1,6 +1,7 @@
 # PaperFrame MVP 實作計畫
 
-狀態：Phase 2 已完成；Phase 3 實作與部署進行中，硬體管理流程尚待收尾
+狀態：Phase 5 實作進行中；Phase 3／4 的部分實機收尾與 Phase 5 圖片 API、
+WebUI、carousel 整合尚待完成，暫不部署大功能版本
 
 需求基線：`Guild.md` v0.1
 
@@ -446,3 +447,7 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [ ] Phase 4：PFR1 contract、韌體 validator、browser image pipeline、
   quantizer、packer 與 host tests 已完成；可正常選檔的 browser 實機圖片
   產出／下載仍待補驗，未把 `image_02_05.png` 納入版本控制。
+- [ ] Phase 5：partition layout、catalog、transaction upload、boot recovery
+  與 `StorageWorker::start()` 的 imagefs 啟動接線已完成並通過 host／firmware
+  build；圖片非同步 mutation、HTTP image API、受保護下載、carousel 讀圖與
+  圖片庫 WebUI 尚待完成。`image_02_05.png` 僅作本地測試，不得 commit。

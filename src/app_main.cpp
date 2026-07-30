@@ -21,6 +21,8 @@
 #include "pf_provisioning/ap_screen.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/filesystem_manager.hpp"
+#include "pf_storage/littlefs_backend.hpp"
+#include "pf_storage/storage_worker.hpp"
 #include "pf_web/health_server.hpp"
 #include "pf_web/provisioning_service.hpp"
 
@@ -261,6 +263,27 @@ extern "C" void app_main()
 
     const pf_storage::FileSystemSnapshot filesystem_snapshot =
         pf_storage::mount_all();
+    static pf_storage::LittleFsStorageFileSystem imagefs_filesystem(
+        "/images");
+    static pf_storage::StorageWorker storage_worker(imagefs_filesystem);
+    pf_storage::StorageWorkerResult storage_startup{};
+    if (filesystem_snapshot.imagefs.mounted) {
+        storage_startup = storage_worker.start();
+        if (!storage_startup.ok()) {
+            ESP_LOGE(
+                kTag,
+                "storage_worker_start_failed=%s recovery=%s action=%s",
+                pf_storage::to_string(storage_startup.error),
+                pf_storage::to_string(storage_startup.recovery.error),
+                pf_storage::to_string(storage_startup.recovery.action));
+        } else {
+            ESP_LOGI(
+                kTag,
+                "storage_worker_ready recovery=%s action=%s",
+                pf_storage::to_string(storage_startup.recovery.error),
+                pf_storage::to_string(storage_startup.recovery.action));
+        }
+    }
     const bool wifi_password_configured =
         stored_credentials.error == ESP_OK &&
         stored_credentials.configured &&
@@ -291,7 +314,10 @@ extern "C" void app_main()
                                  : pf_runtime::ServiceState::degraded,
         .config = state_from_error(config_result.error),
         .webfs = state_from_filesystem(filesystem_snapshot.webfs),
-        .imagefs = state_from_filesystem(filesystem_snapshot.imagefs),
+        .imagefs =
+            storage_startup.ok()
+                ? state_from_filesystem(filesystem_snapshot.imagefs)
+                : pf_runtime::ServiceState::degraded,
         .wifi = pf_runtime::WifiState::unknown,
         .internet = pf_runtime::InternetState::unknown,
         .display = pf_runtime::DisplayState::unknown,

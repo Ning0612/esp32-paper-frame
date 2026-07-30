@@ -80,7 +80,7 @@ PFC1 本身是單一固定長度 blob，寫入 imagefs 時必須使用專案的 
 `.bak` 交易流程：先寫完整 bytes、重新讀回並驗證 magic／header／entry／兩個
 CRC，再以 rename/replace 提交正式 catalog。`pf_storage::recover_image_transactions`
 會在 imagefs mount 後依驗證結果選擇最新完整版本或還原舊版本；目前函式已由
-host/build 驗證，但尚未接入實際 StorageWorker startup。`remove_catalog_entry` 只負責原子地移除 metadata
+host/build 驗證，並由 `StorageWorker::start()` 在 HTTP route 前執行。`remove_catalog_entry` 只負責原子地移除 metadata
 與重編順序；若移除 current，transaction coordinator 必須在同一 catalog/runtime
 更新中先選擇下一筆 `enabled && !corrupt` entry，無候選時才清除 current。
 
