@@ -2,6 +2,8 @@ idf_component_register(
     SRCS
         "catalog.cpp"
         "filesystem_manager.cpp"
+        "image_store.cpp"
+        "littlefs_backend.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES
