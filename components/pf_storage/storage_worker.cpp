@@ -1,5 +1,8 @@
 #include "pf_storage/storage_worker.hpp"
 
+#include <cstdio>
+#include <cstring>
+
 namespace pf_storage {
 
 const char* to_string(const StorageWorkerError error)
@@ -13,6 +16,33 @@ const char* to_string(const StorageWorkerError error)
             return "already_started";
         case StorageWorkerError::recovery_failed:
             return "recovery_failed";
+    }
+    return "invalid_argument";
+}
+
+const char* to_string(const ImageStreamError error)
+{
+    switch (error) {
+        case ImageStreamError::none:
+            return "none";
+        case ImageStreamError::invalid_argument:
+            return "invalid_argument";
+        case ImageStreamError::not_ready:
+            return "not_ready";
+        case ImageStreamError::not_found:
+            return "not_found";
+        case ImageStreamError::corrupt:
+            return "corrupt";
+        case ImageStreamError::path_too_long:
+            return "path_too_long";
+        case ImageStreamError::open_failed:
+            return "open_failed";
+        case ImageStreamError::read_failed:
+            return "read_failed";
+        case ImageStreamError::visitor_failed:
+            return "visitor_failed";
+        case ImageStreamError::close_failed:
+            return "close_failed";
     }
     return "invalid_argument";
 }
@@ -64,6 +94,122 @@ bool StorageWorker::visit_catalog(
         }
     }
     return true;
+}
+
+bool StorageWorker::find_catalog_entry_by_name(
+    const char* const name,
+    const std::size_t name_length,
+    CatalogEntry& destination) const
+{
+    if (!ready() || !catalog_available_ || name == nullptr ||
+        name_length == 0U || name_length > pf_image::kPfr1MaxFilenameBytes) {
+        return false;
+    }
+    const CatalogEntry* const entry = pf_storage::find_catalog_entry_by_name(
+        catalog_,
+        name,
+        name_length);
+    if (entry == nullptr) {
+        return false;
+    }
+    destination = *entry;
+    return true;
+}
+
+ImageStreamResult StorageWorker::stream_image(
+    const char* const name,
+    const std::size_t name_length,
+    const ImageChunkVisitor visitor,
+    void* const context)
+{
+    ImageStreamResult result{};
+    if (!ready() || filesystem_ == nullptr) {
+        result.error = ImageStreamError::not_ready;
+        return result;
+    }
+    if (name == nullptr || name_length == 0U || visitor == nullptr ||
+        name_length > pf_image::kPfr1MaxFilenameBytes ||
+        !pf_image::valid_filename(
+            reinterpret_cast<const std::uint8_t*>(name),
+            name_length)) {
+        result.error = ImageStreamError::invalid_argument;
+        return result;
+    }
+    const CatalogEntry* entry = nullptr;
+    for (std::size_t index = 0U; index < catalog_.count; ++index) {
+        const CatalogEntry& candidate = catalog_.entries[index];
+        if (candidate.name_length == name_length &&
+            std::memcmp(candidate.name, name, name_length) == 0) {
+            entry = &candidate;
+            break;
+        }
+    }
+    if (entry == nullptr) {
+        result.error = ImageStreamError::not_found;
+        return result;
+    }
+    if ((entry->flags & kCatalogCorrupt) != 0U) {
+        result.error = ImageStreamError::corrupt;
+        return result;
+    }
+
+    char path[kRecoveryPathCapacity]{};
+    const int path_length = std::snprintf(
+        path,
+        sizeof(path),
+        "%s/%.*s",
+        kImageStoreRootPath,
+        static_cast<int>(name_length),
+        name);
+    if (path_length <= 0 ||
+        static_cast<std::size_t>(path_length) >= sizeof(path)) {
+        result.error = ImageStreamError::path_too_long;
+        return result;
+    }
+
+    StorageFileHandle handle{};
+    if (!filesystem_->open_read(path, handle)) {
+        result.error = ImageStreamError::open_failed;
+        return result;
+    }
+    std::uint8_t buffer[kImageStoreChunkBytes]{};
+    std::size_t remaining = entry->file_bytes;
+    while (remaining > 0U) {
+        std::size_t bytes_read = 0U;
+        const std::size_t capacity =
+            remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+        if (!filesystem_->read(
+                handle,
+                buffer,
+                capacity,
+                bytes_read) ||
+            bytes_read == 0U ||
+            bytes_read > capacity) {
+            result.error = ImageStreamError::read_failed;
+            filesystem_->close_read(handle);
+            return result;
+        }
+        if (!visitor(context, buffer, bytes_read)) {
+            result.error = ImageStreamError::visitor_failed;
+            filesystem_->close_read(handle);
+            return result;
+        }
+        result.bytes_sent += bytes_read;
+        remaining -= bytes_read;
+    }
+
+    std::size_t extra_bytes = 0U;
+    if (!filesystem_->read(handle, buffer, 1U, extra_bytes) ||
+        extra_bytes != 0U) {
+        result.error = ImageStreamError::read_failed;
+        filesystem_->close_read(handle);
+        return result;
+    }
+    if (!filesystem_->close_read(handle)) {
+        result.error = ImageStreamError::close_failed;
+        return result;
+    }
+    return result;
 }
 
 std::uint64_t StorageWorker::free_bytes() const

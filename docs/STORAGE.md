@@ -5,7 +5,11 @@
 fake filesystem 測試，也可以接到 ESP-IDF LittleFS backend。imagefs mount 後，
 `StorageWorker::start()` 會在 HTTP route 啟動前同步執行開機 recovery；目前已接入
 受保護的 `GET /api/v1/images` 唯讀目錄串流，讓管理介面能讀取啟動時的 catalog
-snapshot。mutation route、下載與 carousel runtime 尚未在本段接入。
+snapshot；受保護的 `GET /api/v1/images/{name}/download` 會以固定 PFR1 MIME、
+安全的 `Content-Disposition` 與 chunked 分段讀取回傳已處理檔案。下載由單槽的
+靜態 FreeRTOS 工作佇列執行，HTTP handler 只做驗證與排程；wildcard route 先接住
+`/api/v1/images/*`，再由 decoder 嚴格要求 `/download` suffix。mutation route 與
+carousel runtime 尚未在本段接入。
 
 ## 上傳流程
 
@@ -45,9 +49,10 @@ mapping；呼叫端不可自行拼接 imagefs 路徑。`StorageFileSystem` 的 b
   block rounding、metadata overhead 與 `ENOSPC` 映射成 HTTP 507；這會在 API
   與 filesystem error contract 段處理。
 - component 已接入唯讀的 `StorageWorker::visit_catalog` 與受保護的
-  `GET /api/v1/images`；catalog 目前在 startup recovery 後建立 immutable snapshot，
+  `GET /api/v1/images` 與 wildcard download route；catalog 目前在 startup recovery
+  後建立 immutable snapshot，
   供 HTTP handler 以 visitor 串流輸出，避免在 handler stack 複製大型 `Catalog`。
-  StorageWorker mutation task、HTTP upload route、下載與 carousel runtime 仍未接入；
+  StorageWorker mutation task、HTTP upload/delete route 與 carousel runtime 仍未接入；
   接入非同步 mutation 前仍需把 catalog/stream workspace 與 stack watermark 納入
   task contract。
 - 清理暫存檔是 best effort；recovery 會把清理失敗視為可診斷的殘留狀態，不能
@@ -66,6 +71,7 @@ Recovery 若已把 image `.part` 改成正式檔、但後續 catalog rename 失�
 .\.venv\Scripts\pio.exe test -e native -f test_image_store
 .\.venv\Scripts\pio.exe test -e native -f test_storage_worker
 .\.venv\Scripts\pio.exe test -e native -f test_image_list_serializer
+.\.venv\Scripts\pio.exe test -e native -f test_image_download_path
 .\.venv\Scripts\pio.exe test -e native
 .\.venv\Scripts\pio.exe run -e paperframe-s3
 node test\test_partition_layout.mjs

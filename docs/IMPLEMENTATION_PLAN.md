@@ -449,6 +449,6 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   產出／下載仍待補驗，未把 `image_02_05.png` 納入版本控制。
 - [ ] Phase 5：partition layout、catalog、transaction upload、boot recovery
   與 `StorageWorker::start()` 的 imagefs 啟動接線已完成並通過 host／firmware
-  build；受保護的唯讀 image list API 與 serializer 已完成，圖片非同步 mutation、
-  upload/delete/download、carousel 讀圖與圖片庫 WebUI 尚待完成。`image_02_05.png`
-  僅作本地測試，不得 commit。
+  build；受保護的唯讀 image list API、serializer 與 PFR1 download route 已完成，
+  圖片非同步 mutation、upload/delete、carousel 讀圖與圖片庫 WebUI 尚待完成。
+  `image_02_05.png` 僅作本地測試，不得 commit。

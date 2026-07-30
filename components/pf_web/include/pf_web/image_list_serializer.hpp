@@ -11,6 +11,57 @@ inline constexpr char kImageListJsonPrefix[] =
     "{\"ok\":true,\"data\":{\"images\":[";
 inline constexpr char kImageListJsonSuffix[] = "]}}";
 
+inline bool serialize_image_content_disposition(
+    const pf_storage::CatalogEntry& entry,
+    char* const output,
+    const std::size_t capacity,
+    std::size_t& written)
+{
+    written = 0U;
+    if (output == nullptr || capacity == 0U ||
+        entry.name_length == 0U ||
+        entry.name_length >= sizeof(entry.name)) {
+        return false;
+    }
+    const char prefix[] = "attachment; filename=\"";
+    const char suffix[] = "\"";
+    std::size_t offset = 0U;
+    const auto append = [&](const char value) {
+        if (offset + 1U >= capacity) {
+            return false;
+        }
+        output[offset++] = value;
+        return true;
+    };
+    for (std::size_t index = 0U; index + 1U < sizeof(prefix); ++index) {
+        if (!append(prefix[index])) {
+            return false;
+        }
+    }
+    for (std::size_t index = 0U; index < entry.name_length; ++index) {
+        const char value = entry.name[index];
+        if (value == '"' || value == '\\') {
+            if (!append('\\')) {
+                return false;
+            }
+        }
+        if (!append(value)) {
+            return false;
+        }
+    }
+    for (std::size_t index = 0U; index + 1U < sizeof(suffix); ++index) {
+        if (!append(suffix[index])) {
+            return false;
+        }
+    }
+    if (offset >= capacity) {
+        return false;
+    }
+    output[offset] = '\0';
+    written = offset;
+    return true;
+}
+
 inline bool serialize_image_entry(
     const pf_storage::CatalogEntry& entry,
     char* const output,

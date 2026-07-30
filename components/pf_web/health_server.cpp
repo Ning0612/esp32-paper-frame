@@ -5,6 +5,9 @@
 #include <cstring>
 
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "pf_auth/auth_service.hpp"
 #include "pf_config/network_credentials.hpp"
 #include "pf_config/secure_memory.hpp"
@@ -15,6 +18,7 @@
 #include "pf_web/auth_form.hpp"
 #include "pf_web/dashboard_serializer.hpp"
 #include "pf_web/health_serializer.hpp"
+#include "pf_web/image_download_path.hpp"
 #include "pf_web/image_list_serializer.hpp"
 #include "pf_web/http_receive_policy.hpp"
 #include "pf_web/provisioning_form.hpp"
@@ -51,8 +55,30 @@ constexpr std::uint8_t kMaximumBodyTimeouts = 3U;
 constexpr char kSessionCookieName[] = "pf_session";
 constexpr char kCsrfHeaderName[] = "X-CSRF-Token";
 constexpr char kAuthRequestHeaderName[] = "X-Auth-Request";
+constexpr UBaseType_t kImageDownloadTaskPriority = 3U;
+constexpr std::uint32_t kImageDownloadTaskStackWords = 4096U;
+constexpr std::size_t kImageDownloadContentDispositionCapacity =
+    (pf_storage::kCatalogNameCapacity * 2U) + 32U;
 
 HealthServerAccessConfig server_access_config{};
+
+struct ImageDownloadRequest {
+    httpd_req_t* request = nullptr;
+    pf_storage::StorageWorker* worker = nullptr;
+    std::size_t name_length = 0U;
+    std::uint32_t file_bytes = 0U;
+    char name[pf_storage::kCatalogNameCapacity]{};
+    char content_disposition[
+        kImageDownloadContentDispositionCapacity]{};
+};
+
+QueueHandle_t image_download_queue = nullptr;
+StaticQueue_t image_download_queue_control{};
+std::uint8_t image_download_queue_storage[
+    sizeof(ImageDownloadRequest)]{};
+StaticTask_t image_download_task_control{};
+StackType_t image_download_task_stack[
+    kImageDownloadTaskStackWords]{};
 
 esp_err_t set_common_headers(
     httpd_req_t* const request,
@@ -1140,6 +1166,191 @@ esp_err_t image_list_handler(httpd_req_t* request)
     return ESP_OK;
 }
 
+struct ImageDownloadStreamContext {
+    httpd_req_t* request = nullptr;
+    bool failed = false;
+};
+
+bool send_image_download_chunk(
+    void* const raw_context,
+    const std::uint8_t* const data,
+    const std::size_t length)
+{
+    auto* const context =
+        static_cast<ImageDownloadStreamContext*>(raw_context);
+    if (context == nullptr || context->request == nullptr ||
+        data == nullptr || length == 0U) {
+        return false;
+    }
+    if (httpd_resp_send_chunk(
+            context->request,
+            reinterpret_cast<const char*>(data),
+            length) != ESP_OK) {
+        context->failed = true;
+        return false;
+    }
+    return true;
+}
+
+void image_download_task_entry(void* const)
+{
+    for (;;) {
+        ImageDownloadRequest queued{};
+        if (xQueueReceive(
+                image_download_queue,
+                &queued,
+                portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        ImageDownloadStreamContext stream_context{queued.request};
+        const bool headers_ready =
+            queued.request != nullptr &&
+            set_common_headers(
+                queued.request,
+                "application/vnd.paperframe.pfr1") == ESP_OK &&
+            httpd_resp_set_status(queued.request, "200 OK") == ESP_OK &&
+            httpd_resp_set_hdr(
+                queued.request,
+                "Content-Disposition",
+                queued.content_disposition) == ESP_OK;
+        pf_storage::ImageStreamResult result{
+            pf_storage::ImageStreamError::not_ready,
+            0U};
+        if (headers_ready && queued.worker != nullptr) {
+            result = queued.worker->stream_image(
+                queued.name,
+                queued.name_length,
+                send_image_download_chunk,
+                &stream_context);
+        }
+        const bool completed =
+            headers_ready &&
+            result.ok() &&
+            !stream_context.failed &&
+            result.bytes_sent == queued.file_bytes &&
+            httpd_resp_send_chunk(
+                queued.request,
+                nullptr,
+                0U) == ESP_OK;
+        if (!completed && queued.request != nullptr) {
+            const int socket = httpd_req_to_sockfd(queued.request);
+            if (socket >= 0) {
+                httpd_sess_trigger_close(
+                    queued.request->handle,
+                    socket);
+            }
+        }
+        if (queued.request != nullptr) {
+            httpd_req_async_handler_complete(queued.request);
+        }
+    }
+}
+
+esp_err_t start_image_download_task()
+{
+    if (image_download_queue != nullptr) {
+        return ESP_OK;
+    }
+    image_download_queue = xQueueCreateStatic(
+        1U,
+        sizeof(ImageDownloadRequest),
+        image_download_queue_storage,
+        &image_download_queue_control);
+    if (image_download_queue == nullptr ||
+        xTaskCreateStatic(
+            image_download_task_entry,
+            "pf_image_dl",
+            kImageDownloadTaskStackWords,
+            nullptr,
+            kImageDownloadTaskPriority,
+            image_download_task_stack,
+            &image_download_task_control) == nullptr) {
+        image_download_queue = nullptr;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+esp_err_t image_download_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!access.authenticated) {
+        return reject_management_request(request, access, false);
+    }
+
+    char name[pf_storage::kCatalogNameCapacity]{};
+    std::size_t name_length = 0U;
+    if (!decode_image_download_uri(request->uri, name, name_length)) {
+        return send_json(
+            request,
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"invalid_image_name\"}");
+    }
+    pf_storage::StorageWorker* const worker =
+        server_access_config.storage_worker;
+    if (worker == nullptr || !worker->ready()) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    pf_storage::CatalogEntry entry{};
+    if (!worker->find_catalog_entry_by_name(
+            name,
+            name_length,
+            entry)) {
+        return send_json(
+            request,
+            "404 Not Found",
+            "{\"ok\":false,\"error\":\"image_not_found\"}");
+    }
+    if ((entry.flags & pf_storage::kCatalogCorrupt) != 0U) {
+        return send_json(
+            request,
+            "409 Conflict",
+            "{\"ok\":false,\"error\":\"image_corrupt\"}");
+    }
+
+    ImageDownloadRequest queued{};
+    queued.worker = worker;
+    queued.name_length = name_length;
+    queued.file_bytes = entry.file_bytes;
+    std::memcpy(queued.name, name, name_length + 1U);
+    std::size_t disposition_written = 0U;
+    if (!serialize_image_content_disposition(
+            entry,
+            queued.content_disposition,
+            sizeof(queued.content_disposition),
+            disposition_written) ||
+        image_download_queue == nullptr) {
+        return ESP_FAIL;
+    }
+
+    if (uxQueueSpacesAvailable(image_download_queue) == 0U) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"download_busy\"}");
+    }
+    httpd_req_t* async_request = nullptr;
+    if (httpd_req_async_handler_begin(request, &async_request) != ESP_OK) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"download_unavailable\"}");
+    }
+    queued.request = async_request;
+    if (xQueueSend(image_download_queue, &queued, 0U) != pdTRUE) {
+        const esp_err_t busy_result = send_json(
+            async_request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"download_busy\"}");
+        httpd_req_async_handler_complete(async_request);
+        return busy_result == ESP_OK ? ESP_OK : ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
 const httpd_uri_t kHealthRoute{
     .uri = "/api/v1/health",
     .method = HTTP_GET,
@@ -1212,6 +1423,12 @@ const httpd_uri_t kImageListRoute{
     .handler = image_list_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kImageDownloadRoute{
+    .uri = "/api/v1/images/*",
+    .method = HTTP_GET,
+    .handler = image_download_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kIndexRoute{
     .uri = "/",
     .method = HTTP_GET,
@@ -1249,11 +1466,18 @@ esp_err_t start_health_server(
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
     configuration.max_uri_handlers = 20;
+    configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
     server_access_config = access;
 
     esp_err_t result = httpd_start(server, &configuration);
     if (result != ESP_OK) {
+        return result;
+    }
+    result = start_image_download_task();
+    if (result != ESP_OK) {
+        httpd_stop(*server);
+        *server = nullptr;
         return result;
     }
 
@@ -1270,6 +1494,7 @@ esp_err_t start_health_server(
         &kAuthLoginStatusRoute,
         &kAuthLogoutRoute,
         &kImageListRoute,
+        &kImageDownloadRoute,
         &kIndexRoute,
         &kStyleRoute,
         &kScriptRoute,

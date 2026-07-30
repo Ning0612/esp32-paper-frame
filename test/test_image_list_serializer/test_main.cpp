@@ -43,6 +43,41 @@ void test_image_entry_serializes_metadata_and_flags()
         "\"current\":true,\"corrupt\":true,\"order\":3}",
         output);
     TEST_ASSERT_EQUAL_UINT(std::strlen(output), written);
+
+    char disposition[256]{};
+    written = 0U;
+    TEST_ASSERT_TRUE(pf_web::serialize_image_content_disposition(
+        entry,
+        disposition,
+        sizeof(disposition),
+        written));
+    TEST_ASSERT_EQUAL_STRING(
+        "attachment; filename=\"wall\\\\quote\\\".pfr1\"",
+        disposition);
+    TEST_ASSERT_EQUAL_UINT(std::strlen(disposition), written);
+
+    pf_storage::CatalogEntry quote_heavy{};
+    quote_heavy.name_length =
+        static_cast<std::uint16_t>(pf_image::kPfr1MaxFilenameBytes);
+    for (std::size_t index = 0U;
+         index < quote_heavy.name_length;
+         ++index) {
+        quote_heavy.name[index] = index % 2U == 0U ? '"' : '\\';
+    }
+    TEST_ASSERT_TRUE(pf_web::serialize_image_content_disposition(
+        quote_heavy,
+        disposition,
+        sizeof(disposition),
+        written));
+    TEST_ASSERT_GREATER_THAN_UINT(
+        pf_image::kPfr1MaxFilenameBytes,
+        written);
+    char too_small[128]{};
+    TEST_ASSERT_FALSE(pf_web::serialize_image_content_disposition(
+        quote_heavy,
+        too_small,
+        sizeof(too_small),
+        written));
 }
 
 void test_image_entry_rejects_invalid_output_arguments()

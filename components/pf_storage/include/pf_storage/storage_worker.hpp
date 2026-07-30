@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 
 #include "pf_storage/recovery.hpp"
 
@@ -24,6 +25,36 @@ struct StorageWorkerResult {
 };
 
 const char* to_string(StorageWorkerError error);
+
+enum class ImageStreamError : std::uint8_t {
+    none = 0U,
+    invalid_argument,
+    not_ready,
+    not_found,
+    corrupt,
+    path_too_long,
+    open_failed,
+    read_failed,
+    visitor_failed,
+    close_failed,
+};
+
+const char* to_string(ImageStreamError error);
+
+struct ImageStreamResult {
+    ImageStreamError error = ImageStreamError::none;
+    std::size_t bytes_sent = 0U;
+
+    bool ok() const
+    {
+        return error == ImageStreamError::none;
+    }
+};
+
+using ImageChunkVisitor = bool (*)(
+    void* context,
+    const std::uint8_t* data,
+    std::size_t length);
 
 using CatalogEntryVisitor = bool (*)(
     void* context,
@@ -59,6 +90,17 @@ public:
     bool visit_catalog(
         CatalogEntryVisitor visitor,
         void* context) const;
+
+    bool find_catalog_entry_by_name(
+        const char* name,
+        std::size_t name_length,
+        CatalogEntry& destination) const;
+
+    ImageStreamResult stream_image(
+        const char* name,
+        std::size_t name_length,
+        ImageChunkVisitor visitor,
+        void* context);
 
     std::uint64_t free_bytes() const;
 
