@@ -1,0 +1,489 @@
+#include "pf_weather/weather.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <cstring>
+
+namespace pf_weather {
+namespace {
+
+bool is_space(const char value)
+{
+    return std::isspace(static_cast<unsigned char>(value)) != 0;
+}
+
+bool matches_key(
+    const char* const json,
+    const std::size_t length,
+    const std::size_t quote,
+    const char* const key)
+{
+    if (json == nullptr || key == nullptr || quote >= length ||
+        json[quote] != '"') {
+        return false;
+    }
+    const std::size_t key_length = std::strlen(key);
+    if (key_length > length - quote - 2U ||
+        std::memcmp(json + quote + 1U, key, key_length) != 0 ||
+        json[quote + 1U + key_length] != '"') {
+        return false;
+    }
+    return true;
+}
+
+bool find_key(
+    const char* const json,
+    const std::size_t begin,
+    const std::size_t end,
+    const char* const key,
+    std::size_t& value_begin)
+{
+    if (json == nullptr || begin > end) {
+        return false;
+    }
+    for (std::size_t index = begin; index < end; ++index) {
+        if (json[index] != '"' ||
+            !matches_key(json, end, index, key)) {
+            continue;
+        }
+        const std::size_t key_length = std::strlen(key);
+        std::size_t cursor = index + key_length + 2U;
+        while (cursor < end && is_space(json[cursor])) {
+            ++cursor;
+        }
+        if (cursor >= end || json[cursor] != ':') {
+            continue;
+        }
+        ++cursor;
+        while (cursor < end && is_space(json[cursor])) {
+            ++cursor;
+        }
+        if (cursor < end) {
+            value_begin = cursor;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool parse_number(
+    const char* const json,
+    const std::size_t begin,
+    const std::size_t end,
+    double& value,
+    std::size_t& consumed)
+{
+    if (json == nullptr || begin >= end) {
+        return false;
+    }
+    char buffer[48]{};
+    std::size_t length = 0U;
+    std::size_t cursor = begin;
+    while (cursor < end && length + 1U < sizeof(buffer)) {
+        const char current = json[cursor];
+        if (!((current >= '0' && current <= '9') ||
+              current == '-' || current == '+' || current == '.' ||
+              current == 'e' || current == 'E')) {
+            break;
+        }
+        buffer[length++] = current;
+        ++cursor;
+    }
+    if (length == 0U) {
+        return false;
+    }
+    char* parse_end = nullptr;
+    value = std::strtod(buffer, &parse_end);
+    if (parse_end == nullptr ||
+        static_cast<std::size_t>(parse_end - buffer) != length) {
+        return false;
+    }
+    consumed = cursor;
+    return true;
+}
+
+bool parse_integer(
+    const char* const json,
+    const std::size_t begin,
+    const std::size_t end,
+    std::int64_t& value,
+    std::size_t& consumed)
+{
+    double number = 0.0;
+    if (!parse_number(json, begin, end, number, consumed) ||
+        number < static_cast<double>(INT64_MIN) ||
+        number > static_cast<double>(INT64_MAX) ||
+        number != static_cast<double>(static_cast<std::int64_t>(number))) {
+        return false;
+    }
+    value = static_cast<std::int64_t>(number);
+    return true;
+}
+
+bool parse_string(
+    const char* const json,
+    const std::size_t begin,
+    const std::size_t end,
+    char* const output,
+    const std::size_t capacity,
+    std::size_t& consumed)
+{
+    if (json == nullptr || output == nullptr || capacity == 0U ||
+        begin >= end || json[begin] != '"') {
+        return false;
+    }
+    std::size_t output_length = 0U;
+    std::size_t cursor = begin + 1U;
+    while (cursor < end) {
+        const char current = json[cursor++];
+        if (current == '"') {
+            output[output_length] = '\0';
+            consumed = cursor;
+            return true;
+        }
+        if (static_cast<unsigned char>(current) < 0x20U) {
+            return false;
+        }
+        char decoded = current;
+        if (current == '\\') {
+            if (cursor >= end) {
+                return false;
+            }
+            const char escaped = json[cursor++];
+            switch (escaped) {
+                case '"':
+                case '\\':
+                case '/':
+                    decoded = escaped;
+                    break;
+                case 'b':
+                    decoded = '\b';
+                    break;
+                case 'f':
+                    decoded = '\f';
+                    break;
+                case 'n':
+                    decoded = '\n';
+                    break;
+                case 'r':
+                    decoded = '\r';
+                    break;
+                case 't':
+                    decoded = '\t';
+                    break;
+                case 'u':
+                    // Keep the parser bounded. OpenWeather descriptions are
+                    // UTF-8 in normal responses; escaped Unicode is rejected
+                    // instead of silently fabricating a partial string.
+                    if (cursor + 4U > end) {
+                        return false;
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        }
+        if (output_length + 1U >= capacity) {
+            return false;
+        }
+        output[output_length++] = decoded;
+    }
+    return false;
+}
+
+bool value_for_key(
+    const char* const json,
+    const std::size_t begin,
+    const std::size_t end,
+    const char* const key,
+    std::size_t& value_begin)
+{
+    return find_key(json, begin, end, key, value_begin);
+}
+
+bool parse_code(
+    const char* const json,
+    const std::size_t begin,
+    const std::size_t end,
+    bool& rejected)
+{
+    std::size_t value_begin = 0U;
+    if (!value_for_key(json, begin, end, "cod", value_begin)) {
+        return true;
+    }
+    std::int64_t code = 0;
+    std::size_t consumed = 0U;
+    if (json[value_begin] == '"') {
+        char code_text[8]{};
+        if (!parse_string(
+                json,
+                value_begin,
+                end,
+                code_text,
+                sizeof(code_text),
+                consumed)) {
+            return false;
+        }
+        char* parse_end = nullptr;
+        const long parsed = std::strtol(code_text, &parse_end, 10);
+        if (parse_end == nullptr || *parse_end != '\0') {
+            return false;
+        }
+        code = parsed;
+    } else if (!parse_integer(json, value_begin, end, code, consumed)) {
+        return false;
+    }
+    rejected = code != 200;
+    return true;
+}
+
+}  // namespace
+
+const char* to_string(const ParseError error)
+{
+    switch (error) {
+        case ParseError::none:
+            return "none";
+        case ParseError::invalid_argument:
+            return "invalid_argument";
+        case ParseError::malformed_json:
+            return "malformed_json";
+        case ParseError::api_rejected:
+            return "api_rejected";
+        case ParseError::missing_field:
+            return "missing_field";
+        case ParseError::invalid_value:
+            return "invalid_value";
+    }
+    return "invalid_value";
+}
+
+ParseResult parse_current_weather(
+    const char* const json,
+    const std::size_t length)
+{
+    ParseResult result{};
+    if (json == nullptr || length == 0U) {
+        result.error = ParseError::invalid_argument;
+        return result;
+    }
+
+    bool api_rejected = false;
+    if (!parse_code(json, 0U, length, api_rejected)) {
+        result.error = ParseError::malformed_json;
+        return result;
+    }
+    if (api_rejected) {
+        result.error = ParseError::api_rejected;
+        return result;
+    }
+
+    std::size_t main_begin = 0U;
+    std::size_t weather_begin = 0U;
+    std::size_t value_begin = 0U;
+    std::size_t timestamp_begin = 0U;
+    if (!value_for_key(json, 0U, length, "main", main_begin) ||
+        !value_for_key(json, 0U, length, "weather", weather_begin) ||
+        !value_for_key(json, 0U, length, "dt", timestamp_begin)) {
+        result.error = ParseError::missing_field;
+        return result;
+    }
+
+    const std::size_t main_end = length;
+    double temperature = 0.0;
+    std::size_t consumed = 0U;
+    if (!value_for_key(
+            json,
+            main_begin,
+            main_end,
+            "temp",
+            value_begin) ||
+        !parse_number(json, value_begin, length, temperature, consumed) ||
+        temperature < -200.0 || temperature > 200.0) {
+        result.error = ParseError::invalid_value;
+        return result;
+    }
+
+    std::int64_t observed_at = 0;
+    if (!parse_integer(
+            json,
+            timestamp_begin,
+            length,
+            observed_at,
+            consumed)) {
+        result.error = ParseError::invalid_value;
+        return result;
+    }
+    if (observed_at <= 0) {
+        result.error = ParseError::invalid_value;
+        return result;
+    }
+
+    while (weather_begin < length && is_space(json[weather_begin])) {
+        ++weather_begin;
+    }
+    if (weather_begin >= length || json[weather_begin] != '[') {
+        result.error = ParseError::malformed_json;
+        return result;
+    }
+    ++weather_begin;
+    while (weather_begin < length && is_space(json[weather_begin])) {
+        ++weather_begin;
+    }
+    if (weather_begin >= length || json[weather_begin] != '{') {
+        result.error = ParseError::missing_field;
+        return result;
+    }
+    const std::size_t weather_object_end =
+        std::find(json + weather_begin, json + length, '}') - json;
+    if (weather_object_end >= length) {
+        result.error = ParseError::malformed_json;
+        return result;
+    }
+
+    if (!value_for_key(
+            json,
+            weather_begin,
+            weather_object_end,
+            "id",
+            value_begin)) {
+        result.error = ParseError::missing_field;
+        return result;
+    }
+    std::int64_t weather_id = 0;
+    if (!parse_integer(json, value_begin, weather_object_end, weather_id, consumed) ||
+        weather_id <= 0 || weather_id > INT32_MAX) {
+        result.error = ParseError::invalid_value;
+        return result;
+    }
+
+    if (!value_for_key(
+            json,
+            weather_begin,
+            weather_object_end,
+            "description",
+            value_begin) ||
+        !parse_string(
+            json,
+            value_begin,
+            weather_object_end,
+            result.observation.description,
+            sizeof(result.observation.description),
+            consumed) ||
+        !value_for_key(
+            json,
+            weather_begin,
+            weather_object_end,
+            "icon",
+            value_begin) ||
+        !parse_string(
+            json,
+            value_begin,
+            weather_object_end,
+            result.observation.icon,
+            sizeof(result.observation.icon),
+            consumed)) {
+        result.error = ParseError::missing_field;
+        return result;
+    }
+
+    std::int64_t humidity = -1;
+    if (value_for_key(json, main_begin, main_end, "humidity", value_begin) &&
+        !parse_integer(json, value_begin, length, humidity, consumed)) {
+        result.error = ParseError::invalid_value;
+        return result;
+    }
+    if (humidity < -1 || humidity > 100) {
+        result.error = ParseError::invalid_value;
+        return result;
+    }
+
+    result.observation.temperature = static_cast<float>(temperature);
+    result.observation.humidity_percent = static_cast<std::int16_t>(humidity);
+    result.observation.weather_id = static_cast<std::int32_t>(weather_id);
+    result.observation.observed_at_epoch_s =
+        static_cast<std::uint64_t>(observed_at);
+    std::size_t location_begin = 0U;
+    if (value_for_key(json, 0U, length, "name", location_begin)) {
+        if (!parse_string(
+                json,
+                location_begin,
+                length,
+                result.observation.location,
+                sizeof(result.observation.location),
+                consumed)) {
+            result.error = ParseError::invalid_value;
+            return result;
+        }
+    }
+    return result;
+}
+
+const char* to_string(const Failure failure)
+{
+    switch (failure) {
+        case Failure::none:
+            return "none";
+        case Failure::api_key_invalid:
+            return "api_key_invalid";
+        case Failure::network:
+            return "network";
+        case Failure::http_error:
+            return "http_error";
+        case Failure::parse_error:
+            return "parse_error";
+    }
+    return "parse_error";
+}
+
+void record_success(
+    Cache& cache,
+    const Observation& observation,
+    const std::uint64_t success_epoch_s,
+    const std::uint64_t now_ms)
+{
+    cache.observation = observation;
+    cache.has_observation = true;
+    cache.last_success_epoch_s = success_epoch_s;
+    cache.next_attempt_ms = now_ms + kUpdateIntervalMs;
+    cache.consecutive_failures = 0U;
+    cache.last_failure = Failure::none;
+}
+
+void record_failure(
+    Cache& cache,
+    const Failure failure,
+    const std::uint64_t now_ms)
+{
+    if (cache.consecutive_failures < 31U) {
+        ++cache.consecutive_failures;
+    }
+    const std::uint32_t shift =
+        std::min<std::uint32_t>(cache.consecutive_failures - 1U, 6U);
+    const std::uint64_t delay = std::min<std::uint64_t>(
+        kMaximumRetryMs,
+        kInitialRetryMs << shift);
+    cache.next_attempt_ms =
+        now_ms > UINT64_MAX - delay ? UINT64_MAX : now_ms + delay;
+    cache.last_failure = failure;
+}
+
+bool retry_due(const Cache& cache, const std::uint64_t now_ms)
+{
+    return now_ms >= cache.next_attempt_ms;
+}
+
+bool stale(
+    const Cache& cache,
+    const std::uint64_t now_epoch_s,
+    const std::uint64_t max_age_seconds)
+{
+    if (!cache.has_observation || cache.last_success_epoch_s == 0U ||
+        max_age_seconds == 0U || now_epoch_s < cache.last_success_epoch_s) {
+        return true;
+    }
+    return now_epoch_s - cache.last_success_epoch_s > max_age_seconds;
+}
+
+}  // namespace pf_weather
