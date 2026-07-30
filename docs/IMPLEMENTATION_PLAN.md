@@ -1,7 +1,7 @@
 # PaperFrame MVP 實作計畫
 
-狀態：Phase 5 實作進行中；Phase 3／4 的部分實機收尾與 Phase 5 圖片 delete、
-activate、carousel 整合尚待完成，暫不部署大功能版本
+狀態：Phase 5 程式實作完成；Phase 3／4 的部分實機收尾、Phase 5 實機圖片
+輪播驗證與後續 Weather／sensor 功能仍待完成，暫不部署大功能版本
 
 需求基線：`Guild.md` v0.1
 
@@ -273,8 +273,8 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - 受保護的 `GET /api/v1/images/{name}/download`，以固定 PFR1 MIME、
   安全的 `Content-Disposition` 與檔名回傳已處理圖片。
 - 圖片庫 UI、storage usage、排序、批次刪除與 processed file download；目前完成
-  catalog 顯示、processed file download、PFR1 upload、delete／activate／排序 UI 與
-  async API 已完成；carousel runtime 讀圖仍待接入。
+  catalog 顯示、processed file download、PFR1 upload、delete／activate／排序 UI、
+  async API 與 carousel runtime 讀圖／橫直向 framebuffer 組合已完成。
 
 驗收：
 
@@ -439,8 +439,8 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [x] `epd7in3e` driver 通過 host/build 與實機六色 pattern 驗證；refresh
   時間、panel sleep 電流與 forced-BUSY 隔離治具仍列為硬體待驗證項。
 - [x] 完成 Phase 2 renderer、DisplayTask owner contract、30 分鐘／5 分鐘
-  輪播核心與空圖庫 welcome frame；catalog-backed 圖片載入依計畫在
-  Phase 4–5 接入。
+  輪播核心與空圖庫 welcome frame；catalog-backed 圖片載入、離線輪播與
+  橫直向 PFR1 framebuffer 組合已在 Phase 5 接入。
 - [ ] Phase 3：AP／STA 純狀態機、provisioning portal、credential transaction、
   auth/CSRF 與 WebUI shell 已完成程式、host test、build、STA 啟動 smoke，
   以及正常 STA 登入後 Dashboard、Wi-Fi scan 與桌面版寬度驗證；最新
@@ -449,9 +449,10 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [ ] Phase 4：PFR1 contract、韌體 validator、browser image pipeline、
   quantizer、packer 與 host tests 已完成；可正常選檔的 browser 實機圖片
   產出／下載仍待補驗，未把 `image_02_05.png` 納入版本控制。
-- [ ] Phase 5：partition layout、catalog、transaction upload、boot recovery
+- [x] Phase 5：partition layout、catalog、transaction upload、boot recovery
   與 `StorageWorker::start()` 的 imagefs 啟動接線已完成並通過 host／firmware
-  build；受保護的 image list/upload API、serializer、PFR1 download route 與圖片庫
-  catalog/download/upload/delete/activate/order UI 與 async API 已完成，carousel
-  runtime 讀圖尚待完成。
+  build；受保護的 image list/upload API、serializer、PFR1 download route、圖片庫
+  catalog/download/upload/delete/activate/order UI、async API 與 carousel runtime
+  讀圖／面板提交已完成。離線輪播不依賴 Wi-Fi；硬體長時間輪播與斷電後實機驗證
+  仍保留在後續 acceptance。
   `image_02_05.png` 僅作本地測試，不得 commit。

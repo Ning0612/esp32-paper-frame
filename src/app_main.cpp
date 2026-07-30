@@ -1,4 +1,5 @@
 #include <cinttypes>
+#include <algorithm>
 #include <cstring>
 
 #include "esp_chip_info.h"
@@ -13,6 +14,7 @@
 #include "freertos/task.h"
 #include "pf_auth/auth_service.hpp"
 #include "pf_carousel/scheduler.hpp"
+#include "pf_carousel/image_frame.hpp"
 #include "pf_carousel/welcome_frame.hpp"
 #include "pf_config/config_manager.hpp"
 #include "pf_config/secure_memory.hpp"
@@ -21,6 +23,7 @@
 #include "pf_provisioning/ap_screen.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/filesystem_manager.hpp"
+#include "pf_storage/catalog.hpp"
 #include "pf_storage/littlefs_backend.hpp"
 #include "pf_storage/storage_worker.hpp"
 #include "pf_web/health_server.hpp"
@@ -32,6 +35,21 @@ constexpr char kTag[] = "paperframe";
 constexpr std::uint32_t kExpectedFlashBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kExpectedPsramBytes = 8U * 1024U * 1024U;
 constexpr std::uint64_t kCarouselRetryMs = 1000U;
+constexpr std::size_t kCarouselPayloadBytes =
+    pf_image::kPfr1MaxPayloadBytes;
+
+struct CarouselShownState {
+    std::uint32_t image_id = 0U;
+    bool shown_once = false;
+};
+
+struct CarouselCatalogContext {
+    pf_carousel::CarouselItem* items = nullptr;
+    std::size_t capacity = 0U;
+    std::size_t count = 0U;
+    const CarouselShownState* shown = nullptr;
+    std::size_t shown_count = 0U;
+};
 
 struct HardwareProfile {
     bool flash_ready;
@@ -117,6 +135,104 @@ pf_runtime::ServiceState state_from_filesystem(
 std::uint64_t monotonic_ms()
 {
     return static_cast<std::uint64_t>(esp_timer_get_time()) / 1000U;
+}
+
+bool collect_carousel_item(
+    void* const context,
+    const pf_storage::CatalogEntry& entry)
+{
+    auto* const catalog = static_cast<CarouselCatalogContext*>(context);
+    if (catalog == nullptr || catalog->items == nullptr ||
+        catalog->count >= catalog->capacity) {
+        return false;
+    }
+
+    bool shown_once = false;
+    for (std::size_t index = 0U; index < catalog->shown_count; ++index) {
+        if (catalog->shown[index].image_id == entry.id) {
+            shown_once = catalog->shown[index].shown_once;
+            break;
+        }
+    }
+
+    catalog->items[catalog->count++] = {
+        entry.id,
+        (entry.flags & pf_storage::kCatalogEnabled) != 0U,
+        (entry.flags & pf_storage::kCatalogCorrupt) == 0U,
+        shown_once,
+    };
+    return true;
+}
+
+void mark_carousel_image_shown(
+    CarouselShownState* const shown,
+    std::size_t& shown_count,
+    const std::uint32_t image_id)
+{
+    if (shown == nullptr || image_id == 0U) {
+        return;
+    }
+    for (std::size_t index = 0U; index < shown_count; ++index) {
+        if (shown[index].image_id == image_id) {
+            shown[index].shown_once = true;
+            return;
+        }
+    }
+    if (shown_count < pf_storage::kCatalogMaxEntries) {
+        shown[shown_count++] = {image_id, true};
+    }
+}
+
+bool feed_carousel_pfr1(
+    void* const context,
+    const std::uint8_t* const data,
+    const std::size_t length)
+{
+    auto* const decoder = static_cast<pf_carousel::Pfr1FrameDecoder*>(context);
+    return decoder != nullptr && decoder->feed(data, length);
+}
+
+bool render_carousel_image(
+    pf_storage::StorageWorker& storage_worker,
+    const pf_storage::CatalogEntry& entry,
+    std::uint8_t* const payload,
+    std::uint8_t* const status,
+    std::uint8_t* const frame,
+    const std::size_t frame_length)
+{
+    if (payload == nullptr || status == nullptr || frame == nullptr ||
+        entry.name_length == 0U ||
+        entry.name_length >= sizeof(entry.name)) {
+        return false;
+    }
+
+    pf_carousel::Pfr1FrameDecoder decoder(payload, kCarouselPayloadBytes);
+    const pf_storage::ImageStreamResult stream = storage_worker.stream_image(
+        entry.name,
+        entry.name_length,
+        feed_carousel_pfr1,
+        &decoder);
+    if (!stream.ok() || stream.bytes_sent != entry.file_bytes) {
+        ESP_LOGW(
+            kTag,
+            "carousel_image_stream_failed id=%" PRIu32 " error=%s",
+            entry.id,
+            pf_storage::to_string(stream.error));
+        return false;
+    }
+    if (!decoder.finish_and_compose(
+            status,
+            pf_display::kLandscapeStatusBytes,
+            frame,
+            frame_length)) {
+        ESP_LOGW(
+            kTag,
+            "carousel_image_decode_failed id=%" PRIu32 " error=%u",
+            entry.id,
+            static_cast<unsigned>(decoder.error()));
+        return false;
+    }
+    return true;
 }
 
 esp_err_t present_access_point_screen(
@@ -501,6 +617,24 @@ extern "C" void app_main()
     };
     pf_carousel::CarouselDecision active_carousel_decision{};
     std::uint32_t active_carousel_request_id = 0U;
+    CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
+    std::size_t carousel_shown_count = 0U;
+    pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
+    static std::uint8_t carousel_status[pf_display::kLandscapeStatusBytes]{};
+    std::uint8_t* carousel_payload = static_cast<std::uint8_t*>(
+        heap_caps_malloc(
+            kCarouselPayloadBytes,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (carousel_payload == nullptr) {
+        carousel_payload = static_cast<std::uint8_t*>(
+            heap_caps_malloc(kCarouselPayloadBytes, MALLOC_CAP_8BIT));
+    }
+    if (carousel_payload == nullptr) {
+        ESP_LOGE(
+            kTag,
+            "carousel_payload_alloc_failed bytes=%u; image display disabled",
+            static_cast<unsigned>(kCarouselPayloadBytes));
+    }
 
     while (true) {
         const std::uint64_t now_ms = monotonic_ms();
@@ -517,6 +651,32 @@ extern "C" void app_main()
                     active_carousel_decision,
                     succeeded,
                     now_ms);
+                if (succeeded &&
+                    active_carousel_decision.kind ==
+                        pf_carousel::DecisionKind::display_image) {
+                    mark_carousel_image_shown(
+                        carousel_shown,
+                        carousel_shown_count,
+                        active_carousel_decision.image_id);
+                    pf_storage::CatalogEntry displayed_entry{};
+                    if (storage_worker.find_catalog_entry_by_id(
+                            active_carousel_decision.image_id,
+                            displayed_entry) &&
+                        (displayed_entry.flags & pf_storage::kCatalogCurrent) ==
+                            0U) {
+                        const pf_storage::ImageStoreResult activate_result =
+                            storage_worker.activate_image(
+                                active_carousel_decision.image_id);
+                        if (!activate_result.ok()) {
+                            ESP_LOGW(
+                                kTag,
+                                "carousel_current_persist_failed id=%" PRIu32
+                                " error=%s",
+                                active_carousel_decision.image_id,
+                                pf_storage::to_string(activate_result.error));
+                        }
+                    }
+                }
                 ESP_LOGI(
                     kTag,
                     "carousel_request=%" PRIu32
@@ -530,18 +690,26 @@ extern "C" void app_main()
             }
         }
 
-        pf_runtime::RuntimeSnapshot runtime_snapshot{};
-        const bool normal_network_mode =
-            pf_runtime::coordinator().read_snapshot(runtime_snapshot) &&
-            runtime_snapshot.wifi ==
-                pf_runtime::WifiState::connected;
-        if (!normal_network_mode) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
+        std::size_t carousel_item_count = 0U;
+        if (storage_worker.ready()) {
+            CarouselCatalogContext catalog_context{
+                carousel_items,
+                pf_storage::kCatalogMaxEntries,
+                0U,
+                carousel_shown,
+                carousel_shown_count,
+            };
+            if (!storage_worker.visit_catalog(
+                    collect_carousel_item,
+                    &catalog_context)) {
+                vTaskDelay(pdMS_TO_TICKS(1000U));
+                continue;
+            }
+            carousel_item_count = catalog_context.count;
         }
 
         const pf_carousel::CarouselDecision decision =
-            carousel.poll(now_ms, nullptr, 0U);
+            carousel.poll(now_ms, carousel_items, carousel_item_count);
         if (display_started &&
             decision.kind ==
                 pf_carousel::DecisionKind::display_welcome) {
@@ -580,6 +748,58 @@ extern "C" void app_main()
                 ESP_LOGW(
                     kTag,
                     "carousel_welcome_frame_unavailable");
+            }
+        } else if (
+            display_started &&
+            decision.kind == pf_carousel::DecisionKind::display_image) {
+            pf_storage::CatalogEntry entry{};
+            pf_display::FrameWriteLease frame =
+                pf_display::display_task().try_acquire_frame();
+            if (frame.valid() && carousel_payload != nullptr &&
+                storage_worker.find_catalog_entry_by_id(
+                    decision.image_id,
+                    entry) &&
+                render_carousel_image(
+                    storage_worker,
+                    entry,
+                    carousel_payload,
+                    carousel_status,
+                    frame.data(),
+                    frame.size())) {
+                const std::uint32_t request_id =
+                    pf_runtime::coordinator().allocate_request_id();
+                const pf_display::SubmitStatus submit =
+                    pf_display::display_task().try_submit_refresh(
+                        request_id,
+                        frame);
+                if (submit == pf_display::SubmitStatus::accepted) {
+                    active_carousel_decision = decision;
+                    active_carousel_request_id = request_id;
+                    ESP_LOGI(
+                        kTag,
+                        "carousel_image_queued id=%" PRIu32
+                        " request=%" PRIu32,
+                        decision.image_id,
+                        request_id);
+                } else {
+                    carousel.abandon(
+                        decision,
+                        now_ms + kCarouselRetryMs);
+                    ESP_LOGW(
+                        kTag,
+                        "carousel_image_submit_deferred id=%" PRIu32
+                        " status=%u",
+                        decision.image_id,
+                        static_cast<unsigned>(submit));
+                }
+            } else {
+                carousel.abandon(
+                    decision,
+                    now_ms + kCarouselRetryMs);
+                ESP_LOGW(
+                    kTag,
+                    "carousel_image_frame_unavailable id=%" PRIu32,
+                    decision.image_id);
             }
         } else if (
             decision.kind != pf_carousel::DecisionKind::wait) {

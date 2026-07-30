@@ -4,4 +4,5 @@ idf_component_register(
     REQUIRES
         pf_config
         pf_display
+        pf_image
 )
