@@ -199,6 +199,10 @@ esp_err_t present_access_point_screen(
 
 extern "C" void app_main()
 {
+    // The managed QR encoder logs its input at INFO; that input contains the
+    // generated AP password. Keep credentials out of the serial log before
+    // any provisioning screen can be rendered.
+    esp_log_level_set("QRCODE", ESP_LOG_WARN);
     ESP_LOGI(kTag, "PaperFrame Phase 3 provisioning runtime");
     const HardwareProfile hardware = log_hardware_profile();
 
