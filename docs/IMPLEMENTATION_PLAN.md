@@ -1,7 +1,7 @@
 # PaperFrame MVP 實作計畫
 
 狀態：Phase 5 實作進行中；Phase 3／4 的部分實機收尾與 Phase 5 圖片 mutation、
-WebUI、carousel 整合尚待完成，暫不部署大功能版本
+upload/delete、carousel 整合尚待完成，暫不部署大功能版本
 
 需求基線：`Guild.md` v0.1
 
@@ -272,7 +272,8 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - 圖片 list/upload/delete/activate/advance/order API。
 - 受保護的 `GET /api/v1/images/{name}/download`，以固定 PFR1 MIME、
   安全的 `Content-Disposition` 與檔名回傳已處理圖片。
-- 圖片庫 UI、storage usage、排序、批次刪除與 processed file download。
+- 圖片庫 UI、storage usage、排序、批次刪除與 processed file download；目前先完成
+  catalog 顯示與 processed file download，mutation 操作待後續接入。
 
 驗收：
 
@@ -449,6 +450,7 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   產出／下載仍待補驗，未把 `image_02_05.png` 納入版本控制。
 - [ ] Phase 5：partition layout、catalog、transaction upload、boot recovery
   與 `StorageWorker::start()` 的 imagefs 啟動接線已完成並通過 host／firmware
-  build；受保護的唯讀 image list API、serializer 與 PFR1 download route 已完成，
-  圖片非同步 mutation、upload/delete、carousel 讀圖與圖片庫 WebUI 尚待完成。
+  build；受保護的唯讀 image list API、serializer、PFR1 download route 與圖片庫
+  catalog/download UI 已完成，圖片非同步 mutation、upload/delete 與 carousel
+  讀圖尚待完成。
   `image_02_05.png` 僅作本地測試，不得 commit。

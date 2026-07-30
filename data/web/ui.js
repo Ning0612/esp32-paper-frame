@@ -28,7 +28,7 @@
   const authenticatedActions = $("#authenticated-actions");
   const logoutButton = $("#logout-button");
   const appShell = $("#app-shell");
-  const sidebar = $("#sidebar");
+  const topNavigation = $("#top-navigation");
   const dashboardView = $("#dashboard-view");
   const wifiView = $("#wifi-view");
   const imageView = $("#image-view");
@@ -56,6 +56,9 @@
   const dashboardStatus = $("#dashboard-status");
   const refreshDashboard = $("#refresh-dashboard");
   const themeToggle = $("#theme-toggle");
+  const imageLibraryRefresh = $("#image-library-refresh");
+  const imageLibraryStatus = $("#image-library-status");
+  const imageLibraryList = $("#image-library-list");
 
   let selected = "";
   let polling = 0;
@@ -72,6 +75,7 @@
   let imageRevision = 0;
   let imageSelectionRevision = 0;
   let activeQuantizeWorker = null;
+  let imageLibraryRevision = 0;
   const maxSourceBytes = 32 * 1024 * 1024;
   const maxSourcePixels = 16 * 1024 * 1024;
 
@@ -252,6 +256,102 @@
     if (!Number.isFinite(bytes)) return "未知";
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
     return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+  }
+
+  function renderImageLibrary(images) {
+    imageLibraryList.replaceChildren();
+    if (images.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "image-library-empty";
+      empty.textContent = "裝置目前沒有可用的 PFR1 圖片。";
+      imageLibraryList.append(empty);
+      return;
+    }
+    images.forEach((image) => {
+      const row = document.createElement("article");
+      row.className = "image-library-row";
+
+      const copy = document.createElement("div");
+      copy.className = "image-library-copy";
+      const name = document.createElement("strong");
+      name.className = "image-library-name";
+      name.textContent = image.name || "未命名圖片";
+      const meta = document.createElement("small");
+      meta.className = "image-library-meta";
+      const dimensions = Number.isFinite(Number(image.width)) && Number.isFinite(Number(image.height))
+        ? `${image.width} × ${image.height}`
+        : "尺寸未知";
+      const orientation = image.orientation === "portrait" ? "直向" : "橫向";
+      meta.textContent = `${dimensions} · ${orientation} · ${formatImageSize(Number(image.file_bytes))}`;
+      copy.append(name, meta);
+
+      const states = document.createElement("div");
+      states.className = "image-library-states";
+      if (image.current) {
+        const current = document.createElement("span");
+        current.className = "image-library-state current";
+        current.textContent = "目前";
+        states.append(current);
+      }
+      if (!image.enabled) {
+        const disabled = document.createElement("span");
+        disabled.className = "image-library-state disabled";
+        disabled.textContent = "停用";
+        states.append(disabled);
+      }
+      if (image.corrupt) {
+        const corrupt = document.createElement("span");
+        corrupt.className = "image-library-state corrupt";
+        corrupt.textContent = "損壞";
+        states.append(corrupt);
+      }
+      if (states.childElementCount > 0) copy.append(states);
+
+      const actions = document.createElement("div");
+      actions.className = "image-library-actions";
+      if (image.corrupt || !image.name) {
+        const unavailable = document.createElement("span");
+        unavailable.className = "field-hint";
+        unavailable.textContent = image.corrupt ? "檔案無法下載" : "缺少檔名";
+        actions.append(unavailable);
+      } else {
+        const download = document.createElement("a");
+        download.className = "plain-button";
+        download.href = `/api/v1/images/${encodeURIComponent(image.name)}/download`;
+        download.download = image.name;
+        download.textContent = "下載 PFR1";
+        actions.append(download);
+      }
+      row.append(copy, actions);
+      imageLibraryList.append(row);
+    });
+  }
+
+  async function loadImageLibrary() {
+    const revision = ++imageLibraryRevision;
+    imageLibraryRefresh.disabled = true;
+    imageLibraryStatus.textContent = "正在讀取裝置 catalog…";
+    try {
+      const response = await fetch("/api/v1/images", { cache: "no-store" });
+      const payload = await response.json();
+      if (revision !== imageLibraryRevision) return;
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.data || !Array.isArray(payload.data.images)) {
+        throw new Error(payload.error || "image_library_failed");
+      }
+      const images = payload.data.images;
+      renderImageLibrary(images);
+      imageLibraryStatus.textContent = `已載入 ${images.length} 張裝置圖片`;
+    } catch {
+      if (revision !== imageLibraryRevision) return;
+      imageLibraryList.replaceChildren();
+      imageLibraryStatus.textContent = "圖片庫讀取失敗，請確認仍連著 PaperFrame 後重試。";
+    } finally {
+      if (revision === imageLibraryRevision) imageLibraryRefresh.disabled = false;
+    }
   }
 
   function drawRaster(canvas, raster) {
@@ -544,6 +644,7 @@
     });
     if (refresh && view === "dashboard") loadDashboard();
     if (refresh && view === "wifi") scan(true);
+    if (refresh && view === "image") loadImageLibrary();
   }
 
   $$(".nav-link[data-view]").forEach((link) => link.addEventListener("click", () => showView(link.dataset.view)));
@@ -558,13 +659,14 @@
   imageMirrorY.addEventListener("click", () => applyImageTransform("mirror-y"));
   imageRotate.addEventListener("click", () => applyImageTransform("rotate-90-cw"));
   downloadPfr1.addEventListener("click", downloadImagePfr1);
+  imageLibraryRefresh.addEventListener("click", () => loadImageLibrary());
 
   function showAuthenticated(token) {
     csrfToken = token || "";
     authPassword.value = "";
     authGate.hidden = true;
     appShell.hidden = false;
-    sidebar.hidden = false;
+    topNavigation.hidden = false;
     authenticatedActions.hidden = false;
     loadDashboard().then((runtime) => {
       const wifiState = runtime && runtime.network ? runtime.network.wifi : null;
@@ -577,9 +679,12 @@
   }
 
   function showAuthForm(passwordConfigured) {
+    imageLibraryRevision += 1;
+    imageLibraryList.replaceChildren();
+    imageLibraryStatus.textContent = "請重新登入後查看裝置圖片庫。";
     authGate.hidden = false;
     appShell.hidden = true;
-    sidebar.hidden = true;
+    topNavigation.hidden = true;
     authenticatedActions.hidden = true;
     authTitle.textContent = passwordConfigured ? "管理員登入" : "建立管理密碼";
     authPasswordLabel.textContent = passwordConfigured ? "管理密碼" : "新管理密碼";

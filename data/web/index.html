@@ -26,6 +26,16 @@
         </div>
       </div>
       <div class="topbar-actions">
+        <nav id="top-navigation" class="top-navigation" aria-label="主要導覽" hidden>
+          <button class="nav-link active" type="button" data-view="dashboard"
+                  aria-current="page">總覽 <span>01</span></button>
+          <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
+          <button class="nav-link" type="button" data-view="image">圖片 <span>04</span></button>
+          <button class="nav-link future" type="button" disabled
+                  title="Phase 7 開放">環境 <span>07</span></button>
+          <button class="nav-link future" type="button" disabled
+                  title="Phase 8 開放">系統 <span>08</span></button>
+        </nav>
         <span class="offline-badge">LOCAL ONLY</span>
         <button id="theme-toggle" class="plain-button" type="button"
                 aria-pressed="false">DARK</button>
@@ -37,24 +47,6 @@
     </header>
 
     <div class="workspace">
-      <aside id="sidebar" class="sidebar" aria-label="主要導覽" hidden>
-        <p class="nav-label">MANAGEMENT</p>
-        <nav class="primary-nav">
-          <button class="nav-link active" type="button" data-view="dashboard"
-                  aria-current="page">總覽 <span>01</span></button>
-          <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
-          <button class="nav-link" type="button" data-view="image">圖片 <span>04</span></button>
-          <button class="nav-link future" type="button" disabled
-                  title="Phase 7 開放">環境 <span>07</span></button>
-          <button class="nav-link future" type="button" disabled
-                  title="Phase 8 開放">系統 <span>08</span></button>
-        </nav>
-        <div class="sidebar-note">
-          <strong>可信任網路</strong>
-          <p>管理介面只適合可信任 LAN 或 PaperFrame 裝置 AP。</p>
-        </div>
-      </aside>
-
       <section class="content" aria-live="polite">
         <section id="auth-gate" class="panel auth-panel" aria-labelledby="auth-title">
           <div class="panel-heading">
@@ -287,6 +279,16 @@
               <article class="panel preview-card"><div class="preview-heading"><h3>處理後</h3><span>fit / crop</span></div><canvas id="preview-processed" aria-label="處理後預覽"></canvas></article>
               <article class="panel preview-card"><div class="preview-heading"><h3>六色</h3><span>native palette</span></div><canvas id="preview-sixcolor" aria-label="六色預覽"></canvas></article>
               <article class="panel preview-card"><div class="preview-heading"><h3>面板畫面</h3><span>status bar</span></div><canvas id="preview-frame" aria-label="含狀態列的面板預覽"></canvas></article>
+            </section>
+
+            <section id="image-library" class="panel image-library" aria-labelledby="image-library-title">
+              <div class="panel-heading">
+                <div><span class="panel-no coral">I</span><h3 id="image-library-title">裝置圖片庫</h3></div>
+                <button id="image-library-refresh" class="plain-button" type="button">重新整理</button>
+              </div>
+              <p id="image-library-status" class="status-line" role="status" aria-live="polite">正在等待圖片庫資料…</p>
+              <div id="image-library-list" class="image-library-list" aria-live="polite"></div>
+              <p class="field-hint">目前可查看 catalog 並下載已儲存的 PFR1；上傳、刪除與輪播控制將在後續 mutation 階段接入。</p>
             </section>
           </div>
         </section>
