@@ -4,6 +4,7 @@ idf_component_register(
         "filesystem_manager.cpp"
         "image_store.cpp"
         "littlefs_backend.cpp"
+        "recovery.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES

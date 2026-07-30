@@ -2,6 +2,8 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <dirent.h>
+#include <cstring>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 
@@ -119,6 +121,65 @@ bool LittleFsStorageFileSystem::close_read(StorageFileHandle& handle)
     FILE* const file = static_cast<FILE*>(handle.opaque);
     handle.opaque = nullptr;
     return std::fclose(file) == 0;
+}
+
+bool LittleFsStorageFileSystem::for_each_file(
+    const char* const directory,
+    const StorageFileVisitor visitor,
+    void* const context)
+{
+    if (directory == nullptr || visitor == nullptr) {
+        return false;
+    }
+    DIR* const stream = opendir(directory);
+    if (stream == nullptr) {
+        return false;
+    }
+    bool success = true;
+    struct dirent* entry = nullptr;
+    char path[160]{};
+    while (true) {
+        errno = 0;
+        entry = readdir(stream);
+        if (entry == nullptr) {
+            break;
+        }
+        if (std::strcmp(entry->d_name, ".") == 0 ||
+            std::strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        const int written = std::snprintf(
+            path,
+            sizeof(path),
+            "%s/%s",
+            directory,
+            entry->d_name);
+        if (written < 0 || static_cast<std::size_t>(written) >= sizeof(path)) {
+            success = false;
+            break;
+        }
+        struct stat status{};
+        if (stat(path, &status) != 0) {
+            if (errno == ENOENT) {
+                continue;
+            }
+            success = false;
+            break;
+        }
+        if (!S_ISREG(status.st_mode)) {
+            continue;
+        }
+        if (!visitor(context, path)) {
+            break;
+        }
+    }
+    if (entry == nullptr && errno != 0) {
+        success = false;
+    }
+    if (closedir(stream) != 0) {
+        success = false;
+    }
+    return success;
 }
 
 }  // namespace pf_storage

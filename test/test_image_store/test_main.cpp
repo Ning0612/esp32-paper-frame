@@ -11,6 +11,7 @@
 #include <unity.h>
 
 #include "pf_storage/image_store.hpp"
+#include "pf_storage/recovery.hpp"
 
 extern "C" void setUp() {}
 extern "C" void tearDown() {}
@@ -129,6 +130,7 @@ public:
     bool fail_open = false;
     bool fail_write = false;
     bool fail_close = false;
+    bool fail_list = false;
     std::string fail_close_path;
     std::string corrupt_on_close_path;
     std::string fail_rename_from;
@@ -274,6 +276,31 @@ public:
         handle.opaque = nullptr;
         return true;
     }
+
+    bool for_each_file(
+        const char* const directory,
+        pf_storage::StorageFileVisitor visitor,
+        void* const context) override
+    {
+        if (directory == nullptr || visitor == nullptr) {
+            return false;
+        }
+        if (fail_list) {
+            return false;
+        }
+        const std::string prefix =
+            std::string(directory) + "/";
+        for (const auto& file : files) {
+            if (file.first.rfind(prefix, 0U) != 0U ||
+                file.first.find('/', prefix.size()) != std::string::npos) {
+                continue;
+            }
+            if (!visitor(context, file.first.c_str())) {
+                break;
+            }
+        }
+        return true;
+    }
 };
 
 pf_storage::Catalog make_existing_catalog(const char* const filename)
@@ -330,6 +357,32 @@ pf_storage::Catalog make_catalog_with_count(const std::size_t count)
     return catalog;
 }
 
+pf_storage::Catalog append_catalog_entry(
+    const pf_storage::Catalog& base,
+    const char* const filename)
+{
+    pf_storage::Catalog candidate = base;
+    pf_storage::CatalogEntry entry{};
+    entry.width = pf_display::kPanelWidth;
+    entry.height = pf_display::kLandscapeImageHeight;
+    entry.payload_bytes = pf_image::expected_payload_length(
+        entry.width,
+        entry.height);
+    entry.file_bytes = static_cast<std::uint32_t>(
+        pf_image::kPfr1HeaderSize + std::strlen(filename) +
+        entry.payload_bytes);
+    entry.name_length = static_cast<std::uint16_t>(std::strlen(filename));
+    std::memcpy(entry.name, filename, entry.name_length);
+    std::uint32_t id = 0U;
+    pf_storage::CatalogError error = pf_storage::CatalogError::none;
+    TEST_ASSERT_TRUE(pf_storage::add_catalog_entry(
+        candidate,
+        entry,
+        id,
+        error));
+    return candidate;
+}
+
 pf_storage::ImageStoreResult upload(
     FakeStorageFileSystem& filesystem,
     const pf_storage::Catalog& current_catalog,
@@ -354,8 +407,9 @@ pf_storage::ImageStoreResult upload(
         content_length);
 }
 
-void seed_catalog_file(
+void seed_catalog_at(
     FakeStorageFileSystem& filesystem,
+    const char* const path,
     const pf_storage::Catalog& catalog)
 {
     std::array<std::uint8_t, pf_storage::kCatalogMaxBytes> buffer{};
@@ -367,9 +421,26 @@ void seed_catalog_file(
         buffer.size(),
         written,
         error));
-    filesystem.files["/images/.catalog.pfc1"] = std::vector<std::uint8_t>(
+    filesystem.files[path] = std::vector<std::uint8_t>(
         buffer.begin(),
         buffer.begin() + static_cast<std::ptrdiff_t>(written));
+}
+
+void seed_catalog_file(
+    FakeStorageFileSystem& filesystem,
+    const pf_storage::Catalog& catalog)
+{
+    seed_catalog_at(filesystem, "/images/.catalog.pfc1", catalog);
+}
+
+void seed_image_file(
+    FakeStorageFileSystem& filesystem,
+    const char* const filename,
+    const char* const suffix = "")
+{
+    const std::vector<std::uint8_t> image = make_pfr1(filename);
+    filesystem.files[
+        std::string("/images/") + filename + suffix] = image;
 }
 
 void assert_no_transaction_files(const FakeStorageFileSystem& filesystem)
@@ -572,6 +643,245 @@ void test_catalog_close_failure_has_a_distinct_error()
     assert_no_transaction_files(filesystem);
 }
 
+void test_recovery_promotes_complete_catalog_and_image_parts()
+{
+    FakeStorageFileSystem filesystem;
+    pf_storage::Catalog empty{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(empty));
+    seed_catalog_file(filesystem, empty);
+    const pf_storage::Catalog candidate = append_catalog_entry(
+        empty,
+        "next.pfr1");
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.part",
+        candidate);
+    seed_image_file(filesystem, "next.pfr1", ".part");
+
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_TRUE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryAction::promoted_candidate),
+        static_cast<int>(result.action));
+    TEST_ASSERT_TRUE(result.has_catalog);
+    TEST_ASSERT_EQUAL_UINT16(1U, workspace.recovered.count);
+    TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1"));
+    assert_no_transaction_files(filesystem);
+    TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1.part"));
+}
+
+void test_recovery_finishes_after_image_rename_and_backup_creation()
+{
+    FakeStorageFileSystem filesystem;
+    const pf_storage::Catalog old_catalog = make_existing_catalog("old.pfr1");
+    const pf_storage::Catalog candidate = append_catalog_entry(
+        old_catalog,
+        "next.pfr1");
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.bak",
+        old_catalog);
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.part",
+        candidate);
+    seed_image_file(filesystem, "next.pfr1");
+
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_TRUE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryAction::promoted_candidate),
+        static_cast<int>(result.action));
+    TEST_ASSERT_EQUAL_UINT16(2U, workspace.recovered.count);
+    TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.bak"));
+    assert_no_transaction_files(filesystem);
+}
+
+void test_recovery_restores_backup_when_candidate_is_corrupt()
+{
+    FakeStorageFileSystem filesystem;
+    const pf_storage::Catalog old_catalog = make_existing_catalog("old.pfr1");
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.bak",
+        old_catalog);
+    filesystem.files["/images/.catalog.pfc1.part"] = {0x00U, 0x01U};
+    seed_image_file(filesystem, "next.pfr1", ".part");
+
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_TRUE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryAction::restored_backup),
+        static_cast<int>(result.action));
+    TEST_ASSERT_TRUE(result.has_catalog);
+    TEST_ASSERT_EQUAL_UINT16(1U, workspace.recovered.count);
+    TEST_ASSERT_TRUE(filesystem.exists("/images/.catalog.pfc1"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.bak"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1.part"));
+    assert_no_transaction_files(filesystem);
+}
+
+void test_recovery_keeps_canonical_and_cleans_stale_backup_parts()
+{
+    FakeStorageFileSystem filesystem;
+    const pf_storage::Catalog catalog = make_existing_catalog("old.pfr1");
+    seed_catalog_file(filesystem, catalog);
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.bak",
+        catalog);
+    filesystem.files["/images/.upload.part"] = {0x01U};
+    seed_image_file(filesystem, "orphan.pfr1", ".part");
+
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_TRUE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryAction::no_change),
+        static_cast<int>(result.action));
+    TEST_ASSERT_TRUE(result.has_catalog);
+    TEST_ASSERT_EQUAL_UINT16(1U, workspace.recovered.count);
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.bak"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/orphan.pfr1.part"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.upload.part"));
+}
+
+void test_recovery_rejects_non_append_candidate_without_mutation()
+{
+    FakeStorageFileSystem filesystem;
+    const pf_storage::Catalog old_catalog = make_existing_catalog("old.pfr1");
+    const pf_storage::Catalog unrelated = make_existing_catalog("other.pfr1");
+    seed_catalog_file(filesystem, old_catalog);
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.part",
+        unrelated);
+
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryError::ambiguous),
+        static_cast<int>(result.error));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/.catalog.pfc1"));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/.catalog.pfc1.part"));
+}
+
+void test_recovery_rename_failure_removes_uncommitted_new_image()
+{
+    FakeStorageFileSystem filesystem;
+    const pf_storage::Catalog old_catalog = make_existing_catalog("old.pfr1");
+    const pf_storage::Catalog candidate = append_catalog_entry(
+        old_catalog,
+        "next.pfr1");
+    seed_catalog_file(filesystem, old_catalog);
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.part",
+        candidate);
+    seed_image_file(filesystem, "next.pfr1", ".part");
+    const std::vector<std::uint8_t> candidate_bytes =
+        filesystem.files.at("/images/.catalog.pfc1.part");
+    filesystem.fail_rename_from = "/images/.catalog.pfc1";
+
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryError::rename_failed),
+        static_cast<int>(result.error));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/.catalog.pfc1"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1"));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/.catalog.pfc1.part"));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1.part"));
+
+    filesystem.fail_rename_from.clear();
+    pf_storage::RecoveryWorkspace retry_workspace{};
+    const pf_storage::RecoveryResult retry_result =
+        pf_storage::recover_image_transactions(filesystem, retry_workspace);
+    TEST_ASSERT_TRUE(retry_result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryAction::promoted_candidate),
+        static_cast<int>(retry_result.action));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1.part"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.part"));
+    TEST_ASSERT_EQUAL_MEMORY(
+        candidate_bytes.data(),
+        filesystem.files.at("/images/.catalog.pfc1").data(),
+        candidate_bytes.size());
+}
+
+void test_recovery_catalog_commit_failure_restores_checkpoint()
+{
+    FakeStorageFileSystem filesystem;
+    const pf_storage::Catalog old_catalog = make_existing_catalog("old.pfr1");
+    const pf_storage::Catalog candidate = append_catalog_entry(
+        old_catalog,
+        "next.pfr1");
+    seed_catalog_file(filesystem, old_catalog);
+    seed_catalog_at(
+        filesystem,
+        "/images/.catalog.pfc1.part",
+        candidate);
+    seed_image_file(filesystem, "next.pfr1", ".part");
+    const std::vector<std::uint8_t> old_catalog_bytes =
+        filesystem.files.at("/images/.catalog.pfc1");
+    filesystem.fail_rename_from = "/images/.catalog.pfc1.part";
+
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryError::rename_failed),
+        static_cast<int>(result.error));
+    TEST_ASSERT_EQUAL_MEMORY(
+        old_catalog_bytes.data(),
+        filesystem.files.at("/images/.catalog.pfc1").data(),
+        old_catalog_bytes.size());
+    TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1"));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1.part"));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/.catalog.pfc1.part"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.bak"));
+
+    filesystem.fail_rename_from.clear();
+    pf_storage::RecoveryWorkspace retry_workspace{};
+    const pf_storage::RecoveryResult retry_result =
+        pf_storage::recover_image_transactions(filesystem, retry_workspace);
+    TEST_ASSERT_TRUE(retry_result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryAction::promoted_candidate),
+        static_cast<int>(retry_result.action));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1.part"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.part"));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.bak"));
+}
+
+void test_recovery_fails_closed_when_directory_listing_fails()
+{
+    FakeStorageFileSystem filesystem;
+    filesystem.fail_list = true;
+    pf_storage::RecoveryWorkspace workspace{};
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryError::list_failed),
+        static_cast<int>(result.error));
+}
+
 void test_rename_boundaries_roll_back_to_the_old_catalog()
 {
     const pf_storage::Catalog current = make_existing_catalog("old.pfr1");
@@ -618,6 +928,14 @@ int main(int, char**)
     RUN_TEST(test_maximum_catalog_size_reads_back_at_exact_buffer_capacity);
     RUN_TEST(test_catalog_output_alias_is_rejected);
     RUN_TEST(test_catalog_close_failure_has_a_distinct_error);
+    RUN_TEST(test_recovery_promotes_complete_catalog_and_image_parts);
+    RUN_TEST(test_recovery_finishes_after_image_rename_and_backup_creation);
+    RUN_TEST(test_recovery_restores_backup_when_candidate_is_corrupt);
+    RUN_TEST(test_recovery_keeps_canonical_and_cleans_stale_backup_parts);
+    RUN_TEST(test_recovery_rejects_non_append_candidate_without_mutation);
+    RUN_TEST(test_recovery_rename_failure_removes_uncommitted_new_image);
+    RUN_TEST(test_recovery_catalog_commit_failure_restores_checkpoint);
+    RUN_TEST(test_recovery_fails_closed_when_directory_listing_fails);
     RUN_TEST(test_rename_boundaries_roll_back_to_the_old_catalog);
     return UNITY_END();
 }

@@ -32,6 +32,8 @@ struct StorageFileHandle {
     void* opaque = nullptr;
 };
 
+using StorageFileVisitor = bool (*)(void* context, const char* path);
+
 // A single StorageWorker owns the backend and performs one mutation at a time.
 // Implementations must make remove_if_exists idempotent and close_write flush
 // all bytes before returning.
@@ -56,6 +58,12 @@ public:
         std::size_t capacity,
         std::size_t& bytes_read) = 0;
     virtual bool close_read(StorageFileHandle& handle) = 0;
+    // Visit regular files below directory. Returning false stops traversal
+    // successfully; the backend returns false only for an enumeration error.
+    virtual bool for_each_file(
+        const char* directory,
+        StorageFileVisitor visitor,
+        void* context) = 0;
 };
 
 enum class ImageStoreError : std::uint8_t {

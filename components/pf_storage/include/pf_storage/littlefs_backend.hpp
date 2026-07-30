@@ -25,6 +25,10 @@ public:
         std::size_t capacity,
         std::size_t& bytes_read) override;
     bool close_read(StorageFileHandle& handle) override;
+    bool for_each_file(
+        const char* directory,
+        StorageFileVisitor visitor,
+        void* context) override;
 
 private:
     const char* mount_path_ = nullptr;

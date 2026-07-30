@@ -78,9 +78,9 @@ Header CRC 的輸入包含 `payload_length`，但不包含兩個 CRC 欄位。pa
 
 PFC1 本身是單一固定長度 blob，寫入 imagefs 時必須使用專案的 `.part`／
 `.bak` 交易流程：先寫完整 bytes、重新讀回並驗證 magic／header／entry／兩個
-CRC，再以 rename/replace 提交正式 catalog。開機若發現 `.part` 或 `.bak`，
-後續 StorageWorker recovery 會依驗證結果選擇最新完整版本；本文件不把未完成
-的 recovery 行為宣稱為已實作。`remove_catalog_entry` 只負責原子地移除 metadata
+CRC，再以 rename/replace 提交正式 catalog。`pf_storage::recover_image_transactions`
+會在 imagefs mount 後依驗證結果選擇最新完整版本或還原舊版本；目前函式已由
+host/build 驗證，但尚未接入實際 StorageWorker startup。`remove_catalog_entry` 只負責原子地移除 metadata
 與重編順序；若移除 current，transaction coordinator 必須在同一 catalog/runtime
 更新中先選擇下一筆 `enabled && !corrupt` entry，無候選時才清除 current。
 
