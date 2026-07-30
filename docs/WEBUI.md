@@ -29,6 +29,26 @@ snapshot；handler 不等待顯示器、網路、NVS 或 filesystem。
 `unavailable`／`unknown` 表示，不填入零值或歷史資料。光敏電阻與溫溼度
 感測器未安裝時，Dashboard 維持「未安裝／未知」狀態。
 
+## Phase 4 圖片處理管線
+
+`data/web/image_pipeline.js` 是離線可載入、也可由 Node host test 驗證的純
+RGBA raster helper。`processRaster()` 固定依序正規化 EXIF orientation 1–8、
+水平鏡像、垂直鏡像、順時針 90°、fit/crop 與 nearest-neighbor resize；透明
+像素先以白色背景合成。四種 fit 語意如下：
+
+- `contain`：等比縮放並在目標畫布留白。
+- `cover`：等比放大到覆蓋目標後置中裁切。
+- `fill`：直接縮放到目標尺寸，不保持比例。
+- `crop`：先以目標比例置中裁切原圖，再等比縮放。
+
+輸出目標必須由 landscape `800×440` 或 portrait `480×760` profile 指定；
+量化、dithering 與 PFR1 pack 會在後續 Phase 4 commit 接入。Node 驗證命令：
+
+```powershell
+node test\web\test_image_pipeline.mjs
+node --check data\web\image_pipeline.js
+```
+
 ## 視覺與主題
 
 - 米白網格背景、Teal／Coral／Mint、方角元件與硬陰影。
