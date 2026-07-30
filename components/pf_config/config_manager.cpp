@@ -17,6 +17,8 @@ constexpr char kNetworkNamespace[] = "pf_wifi";
 constexpr char kNetworkCredentialKey[] = "credentials";
 constexpr char kAuthenticationNamespace[] = "pf_auth";
 constexpr char kManagementPasswordHashKey[] = "password_hash";
+constexpr char kWeatherNamespace[] = "pf_weather";
+constexpr char kWeatherSettingsKey[] = "settings";
 
 esp_err_t initialize_nvs()
 {
@@ -286,6 +288,72 @@ esp_err_t save_management_password(
         result = nvs_commit(handle);
     }
     nvs_close(handle);
+    return result;
+}
+
+WeatherSettingsLoadResult load_weather_settings()
+{
+    WeatherSettings defaults{};
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kWeatherNamespace, NVS_READONLY, &handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        return {ESP_OK, false, defaults};
+    }
+    if (result != ESP_OK) {
+        return {result, false, {}};
+    }
+
+    WeatherSettingsBlob blob{};
+    std::size_t length = sizeof(blob);
+    result = nvs_get_blob(handle, kWeatherSettingsKey, &blob, &length);
+    nvs_close(handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        secure_zero(blob);
+        return {ESP_OK, false, defaults};
+    }
+    if (result != ESP_OK || length != sizeof(blob)) {
+        secure_zero(blob);
+        return {
+            result == ESP_OK ? ESP_ERR_INVALID_SIZE : result,
+            false,
+            {},
+        };
+    }
+
+    WeatherSettings settings{};
+    const bool decoded = decode_weather_settings(blob, settings);
+    secure_zero(blob);
+    if (!decoded) {
+        return {ESP_ERR_INVALID_CRC, false, {}};
+    }
+    return {ESP_OK, true, settings};
+}
+
+esp_err_t save_weather_settings(const WeatherSettings& settings)
+{
+    WeatherSettingsBlob blob{};
+    if (!encode_weather_settings(settings, blob)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kWeatherNamespace, NVS_READWRITE, &handle);
+    if (result != ESP_OK) {
+        secure_zero(blob);
+        return result;
+    }
+    result = nvs_set_blob(
+        handle,
+        kWeatherSettingsKey,
+        &blob,
+        sizeof(blob));
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    secure_zero(blob);
     return result;
 }
 

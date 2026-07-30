@@ -31,7 +31,19 @@
   const topNavigation = $("#top-navigation");
   const dashboardView = $("#dashboard-view");
   const wifiView = $("#wifi-view");
+  const weatherView = $("#weather-view");
   const imageView = $("#image-view");
+  const weatherForm = $("#weather-form");
+  const weatherApiKey = $("#weather-api-key");
+  const weatherLatitude = $("#weather-latitude");
+  const weatherLongitude = $("#weather-longitude");
+  const weatherInterval = $("#weather-interval");
+  const weatherLocation = $("#weather-location");
+  const weatherUnits = $("#weather-units");
+  const weatherLanguage = $("#weather-language");
+  const weatherNtpServer = $("#weather-ntp-server");
+  const weatherSave = $("#weather-save");
+  const weatherStatus = $("#weather-status");
   const imageSourceInput = $("#image-source");
   const imageSourceInfo = $("#image-source-info");
   const imageOrientation = $("#image-orientation");
@@ -253,6 +265,83 @@
       return null;
     }
   }
+
+  async function loadWeatherConfig() {
+    weatherStatus.textContent = "正在讀取天氣設定…";
+    try {
+      const response = await fetch("/api/v1/weather/config", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.data || !payload.data.weather) {
+        throw new Error(payload.error || "weather_config_failed");
+      }
+      const weather = payload.data.weather;
+      weatherLatitude.value = weather.latitude_e6 ?? "";
+      weatherLongitude.value = weather.longitude_e6 ?? "";
+      weatherInterval.value = weather.interval_minutes ?? 10;
+      weatherLocation.value = weather.location || "Taipei";
+      weatherUnits.value = weather.units || "metric";
+      weatherLanguage.value = weather.language || "zh_tw";
+      weatherNtpServer.value = weather.ntp_server || "pool.ntp.org";
+      weatherApiKey.value = "";
+      $("#weather-config-state").textContent = weather.configured ? "已保存" : "使用預設值";
+      $("#weather-api-key-state").textContent = weather.api_key_set ? "已設定（遮罩）" : "尚未設定";
+      weatherStatus.textContent = "設定已載入；留白 API key 會保留原值。";
+    } catch (error) {
+      weatherStatus.className = "save-status error";
+      weatherStatus.textContent = `天氣設定讀取失敗：${error.message || "請稍後重試"}`;
+    }
+  }
+
+  weatherForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!csrfToken) return;
+    const values = {
+      latitude_e6: weatherLatitude.value.trim(),
+      longitude_e6: weatherLongitude.value.trim(),
+      interval_minutes: weatherInterval.value.trim(),
+      location: weatherLocation.value.trim(),
+      units: weatherUnits.value,
+      language: weatherLanguage.value.trim(),
+      ntp_server: weatherNtpServer.value.trim(),
+    };
+    if (!values.location || !values.language || !values.ntp_server) {
+      weatherStatus.className = "save-status error";
+      weatherStatus.textContent = "請完整填寫地點、語言與 NTP server。";
+      return;
+    }
+    weatherSave.disabled = true;
+    weatherStatus.className = "save-status";
+    weatherStatus.textContent = "正在保存天氣設定…";
+    try {
+      if (weatherApiKey.value.trim()) values.api_key = weatherApiKey.value.trim();
+      const response = await fetch("/api/v1/weather/config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: new URLSearchParams(values).toString(),
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "weather_save_failed");
+      weatherStatus.className = "save-status success";
+      weatherStatus.textContent = "天氣設定已保存；HTTPS worker 接入後會依此設定更新。";
+      await loadWeatherConfig();
+    } catch (error) {
+      weatherStatus.className = "save-status error";
+      weatherStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+    } finally {
+      weatherSave.disabled = false;
+    }
+  });
 
   function formatImageSize(bytes) {
     if (!Number.isFinite(bytes)) return "未知";
@@ -765,6 +854,7 @@
     currentView = view;
     dashboardView.hidden = view !== "dashboard";
     wifiView.hidden = view !== "wifi";
+    weatherView.hidden = view !== "weather";
     imageView.hidden = view !== "image";
     $$(".nav-link[data-view]").forEach((link) => {
       const active = link.dataset.view === view;
@@ -774,6 +864,7 @@
     });
     if (refresh && view === "dashboard") loadDashboard();
     if (refresh && view === "wifi") scan(true);
+    if (refresh && view === "weather") loadWeatherConfig();
     if (refresh && view === "image") loadImageLibrary();
   }
 

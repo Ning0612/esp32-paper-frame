@@ -16,3 +16,12 @@ Cache updates happen only after a complete, validated observation. Failures
 retain the previous observation, record a failure category, and schedule a
 bounded exponential retry (10 seconds through 60 minutes). A successful fetch
 resets the backoff and schedules the normal 10-minute refresh interval.
+
+## Persisted settings
+
+Weather settings are stored in the independent NVS namespace `pf_weather`.
+The record includes latitude/longitude (microdegrees), update interval, API
+key, display location, units, language, and NTP server. The record is versioned
+and protected by CRC32; a missing record uses the safe Taipei/metric defaults.
+The API key is never returned by the management API: callers receive only an
+`api_key_set` boolean.

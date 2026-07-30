@@ -9,6 +9,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "pf_auth/auth_service.hpp"
+#include "pf_config/config_manager.hpp"
 #include "pf_config/network_credentials.hpp"
 #include "pf_config/secure_memory.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
@@ -23,6 +24,7 @@
 #include "pf_web/http_receive_policy.hpp"
 #include "pf_web/provisioning_form.hpp"
 #include "pf_web/provisioning_service.hpp"
+#include "pf_web/weather_config_form.hpp"
 
 namespace pf_web {
 namespace {
@@ -63,6 +65,9 @@ constexpr UBaseType_t kImageUploadTaskPriority = 3U;
 constexpr std::uint32_t kImageUploadTaskStackWords = 8192U;
 constexpr UBaseType_t kImageMutationTaskPriority = 3U;
 constexpr std::uint32_t kImageMutationTaskStackWords = 4096U;
+constexpr UBaseType_t kWeatherConfigTaskPriority = 3U;
+constexpr std::uint32_t kWeatherConfigTaskStackWords = 4096U;
+constexpr std::size_t kWeatherConfigBodyCapacity = 512U;
 
 HealthServerAccessConfig server_access_config{};
 
@@ -127,6 +132,18 @@ std::uint8_t image_mutation_queue_storage[
 StaticTask_t image_mutation_task_control{};
 StackType_t image_mutation_task_stack[
     kImageMutationTaskStackWords]{};
+
+struct WeatherConfigRequest {
+    httpd_req_t* request = nullptr;
+};
+
+QueueHandle_t weather_config_queue = nullptr;
+StaticQueue_t weather_config_queue_control{};
+std::uint8_t weather_config_queue_storage[
+    sizeof(WeatherConfigRequest)]{};
+StaticTask_t weather_config_task_control{};
+StackType_t weather_config_task_stack[
+    kWeatherConfigTaskStackWords]{};
 
 esp_err_t set_common_headers(
     httpd_req_t* const request,
@@ -450,8 +467,19 @@ esp_err_t config_handler(httpd_req_t* request)
             server_access_config.management_password_configured,
         .refresh_minutes = server_access_config.refresh_minutes,
         .timezone = server_access_config.timezone,
+        .weather_configured = server_access_config.weather_configured,
+        .weather_api_key_set =
+            server_access_config.weather_settings.api_key[0] != '\0',
+        .weather_latitude_e6 = server_access_config.weather_settings.latitude_e6,
+        .weather_longitude_e6 = server_access_config.weather_settings.longitude_e6,
+        .weather_interval_minutes =
+            server_access_config.weather_settings.update_interval_minutes,
+        .weather_location = server_access_config.weather_settings.location,
+        .weather_units = server_access_config.weather_settings.units,
+        .weather_language = server_access_config.weather_settings.language,
+        .weather_ntp_server = server_access_config.weather_settings.ntp_server,
     };
-    char response[512]{};
+    char response[1024]{};
     const SerializeResult serialized = serialize_masked_config(
         config,
         response,
@@ -463,6 +491,234 @@ esp_err_t config_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"config_serialization\"}");
     }
     return send_json(request, nullptr, response);
+}
+
+bool receive_weather_config_body(
+    httpd_req_t* const request,
+    char* const body,
+    const std::size_t capacity,
+    std::size_t& received)
+{
+    if (request == nullptr || body == nullptr || capacity == 0U ||
+        request->content_len <= 0 ||
+        static_cast<std::size_t>(request->content_len) >= capacity) {
+        return false;
+    }
+    received = 0U;
+    std::uint8_t timeout_count = 0U;
+    const std::uint64_t started_ms = monotonic_ms();
+    while (received < static_cast<std::size_t>(request->content_len)) {
+        if (body_receive_deadline_expired(
+                monotonic_ms(),
+                started_ms,
+                kMaximumBodyReceiveMs)) {
+            return false;
+        }
+        const int result = httpd_req_recv(
+            request,
+            body + received,
+            request->content_len - static_cast<int>(received));
+        if (result == HTTPD_SOCK_ERR_TIMEOUT) {
+            ++timeout_count;
+            if (body_receive_idle_limit_reached(
+                    timeout_count,
+                    kMaximumBodyTimeouts)) {
+                return false;
+            }
+            continue;
+        }
+        if (result <= 0) {
+            return false;
+        }
+        received += static_cast<std::size_t>(result);
+    }
+    body[received] = '\0';
+    return true;
+}
+
+esp_err_t process_weather_config(
+    httpd_req_t* const request,
+    const char* const body,
+    const std::size_t received)
+{
+    WeatherConfigForm form{};
+    const pf_config::SecureZeroGuard form_guard(form);
+    const WeatherConfigParseStatus parsed =
+        parse_weather_config_form(body, received, form);
+    if (parsed != WeatherConfigParseStatus::ok) {
+        char response[112]{};
+        std::snprintf(
+            response,
+            sizeof(response),
+            "{\"ok\":false,\"error\":\"%s\"}",
+            to_string(parsed));
+        return send_json(request, "400 Bad Request", response);
+    }
+
+    pf_config::WeatherSettings candidate =
+        server_access_config.weather_settings;
+    const pf_config::SecureZeroGuard candidate_guard(candidate);
+    if (!parse_weather_i32(form.latitude_e6, candidate.latitude_e6) ||
+        !parse_weather_i32(form.longitude_e6, candidate.longitude_e6) ||
+        !parse_weather_u32(
+            form.interval_minutes,
+            candidate.update_interval_minutes)) {
+        return send_json(
+            request,
+            "422 Unprocessable Entity",
+            "{\"ok\":false,\"error\":\"invalid_value\"}");
+    }
+    std::memcpy(candidate.location, form.location, sizeof(candidate.location));
+    std::memcpy(candidate.units, form.units, sizeof(candidate.units));
+    std::memcpy(candidate.language, form.language, sizeof(candidate.language));
+    std::memcpy(candidate.ntp_server, form.ntp_server, sizeof(candidate.ntp_server));
+    if (form.api_key_seen) {
+        std::memcpy(candidate.api_key, form.api_key, sizeof(candidate.api_key));
+    }
+    if (!pf_config::weather_settings_valid(candidate)) {
+        return send_json(
+            request,
+            "422 Unprocessable Entity",
+            "{\"ok\":false,\"error\":\"invalid_value\"}");
+    }
+    if (!pf_runtime::coordinator().lock_flash_display(
+            pdMS_TO_TICKS(10000U))) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"flash_busy\"}");
+    }
+    const esp_err_t saved = pf_config::save_weather_settings(candidate);
+    pf_runtime::coordinator().unlock_flash_display();
+    if (saved != ESP_OK) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    server_access_config.weather_settings = candidate;
+    server_access_config.weather_configured = true;
+    return send_json(
+        request,
+        nullptr,
+        server_access_config.weather_settings.api_key[0] != '\0'
+            ? "{\"ok\":true,\"data\":{\"saved\":true,\"api_key_set\":true}}"
+            : "{\"ok\":true,\"data\":{\"saved\":true,\"api_key_set\":false}}");
+}
+
+void weather_config_task_entry(void* const context)
+{
+    (void)context;
+    while (true) {
+        WeatherConfigRequest queued{};
+        if (weather_config_queue == nullptr ||
+            xQueueReceive(
+                weather_config_queue,
+                &queued,
+                portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        char body[kWeatherConfigBodyCapacity]{};
+        const pf_config::SecureZeroGuard body_guard(body);
+        std::size_t received = 0U;
+        esp_err_t response_result = ESP_OK;
+        if (queued.request == nullptr) {
+            continue;
+        }
+        if (!receive_weather_config_body(
+                queued.request,
+                body,
+                sizeof(body),
+                received)) {
+            response_result = send_json(
+                queued.request,
+                "400 Bad Request",
+                "{\"ok\":false,\"error\":\"body_receive_failed\"}");
+        } else {
+            response_result = process_weather_config(
+                queued.request,
+                body,
+                received);
+        }
+        finish_async_upload_request(
+            queued.request,
+            response_result,
+            true);
+    }
+}
+
+esp_err_t start_weather_config_task()
+{
+    if (weather_config_queue != nullptr) {
+        return ESP_OK;
+    }
+    weather_config_queue = xQueueCreateStatic(
+        1U,
+        sizeof(WeatherConfigRequest),
+        weather_config_queue_storage,
+        &weather_config_queue_control);
+    if (weather_config_queue == nullptr ||
+        xTaskCreateStatic(
+            weather_config_task_entry,
+            "pf_weather_cfg",
+            kWeatherConfigTaskStackWords,
+            nullptr,
+            kWeatherConfigTaskPriority,
+            weather_config_task_stack,
+            &weather_config_task_control) == nullptr) {
+        weather_config_queue = nullptr;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+esp_err_t weather_config_post_handler(httpd_req_t* const request)
+{
+    httpd_req_t* async_request = nullptr;
+    if (httpd_req_async_handler_begin(request, &async_request) != ESP_OK) {
+        close_request_session(request);
+        return ESP_FAIL;
+    }
+    const auto send_async_error = [&](const char* const status,
+                                      const char* const body) {
+        const esp_err_t response_result = send_json(
+            async_request,
+            status,
+            body);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    };
+    const AccessContext access = current_access_context(async_request);
+    if (!access.authenticated || !access.csrf_valid) {
+        const esp_err_t response_result =
+            reject_management_request(async_request, access, true);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    }
+    if (async_request->content_len <= 0 ||
+        static_cast<std::size_t>(async_request->content_len) >=
+            kWeatherConfigBodyCapacity) {
+        return send_async_error(
+            "413 Payload Too Large",
+            "{\"ok\":false,\"error\":\"invalid_body\"}");
+    }
+    if (weather_config_queue == nullptr ||
+        uxQueueSpacesAvailable(weather_config_queue) == 0U) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"weather_config_busy\"}");
+    }
+    const WeatherConfigRequest queued{async_request};
+    if (xQueueSend(weather_config_queue, &queued, 0U) != pdTRUE) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"weather_config_busy\"}");
+    }
+    return ESP_OK;
 }
 
 bool query_requests_refresh(httpd_req_t* request)
@@ -2059,6 +2315,18 @@ const httpd_uri_t kConfigRoute{
     .handler = config_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kWeatherConfigRoute{
+    .uri = "/api/v1/weather/config",
+    .method = HTTP_POST,
+    .handler = weather_config_post_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kWeatherConfigGetRoute{
+    .uri = "/api/v1/weather/config",
+    .method = HTTP_GET,
+    .handler = config_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kScanRoute{
     .uri = "/api/v1/wifi/scan",
     .method = HTTP_GET,
@@ -2200,12 +2468,20 @@ esp_err_t start_health_server(
         *server = nullptr;
         return result;
     }
+    result = start_weather_config_task();
+    if (result != ESP_OK) {
+        httpd_stop(*server);
+        *server = nullptr;
+        return result;
+    }
 
     const httpd_uri_t* const routes[] = {
         &kHealthRoute,
         &kDeviceRoute,
         &kStatusRoute,
         &kConfigRoute,
+        &kWeatherConfigRoute,
+        &kWeatherConfigGetRoute,
         &kScanRoute,
         &kWifiConfigRoute,
         &kWifiConfigStatusRoute,

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "pf_config/weather_settings.hpp"
 #include "pf_web/health_serializer.hpp"
 
 namespace pf_web {
@@ -20,6 +21,15 @@ struct MaskedConfig {
     bool management_password_configured;
     std::uint32_t refresh_minutes;
     const char* timezone;
+    bool weather_configured;
+    bool weather_api_key_set;
+    std::int32_t weather_latitude_e6;
+    std::int32_t weather_longitude_e6;
+    std::uint32_t weather_interval_minutes;
+    const char* weather_location;
+    const char* weather_units;
+    const char* weather_language;
+    const char* weather_ntp_server;
 };
 
 inline SerializeResult serialize_device(
@@ -228,24 +238,40 @@ inline SerializeResult serialize_masked_config(
     const std::size_t output_size)
 {
     if (output == nullptr || output_size == 0U ||
-        config.timezone == nullptr) {
+        config.timezone == nullptr || config.weather_location == nullptr ||
+        config.weather_units == nullptr || config.weather_language == nullptr ||
+        config.weather_ntp_server == nullptr) {
         return {false, 0U};
     }
 
-    bool timezone_safe = true;
-    for (std::size_t index = 0U;
-         config.timezone[index] != '\0';
-         ++index) {
-        const unsigned char value =
-            static_cast<unsigned char>(config.timezone[index]);
-        if (value < 0x20U || value == '"' || value == '\\') {
-            timezone_safe = false;
-            break;
+    const auto safe_text = [](const char* const value) {
+        if (value == nullptr) {
+            return false;
         }
-    }
-    const char* const timezone = timezone_safe
+        for (std::size_t index = 0U; value[index] != '\0'; ++index) {
+            const unsigned char byte =
+                static_cast<unsigned char>(value[index]);
+            if (byte < 0x20U || byte == '"' || byte == '\\') {
+                return false;
+            }
+        }
+        return true;
+    };
+    const char* const timezone = safe_text(config.timezone)
                                     ? config.timezone
                                     : "unknown";
+    const char* const location = safe_text(config.weather_location)
+                                    ? config.weather_location
+                                    : "unknown";
+    const char* const units = safe_text(config.weather_units)
+                                  ? config.weather_units
+                                  : "unknown";
+    const char* const language = safe_text(config.weather_language)
+                                    ? config.weather_language
+                                    : "unknown";
+    const char* const ntp_server = safe_text(config.weather_ntp_server)
+                                      ? config.weather_ntp_server
+                                      : "unknown";
 
     char refresh_value[16]{};
     if (config.refresh_minutes != 0U) {
@@ -265,12 +291,26 @@ inline SerializeResult serialize_masked_config(
         "\"ssid_set\":%s,\"password_set\":%s},"
         "\"management_password_set\":%s,\"display\":{"
         "\"refresh_minutes\":%s},\"time\":{"
-        "\"timezone\":\"%s\"}}}",
+        "\"timezone\":\"%s\"},\"weather\":{"
+        "\"configured\":%s,\"api_key_set\":%s,"
+        "\"latitude_e6\":%ld,\"longitude_e6\":%ld,"
+        "\"interval_minutes\":%lu,\"location\":\"%s\","
+        "\"units\":\"%s\",\"language\":\"%s\","
+        "\"ntp_server\":\"%s\"}}}",
         config.wifi_configured ? "true" : "false",
         config.wifi_password_configured ? "true" : "false",
         config.management_password_configured ? "true" : "false",
         refresh_value,
-        timezone);
+        timezone,
+        config.weather_configured ? "true" : "false",
+        config.weather_api_key_set ? "true" : "false",
+        static_cast<long>(config.weather_latitude_e6),
+        static_cast<long>(config.weather_longitude_e6),
+        static_cast<unsigned long>(config.weather_interval_minutes),
+        location,
+        units,
+        language,
+        ntp_server);
 
     if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
         output[0] = '\0';

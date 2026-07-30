@@ -92,8 +92,17 @@ void test_masked_config_never_returns_secret_values()
         .management_password_configured = true,
         .refresh_minutes = 30,
         .timezone = "Asia/Taipei",
+        .weather_configured = true,
+        .weather_api_key_set = true,
+        .weather_latitude_e6 = 25033000,
+        .weather_longitude_e6 = 121565000,
+        .weather_interval_minutes = 10,
+        .weather_location = "Taipei",
+        .weather_units = "metric",
+        .weather_language = "zh_tw",
+        .weather_ntp_server = "pool.ntp.org",
     };
-    char output[512]{};
+    char output[1024]{};
     const pf_web::SerializeResult result = pf_web::serialize_masked_config(
         config,
         output,
@@ -131,8 +140,17 @@ void test_unavailable_config_uses_null_for_unknown_refresh()
         .management_password_configured = false,
         .refresh_minutes = 0,
         .timezone = "unknown",
+        .weather_configured = false,
+        .weather_api_key_set = false,
+        .weather_latitude_e6 = 0,
+        .weather_longitude_e6 = 0,
+        .weather_interval_minutes = 0,
+        .weather_location = "unknown",
+        .weather_units = "unknown",
+        .weather_language = "unknown",
+        .weather_ntp_server = "unknown",
     };
-    char output[512]{};
+    char output[1024]{};
     const pf_web::SerializeResult result = pf_web::serialize_masked_config(
         config,
         output,

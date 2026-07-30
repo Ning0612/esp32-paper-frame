@@ -376,6 +376,28 @@ extern "C" void app_main()
             "management_password_configured=%s",
             password_status.configured ? "true" : "false");
     }
+    pf_config::WeatherSettingsLoadResult weather_settings_result =
+        config_result.error == ESP_OK
+            ? pf_config::load_weather_settings()
+            : pf_config::WeatherSettingsLoadResult{
+                  config_result.error,
+                  false,
+                  {},
+              };
+    if (weather_settings_result.error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "weather_settings_load_failed=%s; using defaults",
+            esp_err_to_name(weather_settings_result.error));
+    } else {
+        ESP_LOGI(
+            kTag,
+            "weather_settings_configured=%s api_key_set=%s",
+            weather_settings_result.configured ? "true" : "false",
+            weather_settings_result.settings.api_key[0] != '\0'
+                ? "true"
+                : "false");
+    }
 
     const pf_storage::FileSystemSnapshot filesystem_snapshot =
         pf_storage::mount_all();
@@ -577,6 +599,11 @@ extern "C" void app_main()
         .refresh_minutes = config_result.record_available
                                ? config_result.record.refresh_minutes
                                : 0U,
+        .weather_configured = weather_settings_result.error == ESP_OK &&
+                              weather_settings_result.configured,
+        .weather_settings = weather_settings_result.error == ESP_OK
+                                ? weather_settings_result.settings
+                                : pf_config::WeatherSettings{},
     };
     const char* const timezone = config_result.record_available
                                      ? config_result.record.timezone
@@ -603,6 +630,8 @@ extern "C" void app_main()
             kTag,
             "health_server_ready route=/api/v1/health");
     }
+    pf_config::secure_zero(weather_settings_result.settings);
+    pf_config::secure_zero(web_access.weather_settings);
 
     const std::uint32_t refresh_minutes =
         config_result.record_available

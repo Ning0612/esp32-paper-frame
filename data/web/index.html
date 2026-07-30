@@ -30,6 +30,7 @@
           <button class="nav-link active" type="button" data-view="dashboard"
                   aria-current="page">總覽 <span>01</span></button>
           <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
+          <button class="nav-link" type="button" data-view="weather">天氣 <span>03</span></button>
           <button class="nav-link" type="button" data-view="image">圖片 <span>04</span></button>
           <button class="nav-link future" type="button" disabled
                   title="Phase 7 開放">環境 <span>07</span></button>
@@ -195,6 +196,49 @@
                 <aside class="trust-note"><b>只留在裝置裡</b><p>密碼不會放進網址、畫面回應或系統紀錄。</p></aside>
                 <button id="save-button" class="primary-button" type="submit">儲存並重新啟動</button>
                 <p id="save-status" class="save-status" role="status" aria-live="assertive"></p>
+              </section>
+            </form>
+          </div>
+
+          <div id="weather-view" class="view" data-view-panel="weather" hidden>
+            <div class="view-heading">
+              <div>
+                <p class="eyebrow">03 / WEATHER &amp; TIME</p>
+                <h2>天氣與時間</h2>
+              </div>
+            </div>
+            <p class="intro-copy">設定只保存在 PaperFrame 的 NVS；API key 只會回報是否存在，不會出現在回應或畫面。</p>
+            <form id="weather-form" class="setup-grid" novalidate>
+              <section class="panel credential-panel">
+                <div class="panel-heading">
+                  <div><span class="panel-no coral">J</span><h3>OpenWeatherMap</h3></div>
+                  <span id="weather-config-state" class="local-only">尚未設定</span>
+                </div>
+                <label class="field">
+                  <span>API key（留白代表保留現有值）</span>
+                  <input id="weather-api-key" type="password" maxlength="127" autocomplete="new-password">
+                </label>
+                <div class="image-option-grid">
+                  <label class="field"><span>緯度 × 10⁶</span><input id="weather-latitude" type="number" min="-90000000" max="90000000" required></label>
+                  <label class="field"><span>經度 × 10⁶</span><input id="weather-longitude" type="number" min="-180000000" max="180000000" required></label>
+                  <label class="field"><span>更新間隔（分鐘）</span><input id="weather-interval" type="number" min="10" max="1440" required></label>
+                  <label class="field"><span>顯示地點</span><input id="weather-location" maxlength="47" required></label>
+                  <label class="field"><span>單位</span><select id="weather-units"><option value="metric">攝氏／Metric</option><option value="imperial">華氏／Imperial</option></select></label>
+                  <label class="field"><span>語言</span><input id="weather-language" maxlength="15" required></label>
+                  <label class="field"><span>NTP server</span><input id="weather-ntp-server" maxlength="63" required></label>
+                </div>
+                <button id="weather-save" class="primary-button" type="submit">保存設定</button>
+                <p id="weather-status" class="save-status" role="status" aria-live="assertive"></p>
+              </section>
+              <section class="panel status-panel muted-panel">
+                <div class="panel-heading compact">
+                  <div><span class="panel-no mint">K</span><h3>安全狀態</h3></div>
+                </div>
+                <dl class="definition-list">
+                  <div><dt>API key</dt><dd id="weather-api-key-state">未知</dd></div>
+                  <div><dt>資料快取</dt><dd id="weather-cache-state">尚未接入 HTTPS worker</dd></div>
+                  <div><dt>時間同步</dt><dd id="weather-ntp-state">設定完成後接入 SNTP</dd></div>
+                </dl>
               </section>
             </form>
           </div>

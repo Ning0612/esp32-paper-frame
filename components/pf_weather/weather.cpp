@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <climits>
 #include <cstdlib>
 #include <cstring>
 
@@ -24,7 +26,7 @@ bool matches_key(
         return false;
     }
     const std::size_t key_length = std::strlen(key);
-    if (key_length > length - quote - 2U ||
+    if (length - quote < key_length + 2U ||
         std::memcmp(json + quote + 1U, key, key_length) != 0 ||
         json[quote + 1U + key_length] != '"') {
         return false;
@@ -39,29 +41,99 @@ bool find_key(
     const char* const key,
     std::size_t& value_begin)
 {
-    if (json == nullptr || begin > end) {
+    if (json == nullptr || begin >= end) {
         return false;
     }
-    for (std::size_t index = begin; index < end; ++index) {
-        if (json[index] != '"' ||
-            !matches_key(json, end, index, key)) {
-            continue;
-        }
-        const std::size_t key_length = std::strlen(key);
-        std::size_t cursor = index + key_length + 2U;
-        while (cursor < end && is_space(json[cursor])) {
+    std::size_t cursor = begin;
+    while (cursor < end && is_space(json[cursor])) {
+        ++cursor;
+    }
+    if (cursor >= end || json[cursor] != '{') {
+        return false;
+    }
+    int depth = 1;
+    ++cursor;
+    while (cursor < end && depth > 0) {
+        const char current = json[cursor];
+        if (current == '"') {
+            const std::size_t quote = cursor;
             ++cursor;
-        }
-        if (cursor >= end || json[cursor] != ':') {
+            bool escaped = false;
+            while (cursor < end) {
+                const char string_byte = json[cursor++];
+                if (escaped) {
+                    escaped = false;
+                } else if (string_byte == '\\') {
+                    escaped = true;
+                } else if (string_byte == '"') {
+                    break;
+                }
+            }
+            if (cursor > end || cursor == end && json[cursor - 1U] != '"') {
+                return false;
+            }
+            if (depth == 1 && matches_key(json, end, quote, key)) {
+                std::size_t after_key = cursor;
+                while (after_key < end && is_space(json[after_key])) {
+                    ++after_key;
+                }
+                if (after_key < end && json[after_key] == ':') {
+                    ++after_key;
+                    while (after_key < end && is_space(json[after_key])) {
+                        ++after_key;
+                    }
+                    if (after_key < end) {
+                        value_begin = after_key;
+                        return true;
+                    }
+                }
+            }
             continue;
+        }
+        if (current == '{' || current == '[') {
+            ++depth;
+        } else if (current == '}' || current == ']') {
+            --depth;
         }
         ++cursor;
-        while (cursor < end && is_space(json[cursor])) {
-            ++cursor;
+    }
+    return false;
+}
+
+bool find_object_end(
+    const char* const json,
+    const std::size_t begin,
+    const std::size_t end,
+    std::size_t& object_end)
+{
+    if (json == nullptr || begin >= end || json[begin] != '{') {
+        return false;
+    }
+    int depth = 0;
+    bool escaped = false;
+    bool in_string = false;
+    for (std::size_t cursor = begin; cursor < end; ++cursor) {
+        const char current = json[cursor];
+        if (in_string) {
+            if (escaped) {
+                escaped = false;
+            } else if (current == '\\') {
+                escaped = true;
+            } else if (current == '"') {
+                in_string = false;
+            }
+            continue;
         }
-        if (cursor < end) {
-            value_begin = cursor;
-            return true;
+        if (current == '"') {
+            in_string = true;
+        } else if (current == '{') {
+            ++depth;
+        } else if (current == '}') {
+            --depth;
+            if (depth == 0) {
+                object_end = cursor + 1U;
+                return true;
+            }
         }
     }
     return false;
@@ -99,6 +171,10 @@ bool parse_number(
         static_cast<std::size_t>(parse_end - buffer) != length) {
         return false;
     }
+    if (cursor < end && !is_space(json[cursor]) && json[cursor] != ',' &&
+        json[cursor] != '}' && json[cursor] != ']') {
+        return false;
+    }
     consumed = cursor;
     return true;
 }
@@ -110,14 +186,39 @@ bool parse_integer(
     std::int64_t& value,
     std::size_t& consumed)
 {
-    double number = 0.0;
-    if (!parse_number(json, begin, end, number, consumed) ||
-        number < static_cast<double>(INT64_MIN) ||
-        number > static_cast<double>(INT64_MAX) ||
-        number != static_cast<double>(static_cast<std::int64_t>(number))) {
+    if (json == nullptr || begin >= end) {
         return false;
     }
-    value = static_cast<std::int64_t>(number);
+    char buffer[32]{};
+    std::size_t length = 0U;
+    std::size_t cursor = begin;
+    if (json[cursor] == '+' || json[cursor] == '-') {
+        buffer[length++] = json[cursor++];
+    }
+    const std::size_t digits_begin = length;
+    while (cursor < end && json[cursor] >= '0' && json[cursor] <= '9') {
+        if (length + 1U >= sizeof(buffer)) {
+            return false;
+        }
+        buffer[length++] = json[cursor++];
+    }
+    if (length == digits_begin) {
+        return false;
+    }
+    buffer[length] = '\0';
+    errno = 0;
+    char* parse_end = nullptr;
+    const long long parsed = std::strtoll(buffer, &parse_end, 10);
+    if (errno == ERANGE || parse_end == nullptr ||
+        static_cast<std::size_t>(parse_end - buffer) != length) {
+        return false;
+    }
+    if (cursor < end && !is_space(json[cursor]) && json[cursor] != ',' &&
+        json[cursor] != '}' && json[cursor] != ']') {
+        return false;
+    }
+    value = static_cast<std::int64_t>(parsed);
+    consumed = cursor;
     return true;
 }
 
@@ -290,7 +391,11 @@ ParseResult parse_current_weather(
         return result;
     }
 
-    const std::size_t main_end = length;
+    std::size_t main_end = 0U;
+    if (!find_object_end(json, main_begin, length, main_end)) {
+        result.error = ParseError::malformed_json;
+        return result;
+    }
     double temperature = 0.0;
     std::size_t consumed = 0U;
     if (!value_for_key(
@@ -299,7 +404,7 @@ ParseResult parse_current_weather(
             main_end,
             "temp",
             value_begin) ||
-        !parse_number(json, value_begin, length, temperature, consumed) ||
+        !parse_number(json, value_begin, main_end, temperature, consumed) ||
         temperature < -200.0 || temperature > 200.0) {
         result.error = ParseError::invalid_value;
         return result;
@@ -335,9 +440,8 @@ ParseResult parse_current_weather(
         result.error = ParseError::missing_field;
         return result;
     }
-    const std::size_t weather_object_end =
-        std::find(json + weather_begin, json + length, '}') - json;
-    if (weather_object_end >= length) {
+    std::size_t weather_object_end = 0U;
+    if (!find_object_end(json, weather_begin, length, weather_object_end)) {
         result.error = ParseError::malformed_json;
         return result;
     }
@@ -390,7 +494,7 @@ ParseResult parse_current_weather(
 
     std::int64_t humidity = -1;
     if (value_for_key(json, main_begin, main_end, "humidity", value_begin) &&
-        !parse_integer(json, value_begin, length, humidity, consumed)) {
+        !parse_integer(json, value_begin, main_end, humidity, consumed)) {
         result.error = ParseError::invalid_value;
         return result;
     }

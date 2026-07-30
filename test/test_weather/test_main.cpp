@@ -48,6 +48,55 @@ void test_api_rejection_and_malformed_payload_fail_closed()
         static_cast<int>(missing_result.error));
 }
 
+void test_parser_rejects_truncated_strings_and_integer_overflow()
+{
+    const std::string truncated =
+        R"json({"cod":200,"dt":1710000000,"main":{"temp":27.4,"humidity":80},"weather":[{"id":500,"description":"broken})json";
+    const pf_weather::ParseResult truncated_result =
+        pf_weather::parse_current_weather(
+            truncated.data(),
+            truncated.size());
+    TEST_ASSERT_FALSE(truncated_result.ok());
+
+    const std::string overflow =
+        R"json({"cod":200,"dt":9223372036854775808,"main":{"temp":27.4,"humidity":80},"weather":[{"id":500,"description":"rain","icon":"10d"}]})json";
+    const pf_weather::ParseResult overflow_result =
+        pf_weather::parse_current_weather(overflow.data(), overflow.size());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::ParseError::invalid_value),
+        static_cast<int>(overflow_result.error));
+}
+
+void test_parser_does_not_take_values_from_nested_objects()
+{
+    const std::string nested =
+        R"json({"cod":200,"dt":1710000000,"main":{"nested":{"temp":27.4},"humidity":80},"weather":[{"id":500,"description":"rain","icon":"10d"}]})json";
+    const pf_weather::ParseResult result =
+        pf_weather::parse_current_weather(nested.data(), nested.size());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::ParseError::invalid_value),
+        static_cast<int>(result.error));
+}
+
+void test_parser_rejects_number_prefixes_with_trailing_garbage()
+{
+    const std::string bad_temperature =
+        R"json({"cod":200,"dt":1710000000,"main":{"temp":27.4junk,"humidity":80},"weather":[{"id":500,"description":"rain","icon":"10d"}]})json";
+    const pf_weather::ParseResult temperature_result =
+        pf_weather::parse_current_weather(
+            bad_temperature.data(),
+            bad_temperature.size());
+    TEST_ASSERT_FALSE(temperature_result.ok());
+
+    const std::string bad_timestamp =
+        R"json({"cod":200,"dt":1710000000x,"main":{"temp":27.4,"humidity":80},"weather":[{"id":500,"description":"rain","icon":"10d"}]})json";
+    const pf_weather::ParseResult timestamp_result =
+        pf_weather::parse_current_weather(
+            bad_timestamp.data(),
+            bad_timestamp.size());
+    TEST_ASSERT_FALSE(timestamp_result.ok());
+}
+
 void test_cache_preserves_last_success_and_backs_off_failures()
 {
     const pf_weather::ParseResult parsed =
@@ -94,6 +143,9 @@ int main()
     UNITY_BEGIN();
     RUN_TEST(test_openweather_response_parses_required_fields);
     RUN_TEST(test_api_rejection_and_malformed_payload_fail_closed);
+    RUN_TEST(test_parser_rejects_truncated_strings_and_integer_overflow);
+    RUN_TEST(test_parser_does_not_take_values_from_nested_objects);
+    RUN_TEST(test_parser_rejects_number_prefixes_with_trailing_garbage);
     RUN_TEST(test_cache_preserves_last_success_and_backs_off_failures);
     return UNITY_END();
 }

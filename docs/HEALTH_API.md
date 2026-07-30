@@ -43,3 +43,7 @@ Dashboard snapshot，會在後續 phase 增量加入圖片、weather 與 sensor 
   `unknown`、`reachable`、`unreachable`。兩者是獨立狀態。
 - handler 只複製目前 runtime snapshot 並讀取 monotonic uptime；不得等待
   command queue、filesystem、硬體或外部網路。
+
+已登入的管理端可透過 `/api/v1/weather/config` 讀取遮罩後的天氣與 NTP
+設定，並以 CSRF 保護的 POST 保存設定；API key 僅以 `api_key_set` 布林值
+表示是否存在。
