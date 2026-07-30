@@ -216,6 +216,16 @@ void test_rejects_trailing_and_truncated_files()
         static_cast<int>(truncated.error()));
 }
 
+void test_cross_language_golden_vector_matches_documented_crcs()
+{
+    const auto file = make_file(0U, "golden.pfr1", 0x11U);
+    Pfr1Validator validator{};
+    TEST_ASSERT_TRUE(validator.feed(file.data(), file.size()));
+    TEST_ASSERT_TRUE(validator.finish());
+    TEST_ASSERT_EQUAL_HEX32(0xAF00B5BDU, validator.header().payload_crc32);
+    TEST_ASSERT_EQUAL_HEX32(0xC96F698BU, validator.header().header_crc32);
+}
+
 }  // namespace
 
 void setup()
@@ -235,5 +245,6 @@ int main()
     RUN_TEST(test_rejects_bad_header_and_reserved_fields);
     RUN_TEST(test_rejects_invalid_palette_filename_and_crc);
     RUN_TEST(test_rejects_trailing_and_truncated_files);
+    RUN_TEST(test_cross_language_golden_vector_matches_documented_crcs);
     return UNITY_END();
 }

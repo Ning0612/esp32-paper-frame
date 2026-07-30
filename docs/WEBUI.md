@@ -55,6 +55,12 @@ node --check data\web\image_pipeline.js
 透過 transferable `ArrayBuffer` 執行量化，主執行緒不會因大型 raster 計算而
 卡住；worker 失敗只回傳錯誤訊息，不會將原始 RGB buffer 直接送到韌體。
 
+`data/web/image_pfr1.js` 將固定 profile 的 quantized result 打包成
+`application/vnd.paperframe.pfr1`，重用同一組 filename、flags、dithering、
+little-endian 與 CRC32 契約；瀏覽器只會產生受尺寸與 palette 限制的 packed
+payload。跨語言 golden vector 與欄位定義見
+[`docs/formats/PFR1.md`](formats/PFR1.md)。
+
 量化測試與 worker 語法檢查：
 
 ```powershell

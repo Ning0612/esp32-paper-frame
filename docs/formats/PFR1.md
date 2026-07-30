@@ -111,3 +111,25 @@ magic、version、保留欄位、尺寸、長度、filename、palette nibble 或
 - HTTP layer／StorageWorker 必須以 streaming parser 驗證，不能把未限制的
   request body 當作 RGB 或任意 binary 直接保存。
 - 本格式不包含 secret、Wi-Fi 資訊、session token 或使用者帳號資料。
+
+## Cross-language golden vector
+
+下列向量同時由 C++ validator 與 browser packer 驗證，固定用來防止 byte
+order、nibble 順序或 CRC 漂移：
+
+- profile：landscape `800×440`，`orientation=0`。
+- filename：ASCII `golden.pfr1`（11 bytes）。
+- flags：`mirror_x`（`0x0001`）。
+- dithering：`nearest`（`0`）。
+- payload：176,000 bytes，全為 `0x11`（兩個 white native code）。
+- 完整檔案長度：176,043 bytes。
+- payload CRC32：`0xAF00B5BD`（header little-endian bytes `BD B5 00 AF`）。
+- header CRC32：`0xC96F698B`（header little-endian bytes `8B 69 6F C9`）。
+
+Browser packer 的輸入必須是已量化的固定 profile raster；它只輸出 packed
+PFR1 `Uint8Array`，不接受任意尺寸或未量化 RGB。host 驗證命令：
+
+```powershell
+node test\web\test_pfr1_packer.mjs
+node --check data\web\image_pfr1.js
+```
