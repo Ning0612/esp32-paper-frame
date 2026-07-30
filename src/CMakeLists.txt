@@ -8,6 +8,7 @@ idf_component_register(
         esp_netif
         esp_system
         esp_timer
+        pf_auth
         pf_carousel
         pf_config
         pf_display

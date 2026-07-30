@@ -7,7 +7,7 @@ namespace pf_web {
 
 struct HealthServerAccessConfig {
     bool initial_bootstrap = false;
-    bool management_password_configured = true;
+    bool password_bootstrap = false;
 };
 
 esp_err_t start_health_server(

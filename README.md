@@ -12,7 +12,7 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | Phase 0 repository baseline | 已完成 |
 | Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
 | Phase 2 display/renderer ownership | packed framebuffer、renderer、`epd7in3e` driver、DisplayTask 與 carousel core/welcome lifecycle 已通過 |
-| Phase 3 provisioning/auth/WebUI | AP／STA state machine、AP 引導畫面與離線 provisioning portal 已完成 host/build；最新 app/webfs 的 STA assets 與 fail-closed policy 實機通過，auth 與管理 shell 進行中 |
+| Phase 3 provisioning/auth/WebUI | AP／STA、離線 portal 與 async auth/session/CSRF 已完成 host/build；管理 shell 與完整 Phase 3 實機驗證進行中 |
 | ESP32-S3 USB 連線 | native USB 已驗證 ROM 燒錄與 app console；首次復原需 GPIO0/GPIO46 同時接地，COM 需重新辨識 |
 | 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
 | 7.3 吋 e-Paper HAT (E) | GPIO4/10–14 driver 實機顯示黑／黃／紅／藍／綠／白正確；sleep 電流量測待驗證 |
@@ -22,8 +22,9 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 目前已有可編譯並通過實機 smoke test 的原生 ESP-IDF Phase 3 開發中韌體。
 板上 runtime queue、DisplayTask lifecycle、電子紙六色 pattern、空圖庫
 welcome refresh 與 provisioning AP 均已通過；catalog-backed 圖片輪播在
-Phase 5 接入；provisioning portal 已部署，auth／CSRF／管理 shell 仍在
-Phase 3 進行，可選感測器尚未整合。
+Phase 5 接入；provisioning portal 已部署，async auth／CSRF 已完成
+host/build 且待隨管理 shell 一起部署，Phase 3 管理 shell 仍在進行；可選
+感測器尚未整合。
 
 ## 開發基線
 
@@ -65,6 +66,7 @@ GPIO0、GPIO46。完整安全步驟、app-only slot 限制與測試後恢復方�
 - [硬體驗證紀錄](docs/hardware/VALIDATION.md)
 - [ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)
 - [Wi-Fi provisioning contract](docs/PROVISIONING.md)
+- [管理認證與 CSRF contract](docs/AUTHENTICATION.md)
 - [貢獻與自動化工作規則](AGENTS.md)
 
 ## License

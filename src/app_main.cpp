@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "pf_auth/auth_service.hpp"
 #include "pf_carousel/scheduler.hpp"
 #include "pf_carousel/welcome_frame.hpp"
 #include "pf_config/config_manager.hpp"
@@ -319,8 +320,12 @@ extern "C" void app_main()
     }
 
     pf_network::NetworkCredentials network_credentials{};
+    const bool password_bootstrap =
+        password_status.error == ESP_OK &&
+        !password_status.configured;
     if (stored_credentials.error == ESP_OK &&
-        stored_credentials.configured) {
+        stored_credentials.configured &&
+        !password_bootstrap) {
         network_credentials.configured = true;
         std::memcpy(
             network_credentials.ssid,
@@ -330,6 +335,14 @@ extern "C" void app_main()
             network_credentials.password,
             stored_credentials.credentials.password,
             sizeof(network_credentials.password));
+    } else if (
+        stored_credentials.error == ESP_OK &&
+        stored_credentials.configured &&
+        password_bootstrap) {
+        ESP_LOGW(
+            kTag,
+            "management_password_missing; retaining saved Wi-Fi "
+            "credentials and starting local bootstrap AP");
     }
     pf_config::secure_zero(stored_credentials.credentials);
     AccessPointPresenterContext ap_presenter{
@@ -366,6 +379,21 @@ extern "C" void app_main()
             esp_err_to_name(provisioning_store_result));
     }
 
+    const esp_err_t authentication_result =
+        config_result.error != ESP_OK
+            ? config_result.error
+            : runtime_result != ESP_OK
+                  ? runtime_result
+                  : pf_auth::auth_service().start(
+                        pf_runtime::coordinator());
+    if (authentication_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "authentication_service_start_failed=%s; "
+            "management access fails closed",
+            esp_err_to_name(authentication_result));
+    }
+
     httpd_handle_t health_server = nullptr;
     const bool initial_bootstrap =
         stored_credentials.error == ESP_OK &&
@@ -374,10 +402,7 @@ extern "C" void app_main()
         !password_status.configured;
     const pf_web::HealthServerAccessConfig web_access{
         .initial_bootstrap = initial_bootstrap,
-        .management_password_configured =
-            password_status.error == ESP_OK
-                ? password_status.configured
-                : true,
+        .password_bootstrap = password_bootstrap,
     };
     const esp_err_t health_result =
         network_stack_result == ESP_OK

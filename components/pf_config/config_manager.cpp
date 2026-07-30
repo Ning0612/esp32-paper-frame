@@ -218,33 +218,75 @@ esp_err_t save_network_credentials(
 
 ManagementPasswordStatus management_password_status()
 {
+    const ManagementPasswordLoadResult loaded =
+        load_management_password();
+    ManagementPasswordHash record = loaded.record;
+    secure_zero(record);
+    return {loaded.error, loaded.configured};
+}
+
+ManagementPasswordLoadResult load_management_password()
+{
     nvs_handle_t handle = 0;
     esp_err_t result =
         nvs_open(kAuthenticationNamespace, NVS_READONLY, &handle);
     if (result == ESP_ERR_NVS_NOT_FOUND) {
-        return {ESP_OK, false};
+        return {ESP_OK, false, {}};
     }
     if (result != ESP_OK) {
-        return {result, false};
+        return {result, false, {}};
     }
 
-    std::size_t length = 0U;
+    ManagementPasswordHash record{};
+    std::size_t length = sizeof(record);
     result = nvs_get_blob(
         handle,
         kManagementPasswordHashKey,
-        nullptr,
+        &record,
         &length);
     nvs_close(handle);
     if (result == ESP_ERR_NVS_NOT_FOUND) {
-        return {ESP_OK, false};
+        secure_zero(record);
+        return {ESP_OK, false, {}};
     }
+    if (result != ESP_OK || length != sizeof(record)) {
+        secure_zero(record);
+        return {
+            result == ESP_OK ? ESP_ERR_INVALID_SIZE : result,
+            false,
+            {},
+        };
+    }
+    if (!management_password_hash_valid(record)) {
+        secure_zero(record);
+        return {ESP_ERR_INVALID_CRC, false, {}};
+    }
+    return {ESP_OK, true, record};
+}
+
+esp_err_t save_management_password(
+    const ManagementPasswordHash& record)
+{
+    if (!management_password_hash_valid(record)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kAuthenticationNamespace, NVS_READWRITE, &handle);
     if (result != ESP_OK) {
-        return {result, false};
+        return result;
     }
-    return {
-        length > 0U ? ESP_OK : ESP_ERR_INVALID_SIZE,
-        length > 0U,
-    };
+    result = nvs_set_blob(
+        handle,
+        kManagementPasswordHashKey,
+        &record,
+        sizeof(record));
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return result;
 }
 
 }  // namespace pf_config

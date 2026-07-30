@@ -5,11 +5,13 @@
 #include <cstring>
 
 #include "esp_timer.h"
+#include "pf_auth/auth_service.hpp"
 #include "pf_config/network_credentials.hpp"
 #include "pf_config/secure_memory.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_web/access_policy.hpp"
+#include "pf_web/auth_form.hpp"
 #include "pf_web/health_serializer.hpp"
 #include "pf_web/http_receive_policy.hpp"
 #include "pf_web/provisioning_form.hpp"
@@ -41,6 +43,9 @@ constexpr StaticAsset kFaviconAsset{
 };
 constexpr std::uint32_t kMaximumBodyReceiveMs = 15000U;
 constexpr std::uint8_t kMaximumBodyTimeouts = 3U;
+constexpr char kSessionCookieName[] = "pf_session";
+constexpr char kCsrfHeaderName[] = "X-CSRF-Token";
+constexpr char kAuthRequestHeaderName[] = "X-Auth-Request";
 
 HealthServerAccessConfig server_access_config{};
 
@@ -98,17 +103,114 @@ bool provisioning_mode_active()
                pf_runtime::WifiState::provisioning;
 }
 
-AccessContext current_access_context()
+std::uint64_t monotonic_ms()
 {
+    return static_cast<std::uint64_t>(esp_timer_get_time()) / 1000U;
+}
+
+bool request_session_token(
+    httpd_req_t* const request,
+    char (&destination)[pf_auth::kEncodedSecretCapacity])
+{
+    std::size_t size = sizeof(destination);
+    // ESP-IDF reports the cookie value size including its terminator.
+    return httpd_req_get_cookie_val(
+               request,
+               kSessionCookieName,
+               destination,
+               &size) == ESP_OK &&
+           size == pf_auth::kEncodedSecretCapacity;
+}
+
+bool request_csrf_token(
+    httpd_req_t* const request,
+    char (&destination)[pf_auth::kEncodedSecretCapacity])
+{
+    const std::size_t length =
+        httpd_req_get_hdr_value_len(request, kCsrfHeaderName);
+    return length == pf_auth::kEncodedSecretLength &&
+           httpd_req_get_hdr_value_str(
+               request,
+               kCsrfHeaderName,
+               destination,
+               sizeof(destination)) == ESP_OK;
+}
+
+bool request_auth_operation_token(
+    httpd_req_t* const request,
+    char (&destination)[pf_auth::kEncodedSecretCapacity])
+{
+    const std::size_t length =
+        httpd_req_get_hdr_value_len(
+            request,
+            kAuthRequestHeaderName);
+    return length == pf_auth::kEncodedSecretLength &&
+           httpd_req_get_hdr_value_str(
+               request,
+               kAuthRequestHeaderName,
+               destination,
+               sizeof(destination)) == ESP_OK;
+}
+
+pf_auth::RequestAuthentication request_authentication(
+    httpd_req_t* const request,
+    const bool touch = true)
+{
+    char session_token[pf_auth::kEncodedSecretCapacity]{};
+    char csrf_token[pf_auth::kEncodedSecretCapacity]{};
+    const pf_config::SecureZeroGuard session_guard(session_token);
+    const pf_config::SecureZeroGuard csrf_guard(csrf_token);
+    const bool has_session =
+        request_session_token(request, session_token);
+    const bool has_csrf =
+        request_csrf_token(request, csrf_token);
+    return pf_auth::auth_service().authenticate_request(
+        has_session ? session_token : nullptr,
+        has_csrf ? csrf_token : nullptr,
+        monotonic_ms(),
+        touch);
+}
+
+AccessContext current_access_context(httpd_req_t* const request)
+{
+    pf_auth::RequestAuthentication authentication =
+        request_authentication(request);
+    const pf_config::SecureZeroGuard authentication_guard(
+        authentication);
     return {
         .provisioning_ap = provisioning_mode_active(),
         .initial_bootstrap =
             server_access_config.initial_bootstrap,
+        .password_bootstrap =
+            server_access_config.password_bootstrap,
         .management_password_configured =
-            server_access_config.management_password_configured,
-        .authenticated = false,
-        .csrf_valid = false,
+            authentication.password_configured,
+        .authenticated = authentication.authenticated,
+        .csrf_valid = authentication.csrf_valid,
     };
+}
+
+esp_err_t reject_management_request(
+    httpd_req_t* const request,
+    const AccessContext& context,
+    const bool mutation)
+{
+    if (!context.authenticated) {
+        return send_json(
+            request,
+            "401 Unauthorized",
+            "{\"ok\":false,\"error\":\"authentication_required\"}");
+    }
+    if (mutation && !context.csrf_valid) {
+        return send_json(
+            request,
+            "403 Forbidden",
+            "{\"ok\":false,\"error\":\"csrf_required\"}");
+    }
+    return send_json(
+        request,
+        "403 Forbidden",
+        "{\"ok\":false,\"error\":\"forbidden\"}");
 }
 
 esp_err_t static_asset_handler(httpd_req_t* request)
@@ -240,11 +342,9 @@ bool escape_json_string(
 
 esp_err_t scan_handler(httpd_req_t* request)
 {
-    if (!wifi_scan_allowed(current_access_context())) {
-        return send_json(
-            request,
-            "401 Unauthorized",
-            "{\"ok\":false,\"error\":\"authentication_required\"}");
+    const AccessContext access = current_access_context(request);
+    if (!wifi_scan_allowed(access)) {
+        return reject_management_request(request, access, false);
     }
 
     pf_network::ScanSnapshot snapshot{};
@@ -330,11 +430,9 @@ esp_err_t scan_handler(httpd_req_t* request)
 
 esp_err_t wifi_config_handler(httpd_req_t* request)
 {
-    if (!wifi_config_allowed(current_access_context())) {
-        return send_json(
-            request,
-            "401 Unauthorized",
-            "{\"ok\":false,\"error\":\"authentication_required\"}");
+    const AccessContext access = current_access_context(request);
+    if (!wifi_config_allowed(access)) {
+        return reject_management_request(request, access, true);
     }
     if (request->content_len <= 0 ||
         request->content_len >= 320) {
@@ -506,11 +604,9 @@ bool query_request_id(
 
 esp_err_t wifi_config_status_handler(httpd_req_t* request)
 {
-    if (!wifi_scan_allowed(current_access_context())) {
-        return send_json(
-            request,
-            "401 Unauthorized",
-            "{\"ok\":false,\"error\":\"authentication_required\"}");
+    const AccessContext access = current_access_context(request);
+    if (!wifi_scan_allowed(access)) {
+        return reject_management_request(request, access, false);
     }
 
     std::uint32_t request_id = 0U;
@@ -563,6 +659,326 @@ esp_err_t wifi_config_status_handler(httpd_req_t* request)
     return result;
 }
 
+esp_err_t auth_status_handler(httpd_req_t* request)
+{
+    pf_auth::RequestAuthentication authentication =
+        request_authentication(request);
+    const pf_config::SecureZeroGuard authentication_guard(
+        authentication);
+    char response[256]{};
+    const pf_config::SecureZeroGuard response_guard(response);
+    const int written = std::snprintf(
+        response,
+        sizeof(response),
+        "{\"ok\":true,\"data\":{\"username\":\"admin\","
+        "\"password_configured\":%s,\"authenticated\":%s,"
+        "\"csrf_token\":%s%s%s}}",
+        authentication.password_configured ? "true" : "false",
+        authentication.authenticated ? "true" : "false",
+        authentication.authenticated ? "\"" : "",
+        authentication.authenticated
+            ? authentication.csrf_token
+            : "null",
+        authentication.authenticated ? "\"" : "");
+    if (written <= 0 ||
+        static_cast<std::size_t>(written) >= sizeof(response)) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"auth_serialization\"}");
+    }
+    return send_json(request, nullptr, response);
+}
+
+esp_err_t receive_auth_body(
+    httpd_req_t* const request,
+    char* const body,
+    const std::size_t capacity,
+    std::size_t& received)
+{
+    if (request->content_len <= 0 ||
+        static_cast<std::size_t>(request->content_len) >= capacity) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    received = 0U;
+    std::uint8_t timeout_count = 0U;
+    const std::uint64_t started_ms = monotonic_ms();
+    while (received <
+           static_cast<std::size_t>(request->content_len)) {
+        if (body_receive_deadline_expired(
+                monotonic_ms(),
+                started_ms,
+                kMaximumBodyReceiveMs)) {
+            return ESP_ERR_TIMEOUT;
+        }
+        const int result = httpd_req_recv(
+            request,
+            body + received,
+            request->content_len -
+                static_cast<int>(received));
+        if (result == HTTPD_SOCK_ERR_TIMEOUT) {
+            ++timeout_count;
+            if (body_receive_idle_limit_reached(
+                    timeout_count,
+                    kMaximumBodyTimeouts)) {
+                return ESP_ERR_TIMEOUT;
+            }
+            continue;
+        }
+        if (result <= 0) {
+            return ESP_FAIL;
+        }
+        received += static_cast<std::size_t>(result);
+    }
+    return ESP_OK;
+}
+
+esp_err_t auth_login_handler(httpd_req_t* request)
+{
+    char body[512]{};
+    const pf_config::SecureZeroGuard body_guard(body);
+    std::size_t received = 0U;
+    const esp_err_t receive_result =
+        receive_auth_body(
+            request,
+            body,
+            sizeof(body),
+            received);
+    if (receive_result == ESP_ERR_INVALID_SIZE) {
+        return send_json(
+            request,
+            "413 Payload Too Large",
+            "{\"ok\":false,\"error\":\"invalid_body\"}");
+    }
+    if (receive_result == ESP_ERR_TIMEOUT) {
+        return send_json(
+            request,
+            "408 Request Timeout",
+            "{\"ok\":false,\"error\":\"body_timeout\"}");
+    }
+    if (receive_result != ESP_OK) {
+        return send_json(
+            request,
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"body_receive_failed\"}");
+    }
+
+    AuthForm form{};
+    const pf_config::SecureZeroGuard form_guard(form);
+    const AuthParseStatus parsed =
+        parse_auth_form(body, received, form);
+    if (parsed != AuthParseStatus::ok) {
+        char response[112]{};
+        std::snprintf(
+            response,
+            sizeof(response),
+            "{\"ok\":false,\"error\":\"%s\"}",
+            to_string(parsed));
+        return send_json(request, "400 Bad Request", response);
+    }
+
+    const bool setup_allowed =
+        password_setup_allowed(current_access_context(request));
+    pf_auth::LoginSubmitResult login =
+        pf_auth::auth_service().submit_login(
+        form.username,
+        form.password,
+        setup_allowed,
+        monotonic_ms());
+    const pf_config::SecureZeroGuard login_guard(login);
+    if (login.status == pf_auth::LoginSubmitStatus::invalid) {
+        return send_json(
+            request,
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"invalid_credentials\"}");
+    }
+    if (login.status == pf_auth::LoginSubmitStatus::busy) {
+        return send_json(
+            request,
+            "409 Conflict",
+            "{\"ok\":false,\"error\":\"authentication_busy\"}");
+    }
+    if (login.status != pf_auth::LoginSubmitStatus::accepted) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"authentication_unavailable\"}");
+    }
+
+    char response[192]{};
+    const pf_config::SecureZeroGuard response_guard(response);
+    const int written = std::snprintf(
+        response,
+        sizeof(response),
+        "{\"ok\":true,\"data\":{\"state\":\"verifying\","
+        "\"request_token\":\"%s\"}}",
+        login.request_token);
+    if (written <= 0 ||
+        static_cast<std::size_t>(written) >= sizeof(response)) {
+        return ESP_FAIL;
+    }
+    return send_json(request, "202 Accepted", response);
+}
+
+esp_err_t auth_login_status_handler(httpd_req_t* request)
+{
+    char request_token[pf_auth::kEncodedSecretCapacity]{};
+    const pf_config::SecureZeroGuard request_token_guard(
+        request_token);
+    if (!request_auth_operation_token(request, request_token)) {
+        return send_json(
+            request,
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"invalid_auth_request\"}");
+    }
+
+    pf_auth::LoginOperationSnapshot snapshot{};
+    const pf_config::SecureZeroGuard snapshot_guard(snapshot);
+    if (!pf_auth::auth_service().login_status(
+            request_token,
+            snapshot)) {
+        return send_json(
+            request,
+            "404 Not Found",
+            "{\"ok\":false,\"error\":\"auth_request_not_found\"}");
+    }
+    if (snapshot.state ==
+        pf_auth::LoginOperationState::verifying) {
+        return send_json(
+            request,
+            "202 Accepted",
+            "{\"ok\":true,\"data\":{\"state\":\"verifying\"}}");
+    }
+
+    const char* http_status = nullptr;
+    const char* error_response = nullptr;
+    switch (snapshot.state) {
+        case pf_auth::LoginOperationState::invalid_credentials:
+            http_status = "401 Unauthorized";
+            error_response =
+                "{\"ok\":false,\"error\":\"invalid_credentials\"}";
+            break;
+        case pf_auth::LoginOperationState::setup_forbidden:
+            http_status = "403 Forbidden";
+            error_response =
+                "{\"ok\":false,\"error\":\"password_setup_forbidden\"}";
+            break;
+        case pf_auth::LoginOperationState::failed:
+            http_status = "503 Service Unavailable";
+            error_response =
+                "{\"ok\":false,\"error\":\"authentication_unavailable\"}";
+            break;
+        case pf_auth::LoginOperationState::authenticated:
+        case pf_auth::LoginOperationState::password_created:
+            break;
+        case pf_auth::LoginOperationState::idle:
+        case pf_auth::LoginOperationState::verifying:
+            return send_json(
+                request,
+                "500 Internal Server Error",
+                "{\"ok\":false,\"error\":\"auth_state_invalid\"}");
+    }
+
+    if (error_response != nullptr) {
+        const esp_err_t result =
+            send_json(request, http_status, error_response);
+        if (result == ESP_OK) {
+            pf_auth::auth_service().acknowledge_login(
+                request_token);
+        }
+        return result;
+    }
+
+    char cookie[128]{};
+    const pf_config::SecureZeroGuard cookie_guard(cookie);
+    const int cookie_length = std::snprintf(
+        cookie,
+        sizeof(cookie),
+        "%s=%s; Path=/; HttpOnly; SameSite=Strict",
+        kSessionCookieName,
+        snapshot.result.session_token);
+    if (cookie_length <= 0 ||
+        static_cast<std::size_t>(cookie_length) >= sizeof(cookie) ||
+        httpd_resp_set_hdr(
+            request,
+            "Set-Cookie",
+            cookie) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    char response[192]{};
+    const pf_config::SecureZeroGuard response_guard(response);
+    const int written = std::snprintf(
+        response,
+        sizeof(response),
+        "{\"ok\":true,\"data\":{\"username\":\"admin\","
+        "\"authenticated\":true,\"password_created\":%s,"
+        "\"csrf_token\":\"%s\"}}",
+        snapshot.state ==
+                pf_auth::LoginOperationState::password_created
+            ? "true"
+            : "false",
+        snapshot.result.csrf_token);
+    if (written <= 0 ||
+        static_cast<std::size_t>(written) >= sizeof(response)) {
+        return ESP_FAIL;
+    }
+    const esp_err_t result =
+        send_json(request, nullptr, response);
+    if (result == ESP_OK) {
+        pf_auth::auth_service().acknowledge_login(
+            request_token);
+    }
+    return result;
+}
+
+esp_err_t auth_logout_handler(httpd_req_t* request)
+{
+    pf_auth::RequestAuthentication authentication =
+        request_authentication(request, false);
+    const pf_config::SecureZeroGuard authentication_guard(
+        authentication);
+    if (!authentication.authenticated) {
+        return send_json(
+            request,
+            "401 Unauthorized",
+            "{\"ok\":false,\"error\":\"authentication_required\"}");
+    }
+    if (!authentication.csrf_valid) {
+        return send_json(
+            request,
+            "403 Forbidden",
+            "{\"ok\":false,\"error\":\"csrf_required\"}");
+    }
+
+    char session_token[pf_auth::kEncodedSecretCapacity]{};
+    char csrf_token[pf_auth::kEncodedSecretCapacity]{};
+    const pf_config::SecureZeroGuard session_guard(session_token);
+    const pf_config::SecureZeroGuard csrf_guard(csrf_token);
+    if (!request_session_token(request, session_token) ||
+        !request_csrf_token(request, csrf_token) ||
+        !pf_auth::auth_service().logout(
+            session_token,
+            csrf_token,
+            monotonic_ms())) {
+        return send_json(
+            request,
+            "401 Unauthorized",
+            "{\"ok\":false,\"error\":\"authentication_required\"}");
+    }
+    if (httpd_resp_set_hdr(
+            request,
+            "Set-Cookie",
+            "pf_session=; Path=/; Max-Age=0; HttpOnly; "
+            "SameSite=Strict") != ESP_OK) {
+        return ESP_FAIL;
+    }
+    return send_json(
+        request,
+        nullptr,
+        "{\"ok\":true,\"data\":{\"authenticated\":false}}");
+}
+
 const httpd_uri_t kHealthRoute{
     .uri = "/api/v1/health",
     .method = HTTP_GET,
@@ -585,6 +1001,30 @@ const httpd_uri_t kWifiConfigStatusRoute{
     .uri = "/api/v1/wifi/config/status",
     .method = HTTP_GET,
     .handler = wifi_config_status_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kAuthStatusRoute{
+    .uri = "/api/v1/auth/status",
+    .method = HTTP_GET,
+    .handler = auth_status_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kAuthLoginRoute{
+    .uri = "/api/v1/auth/login",
+    .method = HTTP_POST,
+    .handler = auth_login_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kAuthLoginStatusRoute{
+    .uri = "/api/v1/auth/login/status",
+    .method = HTTP_GET,
+    .handler = auth_login_status_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kAuthLogoutRoute{
+    .uri = "/api/v1/auth/logout",
+    .method = HTTP_POST,
+    .handler = auth_logout_handler,
     .user_ctx = nullptr,
 };
 const httpd_uri_t kIndexRoute{
@@ -623,7 +1063,7 @@ esp_err_t start_health_server(
     }
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-    configuration.max_uri_handlers = 9;
+    configuration.max_uri_handlers = 13;
     configuration.recv_wait_timeout = 5;
     server_access_config = access;
 
@@ -637,6 +1077,10 @@ esp_err_t start_health_server(
         &kScanRoute,
         &kWifiConfigRoute,
         &kWifiConfigStatusRoute,
+        &kAuthStatusRoute,
+        &kAuthLoginRoute,
+        &kAuthLoginStatusRoute,
+        &kAuthLogoutRoute,
         &kIndexRoute,
         &kStyleRoute,
         &kScriptRoute,

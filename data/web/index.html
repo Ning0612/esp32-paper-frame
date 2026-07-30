@@ -33,11 +33,50 @@
       <span class="offline-badge">完全離線可用</span>
     </section>
 
-    <form id="wifi-form" class="setup-grid" novalidate>
+    <section id="auth-gate" class="panel auth-panel" aria-labelledby="auth-title">
+      <div class="panel-heading">
+        <div>
+          <span class="panel-no">A</span>
+          <h2 id="auth-title">管理員登入</h2>
+        </div>
+        <span class="local-only">ADMIN</span>
+      </div>
+      <p id="auth-copy" class="auth-copy">
+        正在確認裝置的管理員狀態…
+      </p>
+      <form id="auth-form" class="auth-form" novalidate>
+        <label class="field">
+          <span>管理帳號</span>
+          <input value="admin" readonly autocomplete="username">
+        </label>
+        <label class="field">
+          <span id="auth-password-label">管理密碼</span>
+          <div class="password-row">
+            <input id="auth-password" type="password" minlength="8"
+                   maxlength="128" autocomplete="current-password" required>
+            <button id="auth-password-toggle" type="button"
+                    aria-pressed="false">顯示</button>
+          </div>
+          <small>至少 8 個字元；只保存加鹽後的強雜湊。</small>
+        </label>
+        <button id="auth-button" class="save-button" type="submit">
+          登入
+        </button>
+        <p id="auth-status" class="save-status" role="status"
+           aria-live="assertive"></p>
+      </form>
+    </section>
+
+    <div id="authenticated-actions" class="authenticated-actions" hidden>
+      <span>已登入 <b>admin</b></span>
+      <button id="logout-button" type="button">登出</button>
+    </div>
+
+    <form id="wifi-form" class="setup-grid" novalidate hidden>
       <section class="panel network-panel">
         <div class="panel-heading">
           <div>
-            <span class="panel-no">A</span>
+            <span class="panel-no">B</span>
             <h2>選擇 Wi‑Fi</h2>
           </div>
           <button id="scan-button" class="scan-button" type="button">
@@ -64,7 +103,7 @@
       <section class="panel credential-panel">
         <div class="panel-heading">
           <div>
-            <span class="panel-no">B</span>
+            <span class="panel-no">C</span>
             <h2>輸入密碼</h2>
           </div>
         </div>

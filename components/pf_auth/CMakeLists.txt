@@ -1,15 +1,12 @@
 idf_component_register(
     SRCS
-        "health_server.cpp"
-        "provisioning_service.cpp"
+        "auth_service.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES
-        esp_http_server
         esp_timer
         freertos
-        pf_auth
+        mbedtls
         pf_config
-        pf_network
         pf_runtime
 )

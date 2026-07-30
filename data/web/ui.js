@@ -13,9 +13,21 @@
   const form = document.querySelector("#wifi-form");
   const saveButton = document.querySelector("#save-button");
   const saveStatus = document.querySelector("#save-status");
+  const authGate = document.querySelector("#auth-gate");
+  const authForm = document.querySelector("#auth-form");
+  const authTitle = document.querySelector("#auth-title");
+  const authCopy = document.querySelector("#auth-copy");
+  const authPasswordLabel = document.querySelector("#auth-password-label");
+  const authPassword = document.querySelector("#auth-password");
+  const authPasswordToggle = document.querySelector("#auth-password-toggle");
+  const authButton = document.querySelector("#auth-button");
+  const authStatus = document.querySelector("#auth-status");
+  const authenticatedActions = document.querySelector("#authenticated-actions");
+  const logoutButton = document.querySelector("#logout-button");
 
   let selected = "";
   let polling = 0;
+  let csrfToken = "";
 
   function chooseNetwork(ssid) {
     selected = ssid;
@@ -117,6 +129,135 @@
     passwordToggle.setAttribute("aria-pressed", reveal ? "true" : "false");
   });
 
+  authPasswordToggle.addEventListener("click", () => {
+    const reveal = authPassword.type === "password";
+    authPassword.type = reveal ? "text" : "password";
+    authPasswordToggle.textContent = reveal ? "隱藏" : "顯示";
+    authPasswordToggle.setAttribute(
+      "aria-pressed",
+      reveal ? "true" : "false"
+    );
+  });
+
+  function showAuthenticated(token) {
+    csrfToken = token || "";
+    authPassword.value = "";
+    authGate.hidden = true;
+    authenticatedActions.hidden = false;
+    form.hidden = false;
+    scan(true);
+  }
+
+  function showAuthForm(passwordConfigured) {
+    authGate.hidden = false;
+    authenticatedActions.hidden = true;
+    form.hidden = true;
+    authTitle.textContent = passwordConfigured
+      ? "管理員登入"
+      : "建立管理密碼";
+    authPasswordLabel.textContent = passwordConfigured
+      ? "管理密碼"
+      : "新管理密碼";
+    authCopy.textContent = passwordConfigured
+      ? "請先登入，才能存取 Wi‑Fi 與裝置管理功能。"
+      : "首次設定必須先建立管理密碼，接著才會開啟 Wi‑Fi 配網。";
+    authButton.textContent = passwordConfigured
+      ? "登入"
+      : "建立密碼並繼續";
+    authPassword.autocomplete = passwordConfigured
+      ? "current-password"
+      : "new-password";
+    authPassword.focus();
+  }
+
+  async function loadAuthStatus() {
+    try {
+      const response = await fetch("/api/v1/auth/status", {
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.data) throw new Error("auth_status");
+      if (payload.data.authenticated) {
+        showAuthenticated(payload.data.csrf_token);
+      } else {
+        showAuthForm(payload.data.password_configured);
+      }
+    } catch {
+      authCopy.textContent =
+        "無法讀取管理員狀態。請確認仍連著 PaperFrame 後重新整理。";
+      authForm.hidden = true;
+    }
+  }
+
+  async function waitForLogin(requestToken) {
+    const deadline = Date.now() + 65000;
+    while (Date.now() < deadline) {
+      const response = await fetch("/api/v1/auth/login/status", {
+        cache: "no-store",
+        headers: { "X-Auth-Request": requestToken },
+      });
+      const payload = await response.json();
+      if (response.status === 202) {
+        await new Promise((resolve) => window.setTimeout(resolve, 300));
+        continue;
+      }
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "login_failed");
+      }
+      return payload.data;
+    }
+    throw new Error("login_timeout");
+  }
+
+  authForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (authPassword.value.length < 8) {
+      authStatus.className = "save-status error";
+      authStatus.textContent = "管理密碼至少需要 8 個字元。";
+      return;
+    }
+    authButton.disabled = true;
+    authStatus.className = "save-status";
+    authStatus.textContent = "正在驗證…";
+    try {
+      const response = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          username: "admin",
+          password: authPassword.value,
+        }).toString(),
+      });
+      const payload = await response.json();
+      if (
+        response.status !== 202 ||
+        !payload.data ||
+        !payload.data.request_token
+      ) {
+        throw new Error(payload.error || "login_failed");
+      }
+      const authenticated = await waitForLogin(payload.data.request_token);
+      showAuthenticated(authenticated.csrf_token);
+    } catch {
+      authStatus.className = "save-status error";
+      authStatus.textContent = "登入失敗，請確認密碼後再試一次。";
+    } finally {
+      authButton.disabled = false;
+    }
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    try {
+      await fetch("/api/v1/auth/logout", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken },
+      });
+    } finally {
+      csrfToken = "";
+      window.location.reload();
+    }
+  });
+
   async function waitForCredentialCommit(requestId) {
     const deadline = Date.now() + 25000;
     while (Date.now() < deadline) {
@@ -163,7 +304,10 @@
     try {
       const response = await fetch("/api/v1/wifi/config", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-CSRF-Token": csrfToken,
+        },
         body: body.toString(),
       });
       const payload = await response.json();
@@ -183,5 +327,5 @@
     }
   });
 
-  scan(true);
+  loadAuthStatus();
 })();

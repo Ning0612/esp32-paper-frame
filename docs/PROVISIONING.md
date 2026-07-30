@@ -7,14 +7,14 @@ PaperFrame 將「首次設定」與「Recovery AP」視為不同的信任邊界�
 | 狀態 | Wi-Fi scan | Wi-Fi config |
 | --- | --- | --- |
 | 首次 provisioning AP、尚無 Wi-Fi credential、尚無管理密碼 | bootstrap 例外可用 | bootstrap 例外可用 |
+| 升級後已有 credential、尚無管理密碼的 password bootstrap AP | 建立管理密碼並取得 session 後可用 | 建立管理密碼並取得 session／CSRF 後可用 |
 | Recovery AP | 需有效管理 session | 需有效管理 session 與 CSRF |
 | STA／一般模式 | 需有效管理 session | 需有效管理 session 與 CSRF |
 
 判斷首次 bootstrap 時，credential 或管理密碼狀態只要讀取失敗就 fail
-closed，不會把錯誤當成「尚未設定」。目前 portal commit 已固定上述 route
-policy；管理 session、CSRF 與 Recovery AP 登入流程由 Phase 3 的下一個
-auth commit 接入，因此在 auth 接入前 Recovery AP 的受保護 route 會回
-`401`。
+closed，不會把錯誤當成「尚未設定」。管理 session、CSRF、首次建密碼與
+Recovery AP 登入流程見
+[管理認證與 CSRF contract](AUTHENTICATION.md)。
 
 ## AP 與電子紙畫面
 
