@@ -402,15 +402,8 @@ esp_err_t NetworkService::start_access_point()
 
 void NetworkService::begin_scan()
 {
-    if (state_machine_.mode() !=
-        NetworkMode::provisioning_ap) {
-        if (scan_mutex_ != nullptr &&
-            xSemaphoreTake(
-                scan_mutex_,
-                portMAX_DELAY) == pdTRUE) {
-            scan_request_pending_ = false;
-            xSemaphoreGive(scan_mutex_);
-        }
+    if (!scan_allowed_in_mode(state_machine_.mode())) {
+        fail_scan(ESP_ERR_INVALID_STATE);
         return;
     }
 

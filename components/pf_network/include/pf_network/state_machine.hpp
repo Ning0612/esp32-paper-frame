@@ -12,6 +12,12 @@ enum class NetworkMode : std::uint8_t {
     offline_retry,
 };
 
+constexpr bool scan_allowed_in_mode(const NetworkMode mode)
+{
+    return mode == NetworkMode::normal ||
+           mode == NetworkMode::provisioning_ap;
+}
+
 enum class WifiState : std::uint8_t {
     unknown,
     connecting,

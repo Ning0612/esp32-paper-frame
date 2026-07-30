@@ -10,6 +10,7 @@ using pf_network::NetworkAction;
 using pf_network::NetworkEvent;
 using pf_network::NetworkMode;
 using pf_network::NetworkStateMachine;
+using pf_network::scan_allowed_in_mode;
 using pf_network::WifiState;
 
 void test_blank_credentials_enter_provisioning_ap()
@@ -56,6 +57,15 @@ void test_configured_credentials_start_station_and_reach_normal()
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(InternetState::unknown),
         static_cast<int>(machine.internet_state()));
+}
+
+void test_authenticated_station_allows_wifi_scan()
+{
+    TEST_ASSERT_TRUE(scan_allowed_in_mode(NetworkMode::normal));
+    TEST_ASSERT_TRUE(scan_allowed_in_mode(NetworkMode::provisioning_ap));
+    TEST_ASSERT_FALSE(scan_allowed_in_mode(NetworkMode::boot));
+    TEST_ASSERT_FALSE(scan_allowed_in_mode(NetworkMode::connecting_wifi));
+    TEST_ASSERT_FALSE(scan_allowed_in_mode(NetworkMode::offline_retry));
 }
 
 void test_internet_failure_never_forces_provisioning_ap()
@@ -230,6 +240,7 @@ int main(int argc, char** argv)
     UNITY_BEGIN();
     RUN_TEST(test_blank_credentials_enter_provisioning_ap);
     RUN_TEST(test_configured_credentials_start_station_and_reach_normal);
+    RUN_TEST(test_authenticated_station_allows_wifi_scan);
     RUN_TEST(test_internet_failure_never_forces_provisioning_ap);
     RUN_TEST(test_station_failures_retry_then_fall_back_to_ap);
     RUN_TEST(test_disconnect_after_normal_uses_same_bounded_retry_policy);
