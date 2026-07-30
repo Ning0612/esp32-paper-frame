@@ -6,6 +6,10 @@
 #include "esp_http_server.h"
 #include "pf_config/schema.hpp"
 
+namespace pf_storage {
+class StorageWorker;
+}
+
 namespace pf_web {
 
 struct HealthServerAccessConfig {
@@ -16,6 +20,7 @@ struct HealthServerAccessConfig {
     bool management_password_configured = false;
     std::uint32_t refresh_minutes = 0U;
     char timezone[pf_config::kTimezoneCapacity]{};
+    pf_storage::StorageWorker* storage_worker = nullptr;
 };
 
 esp_err_t start_health_server(

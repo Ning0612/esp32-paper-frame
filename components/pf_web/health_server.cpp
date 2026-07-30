@@ -10,10 +10,12 @@
 #include "pf_config/secure_memory.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
+#include "pf_storage/storage_worker.hpp"
 #include "pf_web/access_policy.hpp"
 #include "pf_web/auth_form.hpp"
 #include "pf_web/dashboard_serializer.hpp"
 #include "pf_web/health_serializer.hpp"
+#include "pf_web/image_list_serializer.hpp"
 #include "pf_web/http_receive_policy.hpp"
 #include "pf_web/provisioning_form.hpp"
 #include "pf_web/provisioning_service.hpp"
@@ -1064,6 +1066,80 @@ esp_err_t auth_logout_handler(httpd_req_t* request)
         "{\"ok\":true,\"data\":{\"authenticated\":false}}");
 }
 
+struct ImageListStreamContext {
+    httpd_req_t* request = nullptr;
+    bool first = true;
+    bool failed = false;
+};
+
+bool send_image_list_entry(
+    void* const raw_context,
+    const pf_storage::CatalogEntry& entry)
+{
+    auto* const context = static_cast<ImageListStreamContext*>(raw_context);
+    if (context == nullptr || context->request == nullptr) {
+        return false;
+    }
+    char serialized[640]{};
+    std::size_t written = 0U;
+    if (!serialize_image_entry(
+            entry,
+            serialized,
+            sizeof(serialized),
+            written)) {
+        context->failed = true;
+        return false;
+    }
+    if (!context->first &&
+        httpd_resp_sendstr_chunk(context->request, ",") != ESP_OK) {
+        context->failed = true;
+        return false;
+    }
+    if (httpd_resp_send_chunk(
+            context->request,
+            serialized,
+            written) != ESP_OK) {
+        context->failed = true;
+        return false;
+    }
+    context->first = false;
+    return true;
+}
+
+esp_err_t image_list_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!access.authenticated) {
+        return reject_management_request(request, access, false);
+    }
+    pf_storage::StorageWorker* const worker =
+        server_access_config.storage_worker;
+    if (worker == nullptr || !worker->ready()) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    if (set_common_headers(
+            request,
+            "application/json; charset=utf-8") != ESP_OK ||
+        httpd_resp_set_status(request, "200 OK") != ESP_OK ||
+        httpd_resp_sendstr_chunk(
+            request,
+            kImageListJsonPrefix) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    ImageListStreamContext context{request};
+    if (!worker->visit_catalog(send_image_list_entry, &context) ||
+        context.failed ||
+        httpd_resp_sendstr_chunk(request, kImageListJsonSuffix) != ESP_OK ||
+        httpd_resp_sendstr_chunk(request, nullptr) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
 const httpd_uri_t kHealthRoute{
     .uri = "/api/v1/health",
     .method = HTTP_GET,
@@ -1130,6 +1206,12 @@ const httpd_uri_t kAuthLogoutRoute{
     .handler = auth_logout_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kImageListRoute{
+    .uri = "/api/v1/images",
+    .method = HTTP_GET,
+    .handler = image_list_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kIndexRoute{
     .uri = "/",
     .method = HTTP_GET,
@@ -1166,7 +1248,7 @@ esp_err_t start_health_server(
     }
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-    configuration.max_uri_handlers = 16;
+    configuration.max_uri_handlers = 20;
     configuration.recv_wait_timeout = 5;
     server_access_config = access;
 
@@ -1187,6 +1269,7 @@ esp_err_t start_health_server(
         &kAuthLoginRoute,
         &kAuthLoginStatusRoute,
         &kAuthLogoutRoute,
+        &kImageListRoute,
         &kIndexRoute,
         &kStyleRoute,
         &kScriptRoute,

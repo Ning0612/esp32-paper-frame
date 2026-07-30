@@ -37,8 +37,38 @@ StorageWorkerResult StorageWorker::start()
         workspace_);
     if (!last_result_.recovery.ok()) {
         last_result_.error = StorageWorkerError::recovery_failed;
+        catalog_available_ = false;
+        return last_result_;
     }
+    if (last_result_.recovery.has_catalog) {
+        catalog_ = workspace_.recovered;
+    } else if (!initialize_catalog(catalog_)) {
+        last_result_.error = StorageWorkerError::recovery_failed;
+        catalog_available_ = false;
+        return last_result_;
+    }
+    catalog_available_ = true;
     return last_result_;
+}
+
+bool StorageWorker::visit_catalog(
+    const CatalogEntryVisitor visitor,
+    void* const context) const
+{
+    if (!ready() || !catalog_available_ || visitor == nullptr) {
+        return false;
+    }
+    for (std::size_t index = 0U; index < catalog_.count; ++index) {
+        if (!visitor(context, catalog_.entries[index])) {
+            break;
+        }
+    }
+    return true;
+}
+
+std::uint64_t StorageWorker::free_bytes() const
+{
+    return filesystem_ == nullptr ? 0U : filesystem_->free_bytes();
 }
 
 }  // namespace pf_storage

@@ -12,4 +12,5 @@ idf_component_register(
         pf_config
         pf_network
         pf_runtime
+        pf_storage
 )

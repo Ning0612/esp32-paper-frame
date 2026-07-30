@@ -470,6 +470,7 @@ extern "C" void app_main()
         timezone,
         sizeof(web_access.timezone) - 1U);
     web_access.timezone[sizeof(web_access.timezone) - 1U] = '\0';
+    web_access.storage_worker = &storage_worker;
     const esp_err_t health_result =
         network_stack_result == ESP_OK
             ? pf_web::start_health_server(

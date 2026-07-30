@@ -25,6 +25,10 @@ struct StorageWorkerResult {
 
 const char* to_string(StorageWorkerError error);
 
+using CatalogEntryVisitor = bool (*)(
+    void* context,
+    const CatalogEntry& entry);
+
 // Owns access to the imagefs backend and its persistent recovery workspace.
 // The backend must outlive this worker. Startup is intentionally synchronous so
 // callers can publish the imagefs runtime state before exposing HTTP routes;
@@ -50,6 +54,14 @@ public:
         return started_ && last_result_.ok();
     }
 
+    // Read-only iteration avoids copying the bounded catalog onto an HTTP
+    // handler stack. Returning false from the visitor stops successfully.
+    bool visit_catalog(
+        CatalogEntryVisitor visitor,
+        void* context) const;
+
+    std::uint64_t free_bytes() const;
+
     const StorageWorkerResult& last_result() const
     {
         return last_result_;
@@ -59,6 +71,8 @@ private:
     StorageFileSystem* filesystem_ = nullptr;
     RecoveryWorkspace workspace_{};
     StorageWorkerResult last_result_{};
+    Catalog catalog_{};
+    bool catalog_available_ = false;
     bool started_ = false;
 };
 
