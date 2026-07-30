@@ -44,6 +44,76 @@
     destination[destinationIndex + 3] = source[sourceIndex + 3];
   }
 
+  function readExifOrientation(input) {
+    const bytes = input instanceof Uint8Array
+      ? input
+      : new Uint8Array(input || new ArrayBuffer(0));
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+      return 1;
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let offset = 2;
+    while (offset + 4 <= bytes.length) {
+      if (bytes[offset] !== 0xFF) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1];
+      offset += 2;
+      if (marker === 0xD9 || marker === 0xDA) {
+        break;
+      }
+      if (offset + 2 > bytes.length) {
+        return 1;
+      }
+      const segmentLength = view.getUint16(offset, false);
+      if (segmentLength < 2 || offset + segmentLength > bytes.length) {
+        return 1;
+      }
+      const segmentStart = offset + 2;
+      const segmentEnd = offset + segmentLength;
+      if (marker === 0xE1 && segmentLength >= 8 &&
+          bytes[segmentStart] === 0x45 && bytes[segmentStart + 1] === 0x78 &&
+          bytes[segmentStart + 2] === 0x69 && bytes[segmentStart + 3] === 0x66 &&
+          bytes[segmentStart + 4] === 0x00 && bytes[segmentStart + 5] === 0x00) {
+        const tiffStart = segmentStart + 6;
+        if (tiffStart + 8 > segmentEnd) {
+          return 1;
+        }
+        const littleEndian = bytes[tiffStart] === 0x49 && bytes[tiffStart + 1] === 0x49;
+        const bigEndian = bytes[tiffStart] === 0x4D && bytes[tiffStart + 1] === 0x4D;
+        if (!littleEndian && !bigEndian) {
+          return 1;
+        }
+        const read16 = (position) => view.getUint16(position, littleEndian);
+        const read32 = (position) => view.getUint32(position, littleEndian);
+        if (read16(tiffStart + 2) !== 42) {
+          return 1;
+        }
+        const ifdOffset = read32(tiffStart + 4);
+        const ifdStart = tiffStart + ifdOffset;
+        if (ifdStart + 2 > segmentEnd) {
+          return 1;
+        }
+        const entryCount = read16(ifdStart);
+        if (ifdStart + 2 + (entryCount * 12) > segmentEnd) {
+          return 1;
+        }
+        for (let index = 0; index < entryCount; index += 1) {
+          const entry = ifdStart + 2 + (index * 12);
+          if (read16(entry) !== 0x0112 || read16(entry + 2) !== 3 || read32(entry + 4) !== 1) {
+            continue;
+          }
+          const orientation = read16(entry + 8);
+          return orientation >= 1 && orientation <= 8 ? orientation : 1;
+        }
+        return 1;
+      }
+      offset = segmentEnd;
+    }
+    return 1;
+  }
+
   function flattenOnWhite(raster, background) {
     const source = makeRaster(raster.width, raster.height, raster.data);
     const color = background || [255, 255, 255];
@@ -271,6 +341,7 @@
     FIT_MODES,
     ORIENTATION_PROFILES,
     makeRaster,
+    readExifOrientation,
     flattenOnWhite,
     orientExif,
     mirror,

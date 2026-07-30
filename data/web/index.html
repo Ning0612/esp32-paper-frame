@@ -7,6 +7,9 @@
   <title>PaperFrame 管理介面</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/image_pipeline.js" defer></script>
+  <script src="/image_quantizer.js" defer></script>
+  <script src="/image_pfr1.js" defer></script>
   <script src="/ui.js" defer></script>
 </head>
 <body>
@@ -40,8 +43,7 @@
           <button class="nav-link active" type="button" data-view="dashboard"
                   aria-current="page">總覽 <span>01</span></button>
           <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
-          <button class="nav-link future" type="button" disabled
-                  title="Phase 4 開放">圖片 <span>04</span></button>
+          <button class="nav-link" type="button" data-view="image">圖片 <span>04</span></button>
           <button class="nav-link future" type="button" disabled
                   title="Phase 7 開放">環境 <span>07</span></button>
           <button class="nav-link future" type="button" disabled
@@ -203,6 +205,85 @@
                 <p id="save-status" class="save-status" role="status" aria-live="assertive"></p>
               </section>
             </form>
+          </div>
+
+          <div id="image-view" class="view" data-view-panel="image" hidden>
+            <div class="view-heading">
+              <div>
+                <p class="eyebrow">04 / IMAGE PREPARATION</p>
+                <h2>圖片處理</h2>
+              </div>
+            </div>
+            <p class="intro-copy">圖片會在瀏覽器本機完成方向、裁切、六色量化與 PFR1 打包；原圖不會送到外部服務。</p>
+
+            <div class="image-workbench">
+              <section class="panel image-controls">
+                <div class="panel-heading">
+                  <div><span class="panel-no blue">G</span><h3>轉換設定</h3></div>
+                  <span class="local-only">BROWSER ONLY</span>
+                </div>
+                <label class="field">
+                  <span>來源圖片</span>
+                  <input id="image-source" type="file" accept="image/*">
+                  <small id="image-source-info">尚未選擇檔案。</small>
+                </label>
+                <div class="image-option-grid">
+                  <label class="field"><span>面板方向</span>
+                    <select id="image-orientation">
+                      <option value="landscape">橫向 800 × 440</option>
+                      <option value="portrait">直向 480 × 760</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>Fit / Crop</span>
+                    <select id="image-fit">
+                      <option value="contain">Contain／留白</option>
+                      <option value="cover">Cover／覆蓋裁切</option>
+                      <option value="fill">Fill／填滿</option>
+                      <option value="crop">Crop／比例裁切</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>六色量化</span>
+                    <select id="image-dither">
+                      <option value="nearest">Nearest color</option>
+                      <option value="floyd-steinberg">Floyd–Steinberg</option>
+                      <option value="atkinson">Atkinson</option>
+                      <option value="bayer-4x4">Bayer 4 × 4</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>PFR1 檔名</span>
+                    <input id="image-filename" maxlength="96" value="paperframe.pfr1" autocomplete="off">
+                  </label>
+                </div>
+                <div class="image-checks">
+                  <label><input id="image-mirror-x" type="checkbox"> 水平鏡像</label>
+                  <label><input id="image-mirror-y" type="checkbox"> 垂直鏡像</label>
+                  <label><input id="image-rotate" type="checkbox"> 順時針 90°</label>
+                </div>
+                <button id="image-process" class="primary-button" type="button" disabled>處理圖片</button>
+                <p id="image-status" class="save-status" role="status" aria-live="polite">請先選擇圖片。</p>
+              </section>
+
+              <section class="panel image-output">
+                <div class="panel-heading">
+                  <div><span class="panel-no mint">H</span><h3>PFR1 輸出</h3></div>
+                </div>
+                <dl class="definition-list">
+                  <div><dt>輸出尺寸</dt><dd id="image-output-dimensions">未知</dd></div>
+                  <div><dt>payload</dt><dd id="image-output-payload">未知</dd></div>
+                  <div><dt>完整檔案</dt><dd id="image-output-size">未知</dd></div>
+                  <div><dt>方向</dt><dd id="image-output-orientation">未知</dd></div>
+                </dl>
+                <button id="download-pfr1" class="primary-button" type="button" disabled>下載 PFR1</button>
+                <p class="trust-note"><b>尚未上傳</b><br>Phase 5 才會接入登入後的 imagefs upload；目前只產生本機檔案。</p>
+              </section>
+            </div>
+
+            <section class="preview-grid" aria-label="圖片預覽">
+              <article class="panel preview-card"><div class="preview-heading"><h3>原圖</h3><span>EXIF normalized</span></div><canvas id="preview-original" aria-label="原圖預覽"></canvas></article>
+              <article class="panel preview-card"><div class="preview-heading"><h3>處理後</h3><span>fit / crop</span></div><canvas id="preview-processed" aria-label="處理後預覽"></canvas></article>
+              <article class="panel preview-card"><div class="preview-heading"><h3>六色</h3><span>native palette</span></div><canvas id="preview-sixcolor" aria-label="六色預覽"></canvas></article>
+              <article class="panel preview-card"><div class="preview-heading"><h3>面板畫面</h3><span>status bar</span></div><canvas id="preview-frame" aria-label="含狀態列的面板預覽"></canvas></article>
+            </section>
           </div>
         </section>
       </section>

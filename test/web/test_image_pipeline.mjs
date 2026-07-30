@@ -82,10 +82,30 @@ function testInvalidInputsFailClosed() {
   assert.throws(() => pipeline.makeRaster(2, 2, new Uint8ClampedArray(3)), RangeError);
 }
 
+function testExifReaderExtractsJpegOrientationAndFailsClosed() {
+  const exif = new Uint8Array([
+    0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
+    0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,
+    0x01, 0x00,
+    0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  ]);
+  const jpeg = new Uint8Array(2 + 2 + 2 + exif.length + 2);
+  jpeg.set([0xFF, 0xD8, 0xFF, 0xE1], 0);
+  jpeg[4] = (exif.length + 2) >> 8;
+  jpeg[5] = (exif.length + 2) & 0xFF;
+  jpeg.set(exif, 6);
+  jpeg.set([0xFF, 0xD9], 6 + exif.length);
+  assert.equal(pipeline.readExifOrientation(jpeg), 6);
+  assert.equal(pipeline.readExifOrientation(new Uint8Array([0x89, 0x50, 0x4E, 0x47])), 1);
+  assert.equal(pipeline.readExifOrientation(jpeg.subarray(0, 9)), 1);
+}
+
 testExifOrientationSixRotatesClockwise();
 testMirrorAndRotateAreSeparateOperations();
 testTransparentPixelsFlattenToWhite();
 testEveryFitModeProducesTheRequestedDimensions();
 testProcessOrderNormalizesExifBeforeUserOperations();
 testInvalidInputsFailClosed();
-console.log("image_pipeline: 6 tests passed");
+testExifReaderExtractsJpegOrientationAndFailsClosed();
+console.log("image_pipeline: 7 tests passed");

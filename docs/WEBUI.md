@@ -1,9 +1,10 @@
 # 管理 WebUI 與 Dashboard
 
-Phase 3 的管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript 與 favicon
+Phase 3–4 的管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript 與 favicon
 都寫入 `webfs`，不依賴外部 CDN。登入後提供共用的 responsive 導覽殼層，
-目前開放「總覽」與「Wi‑Fi」兩個 view；圖片、環境與系統 view 會在對應
-phase 完成後啟用。
+目前開放「總覽」、「Wi‑Fi」與 Phase 4 的「圖片處理」view；環境與系統
+view 會在對應 phase 完成後啟用。圖片 view 只在瀏覽器本機產生 PFR1，尚未
+呼叫裝置 imagefs upload API。
 
 ## API 路由
 
@@ -67,6 +68,7 @@ payload。跨語言 golden vector 與欄位定義見
 node test\web\test_image_quantizer.mjs
 node --check data\web\image_quantizer.js
 node --check data\web\image_quantize_worker.js
+node test\web\test_image_ui_contract.mjs
 ```
 
 ## 視覺與主題
