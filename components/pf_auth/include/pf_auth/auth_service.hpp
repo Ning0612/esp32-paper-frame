@@ -102,7 +102,7 @@ private:
     static constexpr UBaseType_t kTaskPriority = tskIDLE_PRIORITY;
     static constexpr std::uint32_t kTaskStackWords = 4096U;
     static constexpr TickType_t kResultRetentionTicks =
-        pdMS_TO_TICKS(60000U);
+        pdMS_TO_TICKS(180000U);
 
     struct QueuedLogin {
         SessionSecret request_token{};

@@ -35,7 +35,8 @@ ESP32-S3 的 `hash_elapsed_ms`，確認登入延遲與 watchdog 行為可接受�
 ## 非同步登入
 
 PBKDF2 與首次密碼的 NVS commit 都在單一 `AuthTask` 執行，HTTP handler
-不等待雜湊或 flash 寫入。同時只允許一筆登入工作，完成結果保留 60 秒：
+不等待雜湊或 flash 寫入。同時只允許一筆登入工作，完成結果保留 180 秒；WebUI
+最多輪詢 180 秒，以涵蓋 ESP32-S3 實機的 PBKDF2 延遲：
 
 1. `POST /api/v1/auth/login`
    - body：`application/x-www-form-urlencoded`
@@ -49,6 +50,12 @@ PBKDF2 與首次密碼的 NVS commit 都在單一 `AuthTask` 執行，HTTP handl
 request token 是短期 bearer secret。所有 auth response 使用 `no-store`，
 password、request token、session token 與 CSRF 都不寫入 log；離開作用域
 時會清零保存這些值的固定大小 buffer。
+
+WebUI 登入 deadline contract 可用以下 host check 驗證：
+
+```powershell
+node test\web\test_auth_ui_contract.mjs
+```
 
 ## Session 與 CSRF
 

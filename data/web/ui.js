@@ -537,7 +537,7 @@
   }
 
   async function waitForLogin(requestToken) {
-    const deadline = Date.now() + 65000;
+    const deadline = Date.now() + 180000;
     while (Date.now() < deadline) {
       const response = await fetch("/api/v1/auth/login/status", { cache: "no-store", headers: { "X-Auth-Request": requestToken } });
       const payload = await response.json();
