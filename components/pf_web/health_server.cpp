@@ -144,6 +144,8 @@ std::uint8_t weather_config_queue_storage[
 StaticTask_t weather_config_task_control{};
 StackType_t weather_config_task_stack[
     kWeatherConfigTaskStackWords]{};
+SemaphoreHandle_t weather_config_mutex = nullptr;
+StaticSemaphore_t weather_config_mutex_control{};
 
 esp_err_t set_common_headers(
     httpd_req_t* const request,
@@ -459,6 +461,16 @@ esp_err_t config_handler(httpd_req_t* request)
         return reject_management_request(request, access, false);
     }
 
+    if (weather_config_mutex == nullptr ||
+        xSemaphoreTake(
+            weather_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"weather_config_busy\"}");
+    }
+
     const MaskedConfig config{
         .wifi_configured = server_access_config.wifi_configured,
         .wifi_password_configured =
@@ -484,6 +496,7 @@ esp_err_t config_handler(httpd_req_t* request)
         config,
         response,
         sizeof(response));
+    xSemaphoreGive(weather_config_mutex);
     if (!serialized.ok) {
         return send_json(
             request,
@@ -555,8 +568,18 @@ esp_err_t process_weather_config(
         return send_json(request, "400 Bad Request", response);
     }
 
-    pf_config::WeatherSettings candidate =
-        server_access_config.weather_settings;
+    pf_config::WeatherSettings candidate{};
+    if (weather_config_mutex == nullptr ||
+        xSemaphoreTake(
+            weather_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"weather_config_busy\"}");
+    }
+    candidate = server_access_config.weather_settings;
+    xSemaphoreGive(weather_config_mutex);
     const pf_config::SecureZeroGuard candidate_guard(candidate);
     if (!parse_weather_i32(form.latitude_e6, candidate.latitude_e6) ||
         !parse_weather_i32(form.longitude_e6, candidate.longitude_e6) ||
@@ -596,12 +619,24 @@ esp_err_t process_weather_config(
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"storage_unavailable\"}");
     }
+    if (weather_config_mutex == nullptr ||
+        xSemaphoreTake(
+            weather_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"weather_config_busy\"}");
+    }
     server_access_config.weather_settings = candidate;
     server_access_config.weather_configured = true;
+    const bool api_key_set =
+        server_access_config.weather_settings.api_key[0] != '\0';
+    xSemaphoreGive(weather_config_mutex);
     return send_json(
         request,
         nullptr,
-        server_access_config.weather_settings.api_key[0] != '\0'
+        api_key_set
             ? "{\"ok\":true,\"data\":{\"saved\":true,\"api_key_set\":true}}"
             : "{\"ok\":true,\"data\":{\"saved\":true,\"api_key_set\":false}}");
 }
@@ -2445,6 +2480,11 @@ esp_err_t start_health_server(
     configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
     server_access_config = access;
+    weather_config_mutex = xSemaphoreCreateMutexStatic(
+        &weather_config_mutex_control);
+    if (weather_config_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
 
     esp_err_t result = httpd_start(server, &configuration);
     if (result != ESP_OK) {

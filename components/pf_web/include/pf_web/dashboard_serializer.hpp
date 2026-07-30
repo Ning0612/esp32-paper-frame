@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "pf_config/schema.hpp"
 #include "pf_config/weather_settings.hpp"
 #include "pf_web/health_serializer.hpp"
 
@@ -244,11 +245,17 @@ inline SerializeResult serialize_masked_config(
         return {false, 0U};
     }
 
-    const auto safe_text = [](const char* const value) {
-        if (value == nullptr) {
+    const auto safe_text = [](const char* const value,
+                              const std::size_t capacity) {
+        if (value == nullptr || capacity == 0U) {
             return false;
         }
-        for (std::size_t index = 0U; value[index] != '\0'; ++index) {
+        const std::size_t length =
+            pf_config::bounded_text_length(value, capacity);
+        if (length >= capacity) {
+            return false;
+        }
+        for (std::size_t index = 0U; index < length; ++index) {
             const unsigned char byte =
                 static_cast<unsigned char>(value[index]);
             if (byte < 0x20U || byte == '"' || byte == '\\') {
@@ -257,19 +264,29 @@ inline SerializeResult serialize_masked_config(
         }
         return true;
     };
-    const char* const timezone = safe_text(config.timezone)
+    const char* const timezone = safe_text(
+                                     config.timezone,
+                                     pf_config::kTimezoneCapacity)
                                     ? config.timezone
                                     : "unknown";
-    const char* const location = safe_text(config.weather_location)
+    const char* const location = safe_text(
+                                     config.weather_location,
+                                     pf_config::kWeatherLocationCapacity)
                                     ? config.weather_location
                                     : "unknown";
-    const char* const units = safe_text(config.weather_units)
+    const char* const units = safe_text(
+                                  config.weather_units,
+                                  pf_config::kWeatherUnitsCapacity)
                                   ? config.weather_units
                                   : "unknown";
-    const char* const language = safe_text(config.weather_language)
+    const char* const language = safe_text(
+                                    config.weather_language,
+                                    pf_config::kWeatherLanguageCapacity)
                                     ? config.weather_language
                                     : "unknown";
-    const char* const ntp_server = safe_text(config.weather_ntp_server)
+    const char* const ntp_server = safe_text(
+                                      config.weather_ntp_server,
+                                      pf_config::kWeatherNtpServerCapacity)
                                       ? config.weather_ntp_server
                                       : "unknown";
 

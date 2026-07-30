@@ -163,6 +163,36 @@ void test_unavailable_config_uses_null_for_unknown_refresh()
         std::strstr(output, "\"password_set\":false"));
 }
 
+void test_masked_config_bounds_unterminated_text()
+{
+    char timezone[pf_config::kTimezoneCapacity];
+    std::memset(timezone, 'x', sizeof(timezone));
+    const pf_web::MaskedConfig config{
+        .wifi_configured = false,
+        .wifi_password_configured = false,
+        .management_password_configured = false,
+        .refresh_minutes = 0,
+        .timezone = timezone,
+        .weather_configured = false,
+        .weather_api_key_set = false,
+        .weather_latitude_e6 = 0,
+        .weather_longitude_e6 = 0,
+        .weather_interval_minutes = 0,
+        .weather_location = "Taipei",
+        .weather_units = "metric",
+        .weather_language = "zh_tw",
+        .weather_ntp_server = "pool.ntp.org",
+    };
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_masked_config(
+        config,
+        output,
+        sizeof(output));
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"timezone\":\"unknown\""));
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -173,5 +203,6 @@ int main(int, char**)
     RUN_TEST(test_masked_config_never_returns_secret_values);
     RUN_TEST(test_unknown_snapshot_has_null_capacities);
     RUN_TEST(test_unavailable_config_uses_null_for_unknown_refresh);
+    RUN_TEST(test_masked_config_bounds_unterminated_text);
     return UNITY_END();
 }
