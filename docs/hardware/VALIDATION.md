@@ -386,3 +386,44 @@ blank-NVS scan／credential save／約 1 秒 reboot 尚未做板上端到端驗�
 先前版本已驗證 AP screen 在 radio 前完成、AP/DHCP 可啟動。待 Phase 3
 auth commit 可安全操作 Recovery AP 後，再補最新 artifact 的 AP scan、
 登入、CSRF、credential save 與 STA reconnect 全流程。
+
+### 2026-07-30 — Phase 3 auth／WebUI shell build 與安全啟動 smoke
+
+本段記錄管理 session、CSRF route policy、共用 responsive shell、Dashboard
+初版 API 與安全日誌修正的部署結果。WebUI 以獨立 `webfs` image 部署；一般
+PlatformIO app upload 沒有重寫 `webfs`、`imagefs`、NVS 或 OTA metadata。
+
+驗證結果：
+
+- `pio test -e native`：105/105 通過；新增 dashboard serializer 與既有
+  auth／CSRF、network、portal 及 Phase 1–2 regression tests 均納入同一次
+  完整執行。
+- `node --check data/web/ui.js` 通過；`pio run -e paperframe-s3` 成功，
+  RAM 61,616 / 327,680 bytes（18.8%），Flash 約 960,733 /
+  2,621,440 bytes（36.6%）。
+- `littlefs_webfs_bin` 產生 1,048,576-byte image，SHA-256
+  `A1B8F3A6881390812E263D8366E7A0D2547E25867E281AAE22AF3305BD0F5803`；
+  以 `esptool` 只寫入 `0x510000`–`0x60ffff`，data hash 驗證通過。
+- 以 PlatformIO native USB app-only upload 部署正式韌體；COM10 的
+  `303A:1001` USB-Serial/JTAG 連線、app hash 驗證與 hard reset 均成功。
+- 隨後使用 RTS-only reset 讀取 COM10 啟動日誌，確認：
+
+  ```text
+  rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+  flash_bytes=16777216 expected=16777216 status=ready
+  psram_initialized=true psram_bytes=8388608 expected=8388608 status=ready
+  filesystem=webfs mounted=true total=1048576 used=53248
+  filesystem=imagefs mounted=true total=10289152 used=8192
+  health_server_ready route=/api/v1/health
+  ```
+
+- 同一段啟動輸出未出現 `QRCODE`、`WIFI:T`、AP password、SSID 或其他
+  credential。這驗證了 `QRCODE` logger 降級修正；但不等同於瀏覽器登入或
+  blank-NVS provisioning 流程已完成。
+
+仍待驗證：
+
+- 最新 artifact 在 blank-NVS／Recovery AP 的 scan、首次建密碼、login、
+  401／CSRF、masked config 與 credential save／STA reconnect 全流程；
+- Dashboard 在實機瀏覽器的 responsive／dark-mode 互動；
+- SNTP 與 mDNS 狀態（目前 API 明確回傳 `unknown`／尚未整合）。
