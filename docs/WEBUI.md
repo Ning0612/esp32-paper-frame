@@ -2,9 +2,9 @@
 
 Phase 3–4 的管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript 與 favicon
 都寫入 `webfs`，不依賴外部 CDN。登入後提供共用的 responsive 導覽殼層，
-目前開放「總覽」、「Wi‑Fi」與 Phase 4 的「圖片處理」view；環境與系統
-view 會在對應 phase 完成後啟用。圖片 view 只在瀏覽器本機產生 PFR1，尚未
-呼叫裝置 imagefs upload API。
+目前開放「總覽」、「Wi‑Fi」與圖片處理／圖片庫 view；環境與系統 view 會在
+對應 phase 完成後啟用。圖片在瀏覽器本機處理成 PFR1 後，可由登入且帶 CSRF
+的請求非同步上傳到裝置 imagefs。
 
 ## API 路由
 
@@ -20,13 +20,16 @@ view 會在對應 phase 完成後啟用。圖片 view 只在瀏覽器本機產�
 | `GET /api/v1/config` | 已登入 | 遮蔽後設定；秘密只回傳 `*_set` 布林值 |
 | `GET /api/v1/wifi/scan` | 首次 provisioning AP 或已登入 | 掃描結果 |
 | `POST /api/v1/wifi/config` | 首次 provisioning AP，或已登入 + CSRF | 交易式保存 Wi‑Fi 憑證 |
+| `GET /api/v1/images` | 已登入 | 讀取目前 catalog；只回傳安全 metadata |
+| `POST /api/v1/images` | 已登入 + CSRF | 非同步驗證並交易式保存 PFR1 |
+| `GET /api/v1/images/{name}/download` | 已登入 | 下載已驗證的 PFR1 |
 
 所有 JSON 使用 `{ "ok": true, "data": ... }` 或 `{ "ok": false,
 "error": ... }`，並設定 `Cache-Control: no-store`、`nosniff` 與同源 CSP。
 `/api/v1/status` 的檔案容量與服務狀態來自同一份 RuntimeCoordinator
 snapshot；handler 不等待顯示器、網路、NVS 或 filesystem。
 
-尚未接入的圖片庫、天氣、SNTP 與感測器欄位以 `null` 或明確的
+尚未接入的輪播控制、天氣、SNTP 與感測器欄位以 `null` 或明確的
 `unavailable`／`unknown` 表示，不填入零值或歷史資料。光敏電阻與溫溼度
 感測器未安裝時，Dashboard 維持「未安裝／未知」狀態。
 

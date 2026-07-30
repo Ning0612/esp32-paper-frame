@@ -14,6 +14,7 @@ for (const id of [
   "image-source", "image-orientation", "image-fit", "image-dither", "image-filename",
   "image-mirror-x", "image-mirror-y", "image-rotate", "preview-original",
   "preview-processed", "preview-sixcolor", "preview-frame", "download-pfr1",
+  "upload-pfr1",
   "image-library-refresh", "image-library-status", "image-library-list",
 ]) {
   assert.ok(html.includes(`id="${id}"`), id);
@@ -39,4 +40,6 @@ assert.ok(ui.includes('fetch("/api/v1/images"'));
 assert.ok(ui.includes("renderImageLibrary"));
 assert.ok(ui.includes("encodeURIComponent(image.name)"));
 assert.ok(ui.includes("imageLibraryRevision"));
-console.log("image_ui_contract: 6 tests passed");
+assert.ok(ui.includes('"X-CSRF-Token": csrfToken'));
+assert.ok(ui.includes("uploadImagePfr1"));
+console.log("image_ui_contract: 8 tests passed");

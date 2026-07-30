@@ -269,8 +269,11 @@
                   <div><dt>完整檔案</dt><dd id="image-output-size">未知</dd></div>
                   <div><dt>方向</dt><dd id="image-output-orientation">未知</dd></div>
                 </dl>
-                <button id="download-pfr1" class="primary-button" type="button" disabled>下載 PFR1</button>
-                <p class="trust-note"><b>尚未上傳</b><br>Phase 5 才會接入登入後的 imagefs upload；目前只產生本機檔案。</p>
+                <div class="image-output-actions">
+                  <button id="download-pfr1" class="plain-button" type="button" disabled>下載 PFR1</button>
+                  <button id="upload-pfr1" class="primary-button" type="button" disabled>上傳到裝置</button>
+                </div>
+                <p class="trust-note"><b>只上傳處理後檔案</b><br>PFR1 會以登入後的 CSRF 保護請求寫入裝置 imagefs。</p>
               </section>
             </div>
 

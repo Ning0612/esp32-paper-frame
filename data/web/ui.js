@@ -49,6 +49,7 @@
   const imageOutputSize = $("#image-output-size");
   const imageOutputOrientation = $("#image-output-orientation");
   const downloadPfr1 = $("#download-pfr1");
+  const uploadPfr1 = $("#upload-pfr1");
   const previewOriginal = $("#preview-original");
   const previewProcessed = $("#preview-processed");
   const previewSixColor = $("#preview-sixcolor");
@@ -522,6 +523,7 @@
     cancelQuantizeWorker();
     imageProcessButton.disabled = true;
     downloadPfr1.disabled = true;
+    uploadPfr1.disabled = true;
     imagePfr1 = null;
     imageStatus.className = "save-status";
     imageStatus.textContent = "正在套用已按下的變換與 fit…";
@@ -559,8 +561,9 @@
       imageOutputSize.textContent = formatImageSize(packed.length);
       imageOutputOrientation.textContent = imageOrientation.value === "portrait" ? "直向" : "橫向";
       imageStatus.className = "save-status success";
-      imageStatus.textContent = "已完成本機處理；可下載 PFR1，尚未上傳裝置。";
+      imageStatus.textContent = "已完成本機處理；可下載或上傳 PFR1。";
       downloadPfr1.disabled = false;
+      uploadPfr1.disabled = false;
     } catch (error) {
       if (requestId !== imageRevision) return;
       imageStatus.className = "save-status error";
@@ -584,6 +587,7 @@
     imageTransformButtons.forEach((button) => { button.disabled = true; });
     imageProcessButton.disabled = true;
     downloadPfr1.disabled = true;
+    uploadPfr1.disabled = true;
     imageStatus.className = "save-status";
     imageStatus.textContent = "正在讀取本機圖片…";
     if (!file) {
@@ -631,6 +635,43 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  async function uploadImagePfr1() {
+    if (!imagePfr1 || !csrfToken) return;
+    uploadPfr1.disabled = true;
+    downloadPfr1.disabled = true;
+    imageStatus.className = "save-status";
+    imageStatus.textContent = "正在上傳處理後的 PFR1…";
+    try {
+      const response = await fetch("/api/v1/images", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/vnd.paperframe.pfr1",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: imagePfr1,
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "upload_failed");
+      }
+      imageStatus.className = "save-status success";
+      imageStatus.textContent = `已上傳到裝置圖片庫（ID ${payload.data.id}）。`;
+      await loadImageLibrary();
+    } catch (error) {
+      imageStatus.className = "save-status error";
+      imageStatus.textContent = `上傳失敗：${error.message || "請稍後重試"}`;
+    } finally {
+      if (imagePfr1) {
+        downloadPfr1.disabled = false;
+        uploadPfr1.disabled = false;
+      }
+    }
+  }
+
   function showView(view, refresh = true) {
     currentView = view;
     dashboardView.hidden = view !== "dashboard";
@@ -659,6 +700,7 @@
   imageMirrorY.addEventListener("click", () => applyImageTransform("mirror-y"));
   imageRotate.addEventListener("click", () => applyImageTransform("rotate-90-cw"));
   downloadPfr1.addEventListener("click", downloadImagePfr1);
+  uploadPfr1.addEventListener("click", uploadImagePfr1);
   imageLibraryRefresh.addEventListener("click", () => loadImageLibrary());
 
   function showAuthenticated(token) {
@@ -686,6 +728,7 @@
     appShell.hidden = true;
     topNavigation.hidden = true;
     authenticatedActions.hidden = true;
+    uploadPfr1.disabled = true;
     authTitle.textContent = passwordConfigured ? "管理員登入" : "建立管理密碼";
     authPasswordLabel.textContent = passwordConfigured ? "管理密碼" : "新管理密碼";
     authCopy.textContent = passwordConfigured

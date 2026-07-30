@@ -5,6 +5,40 @@
 
 namespace pf_storage {
 
+namespace {
+
+class OperationGuard final {
+public:
+    explicit OperationGuard(std::atomic<bool>& busy)
+        : busy_(&busy)
+    {
+        bool expected = false;
+        acquired_ = busy_->compare_exchange_strong(
+            expected,
+            true,
+            std::memory_order_acquire,
+            std::memory_order_relaxed);
+    }
+
+    ~OperationGuard()
+    {
+        if (acquired_) {
+            busy_->store(false, std::memory_order_release);
+        }
+    }
+
+    bool acquired() const
+    {
+        return acquired_;
+    }
+
+private:
+    std::atomic<bool>* busy_ = nullptr;
+    bool acquired_ = false;
+};
+
+}  // namespace
+
 const char* to_string(const StorageWorkerError error)
 {
     switch (error) {
@@ -29,6 +63,8 @@ const char* to_string(const ImageStreamError error)
             return "invalid_argument";
         case ImageStreamError::not_ready:
             return "not_ready";
+        case ImageStreamError::busy:
+            return "busy";
         case ImageStreamError::not_found:
             return "not_found";
         case ImageStreamError::corrupt:
@@ -88,6 +124,10 @@ bool StorageWorker::visit_catalog(
     if (!ready() || !catalog_available_ || visitor == nullptr) {
         return false;
     }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
+        return false;
+    }
     for (std::size_t index = 0U; index < catalog_.count; ++index) {
         if (!visitor(context, catalog_.entries[index])) {
             break;
@@ -103,6 +143,10 @@ bool StorageWorker::find_catalog_entry_by_name(
 {
     if (!ready() || !catalog_available_ || name == nullptr ||
         name_length == 0U || name_length > pf_image::kPfr1MaxFilenameBytes) {
+        return false;
+    }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
         return false;
     }
     const CatalogEntry* const entry = pf_storage::find_catalog_entry_by_name(
@@ -125,6 +169,11 @@ ImageStreamResult StorageWorker::stream_image(
     ImageStreamResult result{};
     if (!ready() || filesystem_ == nullptr) {
         result.error = ImageStreamError::not_ready;
+        return result;
+    }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
+        result.error = ImageStreamError::busy;
         return result;
     }
     if (name == nullptr || name_length == 0U || visitor == nullptr ||
@@ -208,6 +257,36 @@ ImageStreamResult StorageWorker::stream_image(
     if (!filesystem_->close_read(handle)) {
         result.error = ImageStreamError::close_failed;
         return result;
+    }
+    return result;
+}
+
+ImageStoreResult StorageWorker::store_image(
+    const StorageStreamReader& reader,
+    const std::size_t content_length)
+{
+    ImageStoreResult result{};
+    if (!ready() || filesystem_ == nullptr || !catalog_available_) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
+        result.error = ImageStoreError::busy;
+        return result;
+    }
+
+    Catalog updated{};
+    result = store_image_transactionally(
+        *filesystem_,
+        catalog_,
+        updated,
+        catalog_buffer_,
+        sizeof(catalog_buffer_),
+        reader,
+        content_length);
+    if (result.ok()) {
+        catalog_ = updated;
     }
     return result;
 }

@@ -164,6 +164,10 @@ const char* to_string(const ImageStoreError error)
             return "none";
         case ImageStoreError::invalid_argument:
             return "invalid_argument";
+        case ImageStoreError::not_ready:
+            return "not_ready";
+        case ImageStoreError::busy:
+            return "busy";
         case ImageStoreError::no_space:
             return "no_space";
         case ImageStoreError::stream_failed:

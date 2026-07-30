@@ -69,6 +69,8 @@ public:
 enum class ImageStoreError : std::uint8_t {
     none = 0U,
     invalid_argument,
+    not_ready,
+    busy,
     no_space,
     stream_failed,
     write_failed,

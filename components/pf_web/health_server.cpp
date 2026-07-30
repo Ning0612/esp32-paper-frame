@@ -59,6 +59,8 @@ constexpr UBaseType_t kImageDownloadTaskPriority = 3U;
 constexpr std::uint32_t kImageDownloadTaskStackWords = 4096U;
 constexpr std::size_t kImageDownloadContentDispositionCapacity =
     (pf_storage::kCatalogNameCapacity * 2U) + 32U;
+constexpr UBaseType_t kImageUploadTaskPriority = 3U;
+constexpr std::uint32_t kImageUploadTaskStackWords = 8192U;
 
 HealthServerAccessConfig server_access_config{};
 
@@ -79,6 +81,27 @@ std::uint8_t image_download_queue_storage[
 StaticTask_t image_download_task_control{};
 StackType_t image_download_task_stack[
     kImageDownloadTaskStackWords]{};
+
+struct ImageUploadRequest {
+    httpd_req_t* request = nullptr;
+    pf_storage::StorageWorker* worker = nullptr;
+    std::size_t content_length = 0U;
+};
+
+struct ImageUploadReceiveContext {
+    httpd_req_t* request = nullptr;
+    std::size_t remaining = 0U;
+    std::uint8_t timeout_count = 0U;
+    std::uint64_t started_ms = 0U;
+};
+
+QueueHandle_t image_upload_queue = nullptr;
+StaticQueue_t image_upload_queue_control{};
+std::uint8_t image_upload_queue_storage[
+    sizeof(ImageUploadRequest)]{};
+StaticTask_t image_upload_task_control{};
+StackType_t image_upload_task_stack[
+    kImageUploadTaskStackWords]{};
 
 esp_err_t set_common_headers(
     httpd_req_t* const request,
@@ -124,6 +147,32 @@ esp_err_t send_json(
         result = httpd_resp_sendstr(request, body);
     }
     return result;
+}
+
+void close_request_session(httpd_req_t* const request)
+{
+    if (request == nullptr) {
+        return;
+    }
+    const int socket = httpd_req_to_sockfd(request);
+    if (socket >= 0) {
+        (void)httpd_sess_trigger_close(request->handle, socket);
+    }
+}
+
+esp_err_t finish_async_upload_request(
+    httpd_req_t* const request,
+    const esp_err_t response_result,
+    const bool close_session)
+{
+    if (close_session) {
+        close_request_session(request);
+    }
+    const esp_err_t complete_result =
+        httpd_req_async_handler_complete(request);
+    return response_result == ESP_OK && complete_result == ESP_OK
+               ? ESP_OK
+               : ESP_FAIL;
 }
 
 bool provisioning_mode_active()
@@ -1146,6 +1195,12 @@ esp_err_t image_list_handler(httpd_req_t* request)
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"storage_unavailable\"}");
     }
+    if (worker->operation_busy()) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_busy\"}");
+    }
     if (set_common_headers(
             request,
             "application/json; charset=utf-8") != ESP_OK ||
@@ -1299,6 +1354,12 @@ esp_err_t image_download_handler(httpd_req_t* request)
             name,
             name_length,
             entry)) {
+        if (worker->operation_busy()) {
+            return send_json(
+                request,
+                "503 Service Unavailable",
+                "{\"ok\":false,\"error\":\"storage_busy\"}");
+        }
         return send_json(
             request,
             "404 Not Found",
@@ -1347,6 +1408,261 @@ esp_err_t image_download_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"download_busy\"}");
         httpd_req_async_handler_complete(async_request);
         return busy_result == ESP_OK ? ESP_OK : ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+pf_storage::StorageReadResult receive_image_upload_chunk(
+    void* const raw_context,
+    std::uint8_t* const buffer,
+    const std::size_t capacity,
+    std::size_t& bytes_read)
+{
+    auto* const context =
+        static_cast<ImageUploadReceiveContext*>(raw_context);
+    bytes_read = 0U;
+    if (context == nullptr || context->request == nullptr ||
+        buffer == nullptr || capacity == 0U) {
+        return pf_storage::StorageReadResult::error;
+    }
+    if (context->remaining == 0U) {
+        return pf_storage::StorageReadResult::eof;
+    }
+    while (true) {
+        if (body_receive_deadline_expired(
+                monotonic_ms(),
+                context->started_ms,
+                kMaximumBodyReceiveMs)) {
+            return pf_storage::StorageReadResult::error;
+        }
+        const std::size_t amount =
+            context->remaining < capacity ? context->remaining : capacity;
+        const int result = httpd_req_recv(
+            context->request,
+            reinterpret_cast<char*>(buffer),
+            static_cast<int>(amount));
+        if (result == HTTPD_SOCK_ERR_TIMEOUT) {
+            ++context->timeout_count;
+            if (body_receive_idle_limit_reached(
+                    context->timeout_count,
+                    kMaximumBodyTimeouts)) {
+                return pf_storage::StorageReadResult::error;
+            }
+            continue;
+        }
+        if (result <= 0) {
+            return pf_storage::StorageReadResult::error;
+        }
+        const std::size_t received = static_cast<std::size_t>(result);
+        if (received > context->remaining) {
+            return pf_storage::StorageReadResult::error;
+        }
+        context->remaining -= received;
+        bytes_read = received;
+        return pf_storage::StorageReadResult::data;
+    }
+}
+
+const char* image_store_http_status(const pf_storage::ImageStoreError error)
+{
+    switch (error) {
+        case pf_storage::ImageStoreError::invalid_argument:
+            return "400 Bad Request";
+        case pf_storage::ImageStoreError::not_ready:
+        case pf_storage::ImageStoreError::busy:
+            return "503 Service Unavailable";
+        case pf_storage::ImageStoreError::no_space:
+            return "507 Insufficient Storage";
+        case pf_storage::ImageStoreError::invalid_image:
+            return "422 Unprocessable Entity";
+        case pf_storage::ImageStoreError::image_conflict:
+            return "409 Conflict";
+        case pf_storage::ImageStoreError::stream_failed:
+            return "400 Bad Request";
+        case pf_storage::ImageStoreError::none:
+            return nullptr;
+        case pf_storage::ImageStoreError::write_failed:
+        case pf_storage::ImageStoreError::close_failed:
+        case pf_storage::ImageStoreError::catalog_read_failed:
+        case pf_storage::ImageStoreError::catalog_invalid:
+        case pf_storage::ImageStoreError::path_too_long:
+        case pf_storage::ImageStoreError::rename_failed:
+        case pf_storage::ImageStoreError::rollback_failed:
+            return "500 Internal Server Error";
+    }
+    return "500 Internal Server Error";
+}
+
+esp_err_t send_image_upload_result(
+    httpd_req_t* const request,
+    const pf_storage::ImageStoreResult& result)
+{
+    char response[224]{};
+    if (result.ok()) {
+        const int written = std::snprintf(
+            response,
+            sizeof(response),
+            "{\"ok\":true,\"data\":{\"id\":%u,\"bytes\":%u}}",
+            static_cast<unsigned>(result.assigned_id),
+            static_cast<unsigned>(result.bytes_received));
+        if (written <= 0 ||
+            static_cast<std::size_t>(written) >= sizeof(response)) {
+            return send_json(
+                request,
+                "500 Internal Server Error",
+                "{\"ok\":false,\"error\":\"response_serialization\"}");
+        }
+        return send_json(request, "201 Created", response);
+    }
+    const int written = std::snprintf(
+        response,
+        sizeof(response),
+        "{\"ok\":false,\"error\":\"%s\",\"bytes_received\":%u}",
+        to_string(result.error),
+        static_cast<unsigned>(result.bytes_received));
+    if (written <= 0 ||
+        static_cast<std::size_t>(written) >= sizeof(response)) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"response_serialization\"}");
+    }
+    return send_json(
+        request,
+        image_store_http_status(result.error),
+        response);
+}
+
+void image_upload_task_entry(void* const)
+{
+    for (;;) {
+        ImageUploadRequest queued{};
+        if (xQueueReceive(
+                image_upload_queue,
+                &queued,
+                portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        pf_storage::ImageStoreResult result{};
+        bool close_session = true;
+        if (queued.request == nullptr || queued.worker == nullptr) {
+            result.error = pf_storage::ImageStoreError::invalid_argument;
+        } else {
+            ImageUploadReceiveContext receive_context{
+                queued.request,
+                queued.content_length,
+                0U,
+                monotonic_ms(),
+            };
+            const pf_storage::StorageStreamReader reader{
+                receive_image_upload_chunk,
+                &receive_context,
+            };
+            result = queued.worker->store_image(
+                reader,
+                queued.content_length);
+            close_session = !result.ok() || receive_context.remaining != 0U;
+        }
+        if (queued.request != nullptr) {
+            const esp_err_t response_result =
+                send_image_upload_result(queued.request, result);
+            if (response_result != ESP_OK) {
+                close_session = true;
+            }
+            finish_async_upload_request(
+                queued.request,
+                response_result,
+                close_session);
+        }
+    }
+}
+
+esp_err_t start_image_upload_task()
+{
+    if (image_upload_queue != nullptr) {
+        return ESP_OK;
+    }
+    image_upload_queue = xQueueCreateStatic(
+        1U,
+        sizeof(ImageUploadRequest),
+        image_upload_queue_storage,
+        &image_upload_queue_control);
+    if (image_upload_queue == nullptr ||
+        xTaskCreateStatic(
+            image_upload_task_entry,
+            "pf_image_up",
+            kImageUploadTaskStackWords,
+            nullptr,
+            kImageUploadTaskPriority,
+            image_upload_task_stack,
+            &image_upload_task_control) == nullptr) {
+        image_upload_queue = nullptr;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+esp_err_t image_upload_handler(httpd_req_t* request)
+{
+    httpd_req_t* async_request = nullptr;
+    if (httpd_req_async_handler_begin(request, &async_request) != ESP_OK) {
+        (void)send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"upload_unavailable\"}");
+        return ESP_FAIL;
+    }
+    const auto send_async_error = [&](
+        const char* const status,
+        const char* const body) {
+        const esp_err_t response_result = send_json(
+            async_request,
+            status,
+            body);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    };
+
+    const AccessContext access = current_access_context(async_request);
+    if (!access.authenticated || !access.csrf_valid) {
+        const esp_err_t response_result =
+            reject_management_request(async_request, access, true);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    }
+    if (async_request->content_len <= 0 ||
+        static_cast<std::size_t>(async_request->content_len) >
+            pf_image::kPfr1MaxFileBytes) {
+        return send_async_error(
+            "413 Payload Too Large",
+            "{\"ok\":false,\"error\":\"invalid_body\"}");
+    }
+    pf_storage::StorageWorker* const worker =
+        server_access_config.storage_worker;
+    if (worker == nullptr || !worker->ready()) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    if (worker->operation_busy() || image_upload_queue == nullptr ||
+        uxQueueSpacesAvailable(image_upload_queue) == 0U) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_busy\"}");
+    }
+    const ImageUploadRequest queued{
+        async_request,
+        worker,
+        static_cast<std::size_t>(async_request->content_len),
+    };
+    if (xQueueSend(image_upload_queue, &queued, 0U) != pdTRUE) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_busy\"}");
     }
     return ESP_OK;
 }
@@ -1423,6 +1739,12 @@ const httpd_uri_t kImageListRoute{
     .handler = image_list_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kImageUploadRoute{
+    .uri = "/api/v1/images",
+    .method = HTTP_POST,
+    .handler = image_upload_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kImageDownloadRoute{
     .uri = "/api/v1/images/*",
     .method = HTTP_GET,
@@ -1480,6 +1802,12 @@ esp_err_t start_health_server(
         *server = nullptr;
         return result;
     }
+    result = start_image_upload_task();
+    if (result != ESP_OK) {
+        httpd_stop(*server);
+        *server = nullptr;
+        return result;
+    }
 
     const httpd_uri_t* const routes[] = {
         &kHealthRoute,
@@ -1494,6 +1822,7 @@ esp_err_t start_health_server(
         &kAuthLoginStatusRoute,
         &kAuthLogoutRoute,
         &kImageListRoute,
+        &kImageUploadRoute,
         &kImageDownloadRoute,
         &kIndexRoute,
         &kStyleRoute,

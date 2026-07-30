@@ -8,8 +8,9 @@ fake filesystem 測試，也可以接到 ESP-IDF LittleFS backend。imagefs moun
 snapshot；受保護的 `GET /api/v1/images/{name}/download` 會以固定 PFR1 MIME、
 安全的 `Content-Disposition` 與 chunked 分段讀取回傳已處理檔案。下載由單槽的
 靜態 FreeRTOS 工作佇列執行，HTTP handler 只做驗證與排程；wildcard route 先接住
-`/api/v1/images/*`，再由 decoder 嚴格要求 `/download` suffix。mutation route 與
-carousel runtime 尚未在本段接入。
+`/api/v1/images/*`，再由 decoder 嚴格要求 `/download` suffix。受保護的
+`POST /api/v1/images` 也由單槽 upload task 非同步接收，StorageWorker 以操作鎖
+序列化 catalog／imagefs 寫入；delete、activate 與 carousel runtime 尚未接入。
 
 ## 上傳流程
 
@@ -48,13 +49,11 @@ mapping；呼叫端不可自行拼接 imagefs 路徑。`StorageFileSystem` 的 b
 - free-space 預檢使用 backend 回報的 raw bytes 加上 PFC1 上限，尚未把 LittleFS
   block rounding、metadata overhead 與 `ENOSPC` 映射成 HTTP 507；這會在 API
   與 filesystem error contract 段處理。
-- component 已接入唯讀的 `StorageWorker::visit_catalog` 與受保護的
-  `GET /api/v1/images` 與 wildcard download route；catalog 目前在 startup recovery
-  後建立 immutable snapshot，
-  供 HTTP handler 以 visitor 串流輸出，避免在 handler stack 複製大型 `Catalog`。
-  StorageWorker mutation task、HTTP upload/delete route 與 carousel runtime 仍未接入；
-  接入非同步 mutation 前仍需把 catalog/stream workspace 與 stack watermark 納入
-  task contract。
+- component 已接入 `StorageWorker::visit_catalog`、`store_image` 與受保護的
+  `GET /api/v1/images`、`POST /api/v1/images` 及 wildcard download route；catalog
+  目前在 startup recovery 後建立 immutable snapshot，visitor 避免在 handler stack
+  複製大型 `Catalog`。upload task 的 body deadline、idle timeout、queue busy 與
+  操作鎖已納入 task contract；delete、activate 與 carousel runtime 仍未接入。
 - 清理暫存檔是 best effort；recovery 會把清理失敗視為可診斷的殘留狀態，不能
   以「檔案不存在」假設交易已完成。
 
