@@ -10,7 +10,8 @@ snapshot；受保護的 `GET /api/v1/images/{name}/download` 會以固定 PFR1 M
 靜態 FreeRTOS 工作佇列執行，HTTP handler 只做驗證與排程；wildcard route 先接住
 `/api/v1/images/*`，再由 decoder 嚴格要求 `/download` suffix。受保護的
 `POST /api/v1/images` 也由單槽 upload task 非同步接收，StorageWorker 以操作鎖
-序列化 catalog／imagefs 寫入；delete、activate 與 carousel runtime 尚未接入。
+序列化 catalog／imagefs 寫入；activate、delete 與 reorder 由另一個單槽 mutation
+task 執行，HTTP handler 只做驗證與排程。
 
 ## 上傳流程
 
@@ -34,6 +35,14 @@ snapshot；受保護的 `GET /api/v1/images/{name}/download` 會以固定 PFR1 M
    無法完成還原時回報 `rollback_failed`。成功後才把 candidate 複製到
    `updated_catalog`。
 
+## Catalog mutation
+
+`persist_catalog_transactionally` 沿用同一組 `.catalog.pfc1.part`／`.bak` 邊界，
+先讀回並驗證 candidate，再替換 canonical catalog。activate 與 reorder 只改 metadata；
+delete 先提交移除 entry、選擇下一張 enabled 且未損毀圖片，再刪除對應檔案，符合
+「先更新 catalog/runtime，再刪檔」的安全順序。刪檔失敗會回報 `remove_failed`，不會
+把已提交的 catalog 猜測性還原。
+
 固定的內部路徑由 component 擁有，檔名由 PFR1 validator 驗證後才進行 path
 mapping；呼叫端不可自行拼接 imagefs 路徑。`StorageFileSystem` 的 backend 必須
 由單一 StorageWorker 擁有，`remove_if_exists` 必須是冪等操作，`close_write`
@@ -49,11 +58,11 @@ mapping；呼叫端不可自行拼接 imagefs 路徑。`StorageFileSystem` 的 b
 - free-space 預檢使用 backend 回報的 raw bytes 加上 PFC1 上限，尚未把 LittleFS
   block rounding、metadata overhead 與 `ENOSPC` 映射成 HTTP 507；這會在 API
   與 filesystem error contract 段處理。
-- component 已接入 `StorageWorker::visit_catalog`、`store_image` 與受保護的
-  `GET /api/v1/images`、`POST /api/v1/images` 及 wildcard download route；catalog
-  目前在 startup recovery 後建立 immutable snapshot，visitor 避免在 handler stack
-  複製大型 `Catalog`。upload task 的 body deadline、idle timeout、queue busy 與
-  操作鎖已納入 task contract；delete、activate 與 carousel runtime 仍未接入。
+- component 已接入 `StorageWorker::visit_catalog`、`store_image`、activate、delete、
+  reorder 與受保護的 image list/upload/download/mutation routes；catalog 目前在
+  startup recovery 後建立 immutable snapshot，visitor 避免在 handler stack 複製大型
+  `Catalog`。upload/mutation task 的 queue busy、操作鎖與 catalog-only recovery 已
+  納入 task contract；carousel runtime 讀圖仍未接入。
 - 清理暫存檔是 best effort；recovery 會把清理失敗視為可診斷的殘留狀態，不能
   以「檔案不存在」假設交易已完成。
 

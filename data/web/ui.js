@@ -77,6 +77,7 @@
   let imageSelectionRevision = 0;
   let activeQuantizeWorker = null;
   let imageLibraryRevision = 0;
+  let imageLibraryImages = [];
   const maxSourceBytes = 32 * 1024 * 1024;
   const maxSourcePixels = 16 * 1024 * 1024;
 
@@ -260,6 +261,7 @@
   }
 
   function renderImageLibrary(images) {
+    imageLibraryImages = images.slice();
     imageLibraryList.replaceChildren();
     if (images.length === 0) {
       const empty = document.createElement("p");
@@ -268,7 +270,7 @@
       imageLibraryList.append(empty);
       return;
     }
-    images.forEach((image) => {
+    images.forEach((image, index) => {
       const row = document.createElement("article");
       row.className = "image-library-row";
 
@@ -283,7 +285,7 @@
         ? `${image.width} × ${image.height}`
         : "尺寸未知";
       const orientation = image.orientation === "portrait" ? "直向" : "橫向";
-      meta.textContent = `${dimensions} · ${orientation} · ${formatImageSize(Number(image.file_bytes))}`;
+      meta.textContent = `#${index + 1} · ${dimensions} · ${orientation} · ${formatImageSize(Number(image.file_bytes))}`;
       copy.append(name, meta);
 
       const states = document.createElement("div");
@@ -323,9 +325,96 @@
         download.textContent = "下載 PFR1";
         actions.append(download);
       }
+      if (image.name && image.enabled && !image.corrupt && !image.current) {
+        const activate = document.createElement("button");
+        activate.className = "plain-button";
+        activate.type = "button";
+        activate.dataset.imageAction = "activate";
+        activate.dataset.imageName = image.name;
+        activate.textContent = "設為目前";
+        actions.append(activate);
+      }
+      if (image.name) {
+        const remove = document.createElement("button");
+        remove.className = "plain-button danger-button";
+        remove.type = "button";
+        remove.dataset.imageAction = "remove";
+        remove.dataset.imageName = image.name;
+        remove.textContent = "刪除";
+        actions.append(remove);
+      }
+      if (image.name) {
+        const moveUp = document.createElement("button");
+        moveUp.className = "plain-button order-button";
+        moveUp.type = "button";
+        moveUp.dataset.imageAction = "move-up";
+        moveUp.dataset.imageName = image.name;
+        moveUp.disabled = index === 0;
+        moveUp.textContent = "↑";
+        actions.append(moveUp);
+        const moveDown = document.createElement("button");
+        moveDown.className = "plain-button order-button";
+        moveDown.type = "button";
+        moveDown.dataset.imageAction = "move-down";
+        moveDown.dataset.imageName = image.name;
+        moveDown.disabled = index === images.length - 1;
+        moveDown.textContent = "↓";
+        actions.append(moveDown);
+      }
       row.append(copy, actions);
       imageLibraryList.append(row);
     });
+  }
+
+  async function mutateImageLibrary(path, method) {
+    if (!csrfToken) return;
+    imageLibraryStatus.textContent = "正在更新裝置圖片庫…";
+    try {
+      const response = await fetch(path, {
+        method,
+        headers: { "X-CSRF-Token": csrfToken },
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.ok) {
+        if (payload.catalog_committed) await loadImageLibrary();
+        throw new Error(payload.error || "image_mutation_failed");
+      }
+      await loadImageLibrary();
+    } catch (error) {
+      imageLibraryStatus.textContent = `圖片庫更新失敗：${error.message || "請稍後重試"}`;
+    }
+  }
+
+  async function reorderImage(name, delta) {
+    const index = imageLibraryImages.findIndex((image) => image.name === name);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= imageLibraryImages.length || !csrfToken) return;
+    const next = imageLibraryImages.slice();
+    [next[index], next[target]] = [next[target], next[index]];
+    imageLibraryStatus.textContent = "正在儲存輪播順序…";
+    try {
+      const response = await fetch("/api/v1/images/order", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ ids: next.map((image) => Number(image.id)) }),
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "image_order_failed");
+      await loadImageLibrary();
+    } catch (error) {
+      imageLibraryStatus.textContent = `輪播順序更新失敗：${error.message || "請稍後重試"}`;
+    }
   }
 
   async function loadImageLibrary() {
@@ -702,6 +791,23 @@
   downloadPfr1.addEventListener("click", downloadImagePfr1);
   uploadPfr1.addEventListener("click", uploadImagePfr1);
   imageLibraryRefresh.addEventListener("click", () => loadImageLibrary());
+  imageLibraryList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-image-action]");
+    if (!button) return;
+    const name = button.dataset.imageName;
+    const action = button.dataset.imageAction;
+    if (action === "activate") {
+      mutateImageLibrary(`/api/v1/images/${encodeURIComponent(name)}/activate`, "POST");
+    } else if (action === "remove") {
+      if (window.confirm(`確定刪除「${name}」？`)) {
+        mutateImageLibrary(`/api/v1/images/${encodeURIComponent(name)}`, "DELETE");
+      }
+    } else if (action === "move-up") {
+      reorderImage(name, -1);
+    } else if (action === "move-down") {
+      reorderImage(name, 1);
+    }
+  });
 
   function showAuthenticated(token) {
     csrfToken = token || "";
@@ -722,6 +828,7 @@
 
   function showAuthForm(passwordConfigured) {
     imageLibraryRevision += 1;
+    imageLibraryImages = [];
     imageLibraryList.replaceChildren();
     imageLibraryStatus.textContent = "請重新登入後查看裝置圖片庫。";
     authGate.hidden = false;

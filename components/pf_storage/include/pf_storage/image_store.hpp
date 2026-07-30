@@ -80,6 +80,7 @@ enum class ImageStoreError : std::uint8_t {
     image_conflict,
     catalog_invalid,
     path_too_long,
+    remove_failed,
     rename_failed,
     rollback_failed,
 };
@@ -91,6 +92,7 @@ struct ImageStoreResult {
     CatalogError catalog_error = CatalogError::none;
     std::size_t bytes_received = 0U;
     std::uint32_t assigned_id = 0U;
+    bool catalog_committed = false;
 
     bool ok() const
     {
@@ -114,5 +116,14 @@ ImageStoreResult store_image_transactionally(
     std::size_t catalog_capacity,
     const StorageStreamReader& reader,
     std::size_t content_length);
+
+// Publishes a validated catalog-only mutation using the same .part/.bak
+// transaction as image uploads. No image file is touched.
+ImageStoreResult persist_catalog_transactionally(
+    StorageFileSystem& filesystem,
+    const Catalog& current_catalog,
+    const Catalog& candidate_catalog,
+    std::uint8_t* catalog_buffer,
+    std::size_t catalog_capacity);
 
 }  // namespace pf_storage

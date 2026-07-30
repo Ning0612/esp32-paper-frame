@@ -9,6 +9,7 @@ constexpr char kUploadPartPath[] = "/images/.upload.part";
 constexpr char kCatalogPath[] = "/images/.catalog.pfc1";
 constexpr char kCatalogPartPath[] = "/images/.catalog.pfc1.part";
 constexpr char kCatalogBakPath[] = "/images/.catalog.pfc1.bak";
+constexpr char kCatalogMutationMarkerPath[] = "/images/.catalog.mutation";
 constexpr std::size_t kPathCapacity = 160U;
 
 bool catalogs_equal(const Catalog& left, const Catalog& right)
@@ -186,6 +187,8 @@ const char* to_string(const ImageStoreError error)
             return "catalog_invalid";
         case ImageStoreError::path_too_long:
             return "path_too_long";
+        case ImageStoreError::remove_failed:
+            return "remove_failed";
         case ImageStoreError::rename_failed:
             return "rename_failed";
         case ImageStoreError::rollback_failed:
@@ -431,6 +434,123 @@ ImageStoreResult store_image_transactionally(
     }
     updated_catalog = candidate;
     result.assigned_id = assigned_id;
+    return result;
+}
+
+ImageStoreResult persist_catalog_transactionally(
+    StorageFileSystem& filesystem,
+    const Catalog& current_catalog,
+    const Catalog& candidate_catalog,
+    std::uint8_t* const catalog_buffer,
+    const std::size_t catalog_capacity)
+{
+    ImageStoreResult result{};
+    if (&current_catalog == &candidate_catalog ||
+        catalog_buffer == nullptr ||
+        catalog_capacity < kCatalogMaxBytes) {
+        result.error = ImageStoreError::invalid_argument;
+        return result;
+    }
+
+    CatalogError catalog_error = CatalogError::none;
+    if (!validate_catalog(current_catalog, catalog_error) ||
+        !validate_catalog(candidate_catalog, catalog_error)) {
+        result.error = ImageStoreError::catalog_invalid;
+        result.catalog_error = catalog_error;
+        return result;
+    }
+    if (filesystem.free_bytes() < kCatalogMaxBytes) {
+        result.error = ImageStoreError::no_space;
+        return result;
+    }
+
+    std::size_t catalog_bytes = 0U;
+    if (!serialize_catalog(
+            candidate_catalog,
+            catalog_buffer,
+            catalog_capacity,
+            catalog_bytes,
+            catalog_error)) {
+        result.error = ImageStoreError::catalog_invalid;
+        result.catalog_error = catalog_error;
+        return result;
+    }
+
+    cleanup_path(filesystem, kCatalogPartPath);
+    StorageFileHandle catalog_handle{};
+    if (!filesystem.open_write(kCatalogPartPath, catalog_handle)) {
+        result.error = ImageStoreError::write_failed;
+        return result;
+    }
+    if (!filesystem.write(catalog_handle, catalog_buffer, catalog_bytes)) {
+        (void)filesystem.close_write(catalog_handle);
+        cleanup_path(filesystem, kCatalogPartPath);
+        result.error = ImageStoreError::write_failed;
+        return result;
+    }
+    if (!filesystem.close_write(catalog_handle)) {
+        cleanup_path(filesystem, kCatalogPartPath);
+        result.error = ImageStoreError::close_failed;
+        return result;
+    }
+
+    Catalog readback{};
+    if (!readback_catalog(
+            filesystem,
+            kCatalogPartPath,
+            catalog_buffer,
+            catalog_capacity,
+            readback,
+            catalog_error)) {
+        cleanup_path(filesystem, kCatalogPartPath);
+        result.error = catalog_error == CatalogError::none
+                           ? ImageStoreError::catalog_read_failed
+                           : ImageStoreError::catalog_invalid;
+        result.catalog_error = catalog_error;
+        return result;
+    }
+    if (!catalogs_equal(candidate_catalog, readback)) {
+        cleanup_path(filesystem, kCatalogPartPath);
+        result.error = ImageStoreError::catalog_invalid;
+        result.catalog_error = CatalogError::invalid_entry;
+        return result;
+    }
+
+    cleanup_path(filesystem, kCatalogMutationMarkerPath);
+    StorageFileHandle marker_handle{};
+    if (!filesystem.open_write(
+            kCatalogMutationMarkerPath,
+            marker_handle) ||
+        !filesystem.close_write(marker_handle)) {
+        (void)filesystem.close_write(marker_handle);
+        cleanup_path(filesystem, kCatalogMutationMarkerPath);
+        cleanup_path(filesystem, kCatalogPartPath);
+        result.error = ImageStoreError::write_failed;
+        return result;
+    }
+
+    const bool had_catalog = filesystem.exists(kCatalogPath);
+    cleanup_path(filesystem, kCatalogBakPath);
+    if (had_catalog &&
+        !filesystem.rename(kCatalogPath, kCatalogBakPath)) {
+        cleanup_path(filesystem, kCatalogMutationMarkerPath);
+        cleanup_path(filesystem, kCatalogPartPath);
+        result.error = ImageStoreError::rename_failed;
+        return result;
+    }
+    if (!filesystem.rename(kCatalogPartPath, kCatalogPath)) {
+        const bool restored = restore_catalog(filesystem, had_catalog);
+        cleanup_path(filesystem, kCatalogMutationMarkerPath);
+        cleanup_path(filesystem, kCatalogPartPath);
+        result.error = restored
+                           ? ImageStoreError::rename_failed
+                           : ImageStoreError::rollback_failed;
+        return result;
+    }
+    if (had_catalog) {
+        (void)filesystem.remove_if_exists(kCatalogBakPath);
+    }
+    cleanup_path(filesystem, kCatalogMutationMarkerPath);
     return result;
 }
 

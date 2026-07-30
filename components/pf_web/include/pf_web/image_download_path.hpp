@@ -26,6 +26,62 @@ inline int image_download_hex_digit(const char value)
     return -1;
 }
 
+inline bool decode_image_action_uri(
+    const char* const uri,
+    const char* const suffix,
+    char (&destination)[pf_storage::kCatalogNameCapacity],
+    std::size_t& written)
+{
+    written = 0U;
+    if (uri == nullptr || suffix == nullptr) {
+        return false;
+    }
+    const std::size_t prefix_length = std::strlen(kImageDownloadPrefix);
+    const std::size_t suffix_length = std::strlen(suffix);
+    if (std::strncmp(uri, kImageDownloadPrefix, prefix_length) != 0) {
+        return false;
+    }
+    const char* const encoded = uri + prefix_length;
+    const char* suffix_start = suffix_length == 0U
+                                   ? std::strchr(encoded, '?')
+                                   : std::strstr(encoded, suffix);
+    if (suffix_start == nullptr) {
+        suffix_start = encoded + std::strlen(encoded);
+    }
+    if (suffix_start == encoded ||
+        (suffix_length != 0U &&
+         (suffix_start + suffix_length)[0] != '\0' &&
+         (suffix_start + suffix_length)[0] != '?')) {
+        return false;
+    }
+    const std::size_t encoded_length =
+        static_cast<std::size_t>(suffix_start - encoded);
+    for (std::size_t index = 0U; index < encoded_length; ++index) {
+        std::uint8_t byte = static_cast<std::uint8_t>(encoded[index]);
+        if (encoded[index] == '%') {
+            if (index + 2U >= encoded_length) {
+                return false;
+            }
+            const int high = image_download_hex_digit(encoded[index + 1U]);
+            const int low = image_download_hex_digit(encoded[index + 2U]);
+            if (high < 0 || low < 0) {
+                return false;
+            }
+            byte = static_cast<std::uint8_t>((high << 4) | low);
+            index += 2U;
+        }
+        if (byte == '/' || byte == '\\' || byte == '?' ||
+            written + 1U >= sizeof(destination)) {
+            return false;
+        }
+        destination[written++] = static_cast<char>(byte);
+    }
+    destination[written] = '\0';
+    return pf_image::valid_filename(
+        reinterpret_cast<const std::uint8_t*>(destination),
+        written);
+}
+
 inline bool decode_image_download_uri(
     const char* const uri,
     char (&destination)[pf_storage::kCatalogNameCapacity],

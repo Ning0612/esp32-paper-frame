@@ -9,6 +9,7 @@ constexpr char kUploadPartPath[] = "/images/.upload.part";
 constexpr char kCatalogPath[] = "/images/.catalog.pfc1";
 constexpr char kCatalogPartPath[] = "/images/.catalog.pfc1.part";
 constexpr char kCatalogBakPath[] = "/images/.catalog.pfc1.bak";
+constexpr char kCatalogMutationMarkerPath[] = "/images/.catalog.mutation";
 constexpr std::size_t kImageChunkBytes = 1024U;
 
 struct CatalogSlot {
@@ -316,6 +317,9 @@ bool cleanup_parts(
     if (!remove_path(filesystem, kCatalogPartPath)) {
         success = false;
     }
+    if (!remove_path(filesystem, kCatalogMutationMarkerPath)) {
+        success = false;
+    }
     for (std::size_t index = 0U;
          index < workspace.image_part_count;
          ++index) {
@@ -504,6 +508,49 @@ RecoveryResult promote_candidate(PromotionContext& context)
     return result;
 }
 
+RecoveryResult promote_catalog_only(
+    StorageFileSystem& filesystem,
+    RecoveryWorkspace& workspace,
+    const bool canonical_present,
+    const bool backup_present)
+{
+    RecoveryResult result{};
+    bool moved_canonical = false;
+    if (canonical_present) {
+        if (backup_present && !remove_path(filesystem, kCatalogBakPath)) {
+            result.error = RecoveryError::rename_failed;
+            return result;
+        }
+        if (!filesystem.rename(kCatalogPath, kCatalogBakPath)) {
+            result.error = RecoveryError::rename_failed;
+            return result;
+        }
+        moved_canonical = true;
+    }
+    if (!filesystem.rename(kCatalogPartPath, kCatalogPath)) {
+        bool rollback_ok = true;
+        if (moved_canonical) {
+            rollback_ok = filesystem.rename(kCatalogBakPath, kCatalogPath);
+        }
+        result.error = rollback_ok
+                           ? RecoveryError::rename_failed
+                           : RecoveryError::rollback_failed;
+        return result;
+    }
+    workspace.recovered = workspace.candidate;
+    result.action = RecoveryAction::promoted_candidate;
+    result.has_catalog = true;
+    if (moved_canonical || backup_present) {
+        if (!remove_path(filesystem, kCatalogBakPath)) {
+            result.cleanup_pending = true;
+        }
+    }
+    if (!cleanup_parts(filesystem, workspace)) {
+        result.cleanup_pending = true;
+    }
+    return result;
+}
+
 }  // namespace
 
 const char* to_string(const RecoveryError error)
@@ -595,6 +642,8 @@ RecoveryResult recover_image_transactions(
     const bool backup_valid = backup_slot.present && backup_slot.valid;
     const bool candidate_valid =
         candidate_slot.present && candidate_slot.valid;
+    const bool mutation_marker_present =
+        filesystem.exists(kCatalogMutationMarkerPath);
 
     if (canonical_valid) {
         workspace.recovered = workspace.canonical;
@@ -626,6 +675,13 @@ RecoveryResult recover_image_transactions(
             result.action = RecoveryAction::discarded_stale_state;
             return result;
         }
+        if (mutation_marker_present && workspace.image_part_count == 0U) {
+            return promote_catalog_only(
+                filesystem,
+                workspace,
+                canonical_slot.present,
+                backup_slot.present);
+        }
         CatalogEntry added{};
         if (!catalog_is_append(
                 workspace.canonical,
@@ -649,6 +705,13 @@ RecoveryResult recover_image_transactions(
     }
 
     if (candidate_valid) {
+        if (mutation_marker_present && workspace.image_part_count == 0U) {
+            return promote_catalog_only(
+                filesystem,
+                workspace,
+                canonical_slot.present,
+                backup_slot.present);
+        }
         Catalog base{};
         if (backup_valid) {
             base = workspace.backup;

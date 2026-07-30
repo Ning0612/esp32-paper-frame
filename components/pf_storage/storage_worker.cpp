@@ -160,6 +160,25 @@ bool StorageWorker::find_catalog_entry_by_name(
     return true;
 }
 
+bool StorageWorker::find_catalog_entry_by_id(
+    const std::uint32_t id,
+    CatalogEntry& destination) const
+{
+    if (!ready() || !catalog_available_ || id == 0U) {
+        return false;
+    }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
+        return false;
+    }
+    const CatalogEntry* const entry = find_catalog_entry(catalog_, id);
+    if (entry == nullptr) {
+        return false;
+    }
+    destination = *entry;
+    return true;
+}
+
 ImageStreamResult StorageWorker::stream_image(
     const char* const name,
     const std::size_t name_length,
@@ -287,6 +306,151 @@ ImageStoreResult StorageWorker::store_image(
         content_length);
     if (result.ok()) {
         catalog_ = updated;
+    }
+    return result;
+}
+
+ImageStoreResult StorageWorker::activate_image(const std::uint32_t id)
+{
+    ImageStoreResult result{};
+    if (!ready() || filesystem_ == nullptr || !catalog_available_) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
+        result.error = ImageStoreError::busy;
+        return result;
+    }
+    Catalog candidate = catalog_;
+    CatalogError catalog_error = CatalogError::none;
+    if (!set_catalog_current(candidate, id, catalog_error)) {
+        result.error = ImageStoreError::catalog_invalid;
+        result.catalog_error = catalog_error;
+        return result;
+    }
+    result = persist_catalog_transactionally(
+        *filesystem_,
+        catalog_,
+        candidate,
+        catalog_buffer_,
+        sizeof(catalog_buffer_));
+    if (result.ok()) {
+        catalog_ = candidate;
+        result.assigned_id = id;
+    }
+    return result;
+}
+
+ImageStoreResult StorageWorker::remove_image(const std::uint32_t id)
+{
+    ImageStoreResult result{};
+    if (!ready() || filesystem_ == nullptr || !catalog_available_) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
+        result.error = ImageStoreError::busy;
+        return result;
+    }
+    const CatalogEntry* const existing = find_catalog_entry(catalog_, id);
+    if (existing == nullptr) {
+        result.error = ImageStoreError::catalog_invalid;
+        result.catalog_error = CatalogError::invalid_argument;
+        return result;
+    }
+    const CatalogEntry removed_entry = *existing;
+    const bool was_current =
+        (existing->flags & kCatalogCurrent) != 0U;
+    Catalog candidate = catalog_;
+    CatalogError catalog_error = CatalogError::none;
+    if (!remove_catalog_entry(candidate, id, catalog_error)) {
+        result.error = ImageStoreError::catalog_invalid;
+        result.catalog_error = catalog_error;
+        return result;
+    }
+    if (was_current) {
+        for (std::size_t index = 0U; index < candidate.count; ++index) {
+            const CatalogEntry& successor = candidate.entries[index];
+            if ((successor.flags & kCatalogEnabled) != 0U &&
+                (successor.flags & kCatalogCorrupt) == 0U) {
+                if (!set_catalog_current(
+                        candidate,
+                        successor.id,
+                        catalog_error)) {
+                    result.error = ImageStoreError::catalog_invalid;
+                    result.catalog_error = catalog_error;
+                    return result;
+                }
+                break;
+            }
+        }
+    }
+    result = persist_catalog_transactionally(
+        *filesystem_,
+        catalog_,
+        candidate,
+        catalog_buffer_,
+        sizeof(catalog_buffer_));
+    if (!result.ok()) {
+        return result;
+    }
+    catalog_ = candidate;
+    result.catalog_committed = true;
+
+    char image_path[kRecoveryPathCapacity]{};
+    const int path_length = std::snprintf(
+        image_path,
+        sizeof(image_path),
+        "%s/%.*s",
+        kImageStoreRootPath,
+        static_cast<int>(removed_entry.name_length),
+        removed_entry.name);
+    if (path_length <= 0 ||
+        static_cast<std::size_t>(path_length) >= sizeof(image_path)) {
+        result.error = ImageStoreError::path_too_long;
+        return result;
+    }
+    if (filesystem_->exists(image_path) &&
+        !filesystem_->remove_if_exists(image_path)) {
+        result.error = ImageStoreError::remove_failed;
+        result.assigned_id = id;
+        return result;
+    }
+    result.assigned_id = id;
+    return result;
+}
+
+ImageStoreResult StorageWorker::reorder_images(
+    const std::uint32_t* const ids,
+    const std::size_t count)
+{
+    ImageStoreResult result{};
+    if (!ready() || filesystem_ == nullptr || !catalog_available_) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
+    OperationGuard guard(operation_busy_);
+    if (!guard.acquired()) {
+        result.error = ImageStoreError::busy;
+        return result;
+    }
+    Catalog candidate = catalog_;
+    CatalogError catalog_error = CatalogError::none;
+    if (!reorder_catalog(candidate, ids, count, catalog_error)) {
+        result.error = ImageStoreError::catalog_invalid;
+        result.catalog_error = catalog_error;
+        return result;
+    }
+    result = persist_catalog_transactionally(
+        *filesystem_,
+        catalog_,
+        candidate,
+        catalog_buffer_,
+        sizeof(catalog_buffer_));
+    if (result.ok()) {
+        catalog_ = candidate;
     }
     return result;
 }

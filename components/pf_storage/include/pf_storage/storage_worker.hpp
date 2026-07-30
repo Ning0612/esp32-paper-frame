@@ -98,11 +98,21 @@ public:
         std::size_t name_length,
         CatalogEntry& destination) const;
 
+    bool find_catalog_entry_by_id(
+        std::uint32_t id,
+        CatalogEntry& destination) const;
+
     // Stores one complete PFR1 stream and publishes the catalog only after the
     // image/catalog transaction has read back and validated its candidate.
     ImageStoreResult store_image(
         const StorageStreamReader& reader,
         std::size_t content_length);
+
+    ImageStoreResult activate_image(std::uint32_t id);
+    ImageStoreResult remove_image(std::uint32_t id);
+    ImageStoreResult reorder_images(
+        const std::uint32_t* ids,
+        std::size_t count);
 
     ImageStreamResult stream_image(
         const char* name,

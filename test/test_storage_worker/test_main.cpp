@@ -578,6 +578,106 @@ void test_store_image_updates_worker_catalog_after_commit()
     TEST_ASSERT_TRUE(filesystem.exists("/images/worker-upload.pfr1"));
 }
 
+void test_catalog_mutations_persist_and_remove_files()
+{
+    FakeStorageFileSystem filesystem;
+    pf_storage::Catalog catalog{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(catalog));
+    pf_storage::CatalogError catalog_error = pf_storage::CatalogError::none;
+    std::uint32_t first_id = 0U;
+    std::uint32_t second_id = 0U;
+
+    const std::vector<std::uint8_t> first = make_pfr1("first.pfr1");
+    const std::vector<std::uint8_t> second = make_pfr1("second.pfr1");
+    auto make_entry = [](const char* const name,
+                         const std::size_t file_bytes) {
+        pf_storage::CatalogEntry entry{};
+        entry.file_bytes = static_cast<std::uint32_t>(file_bytes);
+        entry.payload_bytes = static_cast<std::uint32_t>(
+            pf_image::expected_payload_length(
+                pf_display::kPanelWidth,
+                pf_display::kLandscapeImageHeight));
+        entry.width = pf_display::kPanelWidth;
+        entry.height = pf_display::kLandscapeImageHeight;
+        entry.orientation = pf_image::Orientation::landscape;
+        entry.name_length = static_cast<std::uint16_t>(std::strlen(name));
+        std::memcpy(entry.name, name, entry.name_length);
+        return entry;
+    };
+    TEST_ASSERT_TRUE(pf_storage::add_catalog_entry(
+        catalog,
+        make_entry("first.pfr1", first.size()),
+        first_id,
+        catalog_error));
+    TEST_ASSERT_TRUE(pf_storage::add_catalog_entry(
+        catalog,
+        make_entry("second.pfr1", second.size()),
+        second_id,
+        catalog_error));
+    TEST_ASSERT_TRUE(pf_storage::set_catalog_current(
+        catalog,
+        first_id,
+        catalog_error));
+    filesystem.files["/images/first.pfr1"] = first;
+    filesystem.files["/images/second.pfr1"] = second;
+    seed_catalog(filesystem, catalog);
+
+    pf_storage::StorageWorker worker(filesystem);
+    TEST_ASSERT_TRUE(worker.start().ok());
+    TEST_ASSERT_TRUE(worker.activate_image(second_id).ok());
+
+    pf_storage::CatalogEntry entry{};
+    TEST_ASSERT_TRUE(worker.find_catalog_entry_by_id(second_id, entry));
+    TEST_ASSERT_NOT_EQUAL(0U, entry.flags & pf_storage::kCatalogCurrent);
+    const std::uint32_t order[] = {second_id, first_id};
+    TEST_ASSERT_TRUE(worker.reorder_images(
+        order,
+        2U).ok());
+    TEST_ASSERT_TRUE(worker.remove_image(second_id).ok());
+    TEST_ASSERT_FALSE(filesystem.exists("/images/second.pfr1"));
+    TEST_ASSERT_TRUE(worker.find_catalog_entry_by_id(first_id, entry));
+    TEST_ASSERT_EQUAL_UINT16(0U, entry.order);
+}
+
+void test_catalog_only_recovery_promotes_candidate()
+{
+    FakeStorageFileSystem filesystem;
+    const std::vector<std::uint8_t> image = make_pfr1("recover-a.pfr1");
+    const pf_storage::Catalog original =
+        make_download_catalog("recover-a.pfr1", image.size());
+    filesystem.files["/images/recover-a.pfr1"] =
+        image;
+    seed_catalog(filesystem, original);
+    pf_storage::Catalog candidate = original;
+    pf_storage::CatalogError error = pf_storage::CatalogError::none;
+    TEST_ASSERT_TRUE(pf_storage::set_catalog_current(
+        candidate,
+        candidate.entries[0].id,
+        error));
+    std::vector<std::uint8_t> bytes(pf_storage::kCatalogMaxBytes, 0U);
+    std::size_t written = 0U;
+    TEST_ASSERT_TRUE(pf_storage::serialize_catalog(
+        candidate,
+        bytes.data(),
+        bytes.size(),
+        written,
+        error));
+    bytes.resize(written);
+    filesystem.files["/images/.catalog.pfc1.part"] = bytes;
+    filesystem.files["/images/.catalog.mutation"] = {};
+    TEST_ASSERT_TRUE(filesystem.rename(
+        "/images/.catalog.pfc1",
+        "/images/.catalog.pfc1.bak"));
+
+    pf_storage::StorageWorker worker(filesystem);
+    TEST_ASSERT_TRUE(worker.start().ok());
+    TEST_ASSERT_FALSE(filesystem.exists("/images/.catalog.pfc1.part"));
+    pf_storage::CatalogEntry recovered{};
+    TEST_ASSERT_TRUE(worker.find_catalog_entry_by_id(
+        candidate.entries[0].id,
+        recovered));
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -589,5 +689,7 @@ int main(int, char**)
     RUN_TEST(test_stream_image_fails_closed_for_missing_or_rejected_reads);
     RUN_TEST(test_stream_image_rejects_size_and_filesystem_failures);
     RUN_TEST(test_store_image_updates_worker_catalog_after_commit);
+    RUN_TEST(test_catalog_mutations_persist_and_remove_files);
+    RUN_TEST(test_catalog_only_recovery_promotes_candidate);
     return UNITY_END();
 }

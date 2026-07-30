@@ -273,8 +273,8 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - 受保護的 `GET /api/v1/images/{name}/download`，以固定 PFR1 MIME、
   安全的 `Content-Disposition` 與檔名回傳已處理圖片。
 - 圖片庫 UI、storage usage、排序、批次刪除與 processed file download；目前完成
-  catalog 顯示、processed file download 與 PFR1 upload，delete／activate／排序待
-  後續接入。
+  catalog 顯示、processed file download、PFR1 upload、delete／activate／排序 UI 與
+  async API 已完成；carousel runtime 讀圖仍待接入。
 
 驗收：
 
@@ -452,6 +452,6 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [ ] Phase 5：partition layout、catalog、transaction upload、boot recovery
   與 `StorageWorker::start()` 的 imagefs 啟動接線已完成並通過 host／firmware
   build；受保護的 image list/upload API、serializer、PFR1 download route 與圖片庫
-  catalog/download/upload UI 已完成，delete、activate、排序與 carousel 讀圖尚待
-  完成。
+  catalog/download/upload/delete/activate/order UI 與 async API 已完成，carousel
+  runtime 讀圖尚待完成。
   `image_02_05.png` 僅作本地測試，不得 commit。

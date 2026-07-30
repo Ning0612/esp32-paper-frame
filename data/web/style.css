@@ -164,6 +164,8 @@ h3 { font-size: 1.25rem; }
 .image-library-state.corrupt { background: var(--coral); color: #fff; }
 .image-library-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; }
 .image-library-actions .plain-button { white-space: nowrap; }
+.image-library-actions .danger-button { border-color: var(--coral); }
+.image-library-actions .order-button { min-width: 35px; padding-inline: 8px; }
 .image-library-empty { border: 2px dashed color-mix(in srgb, var(--line) 45%, transparent); padding: 20px; color: var(--muted); text-align: center; }
 .trust-note { margin: 18px 0 0; border-left: 7px solid var(--mint); background: color-mix(in srgb, var(--mint) 22%, var(--surface)); padding: 12px; color: var(--muted); line-height: 1.5; }
 .trust-note b { color: var(--ink); }

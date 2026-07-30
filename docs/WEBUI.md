@@ -22,6 +22,9 @@ Phase 3–4 的管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript �
 | `POST /api/v1/wifi/config` | 首次 provisioning AP，或已登入 + CSRF | 交易式保存 Wi‑Fi 憑證 |
 | `GET /api/v1/images` | 已登入 | 讀取目前 catalog；只回傳安全 metadata |
 | `POST /api/v1/images` | 已登入 + CSRF | 非同步驗證並交易式保存 PFR1 |
+| `POST /api/v1/images/{name}/activate` | 已登入 + CSRF | 非同步將圖片設為目前圖片 |
+| `DELETE /api/v1/images/{name}` | 已登入 + CSRF | 非同步刪除圖片並選擇下一張有效圖片 |
+| `PUT /api/v1/images/order` | 已登入 + CSRF | 非同步保存 `{ "ids": [ ... ] }` 輪播順序 |
 | `GET /api/v1/images/{name}/download` | 已登入 | 下載已驗證的 PFR1 |
 
 所有 JSON 使用 `{ "ok": true, "data": ... }` 或 `{ "ok": false,

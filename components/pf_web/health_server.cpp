@@ -61,6 +61,8 @@ constexpr std::size_t kImageDownloadContentDispositionCapacity =
     (pf_storage::kCatalogNameCapacity * 2U) + 32U;
 constexpr UBaseType_t kImageUploadTaskPriority = 3U;
 constexpr std::uint32_t kImageUploadTaskStackWords = 8192U;
+constexpr UBaseType_t kImageMutationTaskPriority = 3U;
+constexpr std::uint32_t kImageMutationTaskStackWords = 4096U;
 
 HealthServerAccessConfig server_access_config{};
 
@@ -102,6 +104,29 @@ std::uint8_t image_upload_queue_storage[
 StaticTask_t image_upload_task_control{};
 StackType_t image_upload_task_stack[
     kImageUploadTaskStackWords]{};
+
+enum class ImageMutationKind : std::uint8_t {
+    activate = 0U,
+    remove,
+    reorder,
+};
+
+struct ImageMutationRequest {
+    httpd_req_t* request = nullptr;
+    pf_storage::StorageWorker* worker = nullptr;
+    ImageMutationKind kind = ImageMutationKind::activate;
+    std::uint32_t image_id = 0U;
+    std::uint16_t order_count = 0U;
+    std::uint32_t order_ids[pf_storage::kCatalogMaxEntries]{};
+};
+
+QueueHandle_t image_mutation_queue = nullptr;
+StaticQueue_t image_mutation_queue_control{};
+std::uint8_t image_mutation_queue_storage[
+    sizeof(ImageMutationRequest)]{};
+StaticTask_t image_mutation_task_control{};
+StackType_t image_mutation_task_stack[
+    kImageMutationTaskStackWords]{};
 
 esp_err_t set_common_headers(
     httpd_req_t* const request,
@@ -1486,6 +1511,7 @@ const char* image_store_http_status(const pf_storage::ImageStoreError error)
         case pf_storage::ImageStoreError::catalog_read_failed:
         case pf_storage::ImageStoreError::catalog_invalid:
         case pf_storage::ImageStoreError::path_too_long:
+        case pf_storage::ImageStoreError::remove_failed:
         case pf_storage::ImageStoreError::rename_failed:
         case pf_storage::ImageStoreError::rollback_failed:
             return "500 Internal Server Error";
@@ -1600,6 +1626,348 @@ esp_err_t start_image_upload_task()
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
+}
+
+const char* image_mutation_http_status(
+    const pf_storage::ImageStoreError error)
+{
+    switch (error) {
+        case pf_storage::ImageStoreError::invalid_argument:
+        case pf_storage::ImageStoreError::catalog_invalid:
+            return "400 Bad Request";
+        case pf_storage::ImageStoreError::not_ready:
+        case pf_storage::ImageStoreError::busy:
+            return "503 Service Unavailable";
+        case pf_storage::ImageStoreError::no_space:
+            return "507 Insufficient Storage";
+        case pf_storage::ImageStoreError::remove_failed:
+        case pf_storage::ImageStoreError::write_failed:
+        case pf_storage::ImageStoreError::close_failed:
+        case pf_storage::ImageStoreError::catalog_read_failed:
+        case pf_storage::ImageStoreError::path_too_long:
+        case pf_storage::ImageStoreError::rename_failed:
+        case pf_storage::ImageStoreError::rollback_failed:
+            return "500 Internal Server Error";
+        case pf_storage::ImageStoreError::none:
+        case pf_storage::ImageStoreError::stream_failed:
+        case pf_storage::ImageStoreError::invalid_image:
+        case pf_storage::ImageStoreError::image_conflict:
+            return "400 Bad Request";
+    }
+    return "500 Internal Server Error";
+}
+
+esp_err_t send_image_mutation_result(
+    httpd_req_t* const request,
+    const pf_storage::ImageStoreResult& result)
+{
+    char response[224]{};
+    if (result.ok()) {
+        const int written = std::snprintf(
+            response,
+            sizeof(response),
+            "{\"ok\":true,\"data\":{\"id\":%u}}",
+            static_cast<unsigned>(result.assigned_id));
+        if (written <= 0 ||
+            static_cast<std::size_t>(written) >= sizeof(response)) {
+            return send_json(
+                request,
+                "500 Internal Server Error",
+                "{\"ok\":false,\"error\":\"response_serialization\"}");
+        }
+        return send_json(request, "200 OK", response);
+    }
+    const int written = std::snprintf(
+        response,
+        sizeof(response),
+        result.catalog_committed
+            ? "{\"ok\":false,\"error\":\"%s\","
+              "\"catalog_committed\":true,\"id\":%u}"
+            : "{\"ok\":false,\"error\":\"%s\"}",
+        pf_storage::to_string(result.error),
+        static_cast<unsigned>(result.assigned_id));
+    if (written <= 0 ||
+        static_cast<std::size_t>(written) >= sizeof(response)) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"response_serialization\"}");
+    }
+    return send_json(
+        request,
+        image_mutation_http_status(result.error),
+        response);
+}
+
+bool receive_image_order_body(
+    httpd_req_t* request,
+    std::uint32_t (&ids)[pf_storage::kCatalogMaxEntries],
+    std::uint16_t& count);
+
+void image_mutation_task_entry(void* const)
+{
+    for (;;) {
+        ImageMutationRequest queued{};
+        if (xQueueReceive(
+                image_mutation_queue,
+                &queued,
+                portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        pf_storage::ImageStoreResult result{};
+        if (queued.worker == nullptr) {
+            result.error = pf_storage::ImageStoreError::invalid_argument;
+        } else if (queued.kind == ImageMutationKind::activate) {
+            result = queued.worker->activate_image(queued.image_id);
+        } else if (queued.kind == ImageMutationKind::remove) {
+            result = queued.worker->remove_image(queued.image_id);
+        } else {
+            if (!receive_image_order_body(
+                    queued.request,
+                    queued.order_ids,
+                    queued.order_count)) {
+                result.error = pf_storage::ImageStoreError::invalid_argument;
+            } else {
+                result = queued.worker->reorder_images(
+                    queued.order_ids,
+                    queued.order_count);
+            }
+        }
+        if (queued.request != nullptr) {
+            const esp_err_t response_result =
+                send_image_mutation_result(queued.request, result);
+            finish_async_upload_request(
+                queued.request,
+                response_result,
+                !result.ok() || response_result != ESP_OK);
+        }
+    }
+}
+
+esp_err_t start_image_mutation_task()
+{
+    if (image_mutation_queue != nullptr) {
+        return ESP_OK;
+    }
+    image_mutation_queue = xQueueCreateStatic(
+        1U,
+        sizeof(ImageMutationRequest),
+        image_mutation_queue_storage,
+        &image_mutation_queue_control);
+    if (image_mutation_queue == nullptr ||
+        xTaskCreateStatic(
+            image_mutation_task_entry,
+            "pf_image_mut",
+            kImageMutationTaskStackWords,
+            nullptr,
+            kImageMutationTaskPriority,
+            image_mutation_task_stack,
+            &image_mutation_task_control) == nullptr) {
+        image_mutation_queue = nullptr;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+bool receive_image_order_body(
+    httpd_req_t* const request,
+    std::uint32_t (&ids)[pf_storage::kCatalogMaxEntries],
+    std::uint16_t& count)
+{
+    count = 0U;
+    if (request == nullptr || request->content_len <= 0 ||
+        request->content_len >= 512) {
+        return false;
+    }
+    char body[512]{};
+    std::size_t received = 0U;
+    std::uint8_t timeout_count = 0U;
+    const std::uint64_t started_ms = monotonic_ms();
+    while (received < static_cast<std::size_t>(request->content_len)) {
+        if (body_receive_deadline_expired(
+                monotonic_ms(),
+                started_ms,
+                kMaximumBodyReceiveMs)) {
+            return false;
+        }
+        const int result = httpd_req_recv(
+            request,
+            body + received,
+            request->content_len - static_cast<int>(received));
+        if (result == HTTPD_SOCK_ERR_TIMEOUT) {
+            ++timeout_count;
+            if (body_receive_idle_limit_reached(
+                    timeout_count,
+                    kMaximumBodyTimeouts)) {
+                return false;
+            }
+            continue;
+        }
+        if (result <= 0) {
+            return false;
+        }
+        received += static_cast<std::size_t>(result);
+    }
+    body[received] = '\0';
+
+    const char* cursor = std::strchr(body, '[');
+    if (cursor == nullptr) {
+        return false;
+    }
+    ++cursor;
+    while (*cursor != '\0') {
+        while (*cursor == ' ' || *cursor == '\t' ||
+               *cursor == '\r' || *cursor == '\n') {
+            ++cursor;
+        }
+        if (*cursor == ']') {
+            return count == 0U;
+        }
+        if (count >= pf_storage::kCatalogMaxEntries ||
+            *cursor < '0' || *cursor > '9') {
+            return false;
+        }
+        std::uint64_t value = 0U;
+        while (*cursor >= '0' && *cursor <= '9') {
+            value = (value * 10U) + static_cast<unsigned>(*cursor - '0');
+            if (value > UINT32_MAX) {
+                return false;
+            }
+            ++cursor;
+        }
+        if (value == 0U) {
+            return false;
+        }
+        ids[count++] = static_cast<std::uint32_t>(value);
+        while (*cursor == ' ' || *cursor == '\t' ||
+               *cursor == '\r' || *cursor == '\n') {
+            ++cursor;
+        }
+        if (*cursor == ',') {
+            ++cursor;
+            continue;
+        }
+        if (*cursor == ']') {
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+esp_err_t image_mutation_handler(
+    httpd_req_t* const request,
+    const ImageMutationKind kind)
+{
+    httpd_req_t* async_request = nullptr;
+    if (httpd_req_async_handler_begin(request, &async_request) != ESP_OK) {
+        (void)send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"mutation_unavailable\"}");
+        return ESP_FAIL;
+    }
+    const auto send_error = [&](const char* const status,
+                                const char* const body) {
+        const esp_err_t response_result =
+            send_json(async_request, status, body);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    };
+    const AccessContext access = current_access_context(async_request);
+    if (!access.authenticated || !access.csrf_valid) {
+        const esp_err_t response_result =
+            reject_management_request(async_request, access, true);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    }
+    pf_storage::StorageWorker* const worker =
+        server_access_config.storage_worker;
+    if (worker == nullptr || !worker->ready()) {
+        return send_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    if (image_mutation_queue == nullptr ||
+        uxQueueSpacesAvailable(image_mutation_queue) == 0U ||
+        worker->operation_busy()) {
+        return send_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_busy\"}");
+    }
+
+    if (kind != ImageMutationKind::reorder &&
+        async_request->content_len != 0) {
+        return send_error(
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"unexpected_body\"}");
+    }
+    if (kind == ImageMutationKind::reorder &&
+        (async_request->content_len <= 0 ||
+         async_request->content_len >= 512)) {
+        return send_error(
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"invalid_order\"}");
+    }
+
+    ImageMutationRequest queued{};
+    queued.request = async_request;
+    queued.worker = worker;
+    queued.kind = kind;
+    if (kind != ImageMutationKind::reorder) {
+        const char* const suffix =
+            kind == ImageMutationKind::activate ? "/activate" : "";
+        char name[pf_storage::kCatalogNameCapacity]{};
+        std::size_t name_length = 0U;
+        if (!decode_image_action_uri(
+                async_request->uri,
+                suffix,
+                name,
+                name_length)) {
+            return send_error(
+                "400 Bad Request",
+                "{\"ok\":false,\"error\":\"invalid_image_name\"}");
+        }
+        pf_storage::CatalogEntry entry{};
+        if (!worker->find_catalog_entry_by_name(
+                name,
+                name_length,
+                entry)) {
+            return send_error(
+                worker->operation_busy()
+                    ? "503 Service Unavailable"
+                    : "404 Not Found",
+                worker->operation_busy()
+                    ? "{\"ok\":false,\"error\":\"storage_busy\"}"
+                    : "{\"ok\":false,\"error\":\"image_not_found\"}");
+        }
+        queued.image_id = entry.id;
+    }
+    if (xQueueSend(image_mutation_queue, &queued, 0U) != pdTRUE) {
+        return send_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_busy\"}");
+    }
+    return ESP_OK;
+}
+
+esp_err_t image_activate_handler(httpd_req_t* const request)
+{
+    return image_mutation_handler(request, ImageMutationKind::activate);
+}
+
+esp_err_t image_remove_handler(httpd_req_t* const request)
+{
+    return image_mutation_handler(request, ImageMutationKind::remove);
+}
+
+esp_err_t image_reorder_handler(httpd_req_t* const request)
+{
+    return image_mutation_handler(request, ImageMutationKind::reorder);
 }
 
 esp_err_t image_upload_handler(httpd_req_t* request)
@@ -1745,6 +2113,24 @@ const httpd_uri_t kImageUploadRoute{
     .handler = image_upload_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kImageActivateRoute{
+    .uri = "/api/v1/images/*",
+    .method = HTTP_POST,
+    .handler = image_activate_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kImageRemoveRoute{
+    .uri = "/api/v1/images/*",
+    .method = HTTP_DELETE,
+    .handler = image_remove_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kImageReorderRoute{
+    .uri = "/api/v1/images/order",
+    .method = HTTP_PUT,
+    .handler = image_reorder_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kImageDownloadRoute{
     .uri = "/api/v1/images/*",
     .method = HTTP_GET,
@@ -1787,7 +2173,7 @@ esp_err_t start_health_server(
     }
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-    configuration.max_uri_handlers = 20;
+    configuration.max_uri_handlers = 24;
     configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
     server_access_config = access;
@@ -1808,6 +2194,12 @@ esp_err_t start_health_server(
         *server = nullptr;
         return result;
     }
+    result = start_image_mutation_task();
+    if (result != ESP_OK) {
+        httpd_stop(*server);
+        *server = nullptr;
+        return result;
+    }
 
     const httpd_uri_t* const routes[] = {
         &kHealthRoute,
@@ -1823,6 +2215,9 @@ esp_err_t start_health_server(
         &kAuthLogoutRoute,
         &kImageListRoute,
         &kImageUploadRoute,
+        &kImageActivateRoute,
+        &kImageRemoveRoute,
+        &kImageReorderRoute,
         &kImageDownloadRoute,
         &kIndexRoute,
         &kStyleRoute,
