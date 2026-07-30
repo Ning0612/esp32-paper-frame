@@ -427,3 +427,42 @@ PlatformIO app upload 沒有重寫 `webfs`、`imagefs`、NVS 或 OTA metadata。
   401／CSRF、masked config 與 credential save／STA reconnect 全流程；
 - Dashboard 在實機瀏覽器的 responsive／dark-mode 互動；
 - SNTP 與 mDNS 狀態（目前 API 明確回傳 `unknown`／尚未整合）。
+
+### 2026-07-30 — STA 管理 WebUI 與桌面版寬度驗證
+
+本段在保留既有 Wi-Fi、`webfs`、`imagefs` 與其他 NVS 設定的前提下，
+只重設管理帳號 `admin` 的密碼雜湊，並以正常 STA 模式驗證登入後的管理
+介面。測試使用暫時密碼，測試結束後由使用者自行更換；密碼本身不寫入
+原始碼、文件、log 或 Git。
+
+驗證結果：
+
+- 啟動後 health endpoint 回 `200`、`status=ready`；Flash、PSRAM、
+  `webfs`、`imagefs` 與 Wi-Fi service 均為 ready/connected。原有網路設定
+  未被清除，也沒有重建任何 filesystem。
+- 實機登入成功。ESP32-S3 console 記錄
+  `authentication_result=authenticated`，本次 PBKDF2 驗證約 136 秒，
+  全程沒有 watchdog reset；因此 server-side login result 與 WebUI polling
+  deadline 延長至 180 秒。
+- 登入後 Dashboard 可載入 runtime snapshot，重新整理按鈕可完成一次
+  refresh；Wi-Fi 頁在已連線 STA 模式可完成掃描並回傳去重後的結果。修正前
+  非 provisioning mode 的 scan request 會停在 `scanning`，現已改為允許
+  normal STA scan，其他不合法 mode 明確回報失敗。
+- 桌面瀏覽器 viewport `1280` 下，頁面寬度 `1040`、sidebar `190`、
+  authenticated content `822`，文件根節點 `scrollWidth` 小於 viewport，
+  沒有水平溢出。未登入時隱藏 sidebar 會讓 content 跨滿 workspace，
+  管理員登入卡片維持置中且不再被錯誤限制在第二欄。
+- `image_02_05.png` 在本機檔案檢查為可解碼的 311×199 RGB PNG，未加入任何
+  commit。Host image pipeline、quantizer、PFR1 packer 與 WebUI contract
+  測試均通過；但本次 in-app browser 的 file chooser 只填入檔名、實際
+  `FileList` 為空，畫面回報「無法讀取圖片」，所以不能把這次操作宣稱為
+  瀏覽器端圖片成功處理。這是測試工具的檔案注入限制，需在可正常選檔的
+  瀏覽器工作階段重跑圖片頁驗證。
+
+仍待驗證：
+
+- 最新 artifact 在 blank-NVS／Recovery AP 的 scan、首次建密碼、401／CSRF、
+  masked config、credential save 與 STA reconnect 全流程；
+- SNTP、mDNS、dark-mode 與可正常選檔的瀏覽器端 `image_02_05.png` PFR1
+  產出／下載；
+- Phase 5 imagefs transactional upload、catalog、斷電復原與圖片輪播。

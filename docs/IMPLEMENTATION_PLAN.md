@@ -439,6 +439,10 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   輪播核心與空圖庫 welcome frame；catalog-backed 圖片載入依計畫在
   Phase 4–5 接入。
 - [ ] Phase 3：AP／STA 純狀態機、provisioning portal、credential transaction、
-  auth/CSRF 與 WebUI shell 已完成程式、host test、build 及 STA 啟動 smoke；
-  最新 artifact 的 blank-NVS／Recovery AP 瀏覽器流程、SNTP/mDNS 仍待實機
-  收尾，故尚未標記 M2 完成。
+  auth/CSRF 與 WebUI shell 已完成程式、host test、build、STA 啟動 smoke，
+  以及正常 STA 登入後 Dashboard、Wi-Fi scan 與桌面版寬度驗證；最新
+  artifact 的 blank-NVS／Recovery AP 瀏覽器流程、SNTP/mDNS 仍待實機收尾，
+  故尚未標記 M2 完成。
+- [ ] Phase 4：PFR1 contract、韌體 validator、browser image pipeline、
+  quantizer、packer 與 host tests 已完成；可正常選檔的 browser 實機圖片
+  產出／下載仍待補驗，未把 `image_02_05.png` 納入版本控制。
