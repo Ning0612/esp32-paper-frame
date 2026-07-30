@@ -43,6 +43,25 @@ enum class DisplayOutcome : std::uint8_t {
     panel_state_error,
 };
 
+constexpr const char* to_string(const DisplayOutcome outcome)
+{
+    switch (outcome) {
+        case DisplayOutcome::none:
+            return "none";
+        case DisplayOutcome::refreshed_and_slept:
+            return "refreshed_and_slept";
+        case DisplayOutcome::invalid_lease:
+            return "invalid_lease";
+        case DisplayOutcome::busy_timeout:
+            return "busy_timeout";
+        case DisplayOutcome::transport_error:
+            return "transport_error";
+        case DisplayOutcome::panel_state_error:
+            return "panel_state_error";
+    }
+    return "none";
+}
+
 struct RuntimeResult {
     std::uint32_t request_id;
     ResultStatus status;

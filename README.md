@@ -12,7 +12,7 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 | Phase 0 repository baseline | 已完成 |
 | Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
 | Phase 2 display/renderer ownership | packed framebuffer、renderer、`epd7in3e` driver、DisplayTask 與 carousel core/welcome lifecycle 已通過 |
-| Phase 3 provisioning/auth/WebUI | AP／STA、離線 portal 與 async auth/session/CSRF 已完成 host/build；管理 shell 與完整 Phase 3 實機驗證進行中 |
+| Phase 3 provisioning/auth/WebUI | AP／STA、離線 portal、async auth/session/CSRF、responsive management shell 與初版 Dashboard 已完成 host/build；實機部署與完整 Phase 3 驗證待進行 |
 | ESP32-S3 USB 連線 | native USB 已驗證 ROM 燒錄與 app console；首次復原需 GPIO0/GPIO46 同時接地，COM 需重新辨識 |
 | 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
 | 7.3 吋 e-Paper HAT (E) | GPIO4/10–14 driver 實機顯示黑／黃／紅／藍／綠／白正確；sleep 電流量測待驗證 |
@@ -67,6 +67,7 @@ GPIO0、GPIO46。完整安全步驟、app-only slot 限制與測試後恢復方�
 - [ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)
 - [Wi-Fi provisioning contract](docs/PROVISIONING.md)
 - [管理認證與 CSRF contract](docs/AUTHENTICATION.md)
+- [管理 WebUI 與 Dashboard](docs/WEBUI.md)
 - [貢獻與自動化工作規則](AGENTS.md)
 
 ## License

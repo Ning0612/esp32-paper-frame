@@ -20,6 +20,23 @@ enum class DisplayState : std::uint8_t {
     failed,
 };
 
+constexpr const char* to_string(const DisplayState state)
+{
+    switch (state) {
+        case DisplayState::unknown:
+            return "unknown";
+        case DisplayState::queued:
+            return "queued";
+        case DisplayState::refreshing:
+            return "refreshing";
+        case DisplayState::deep_sleep:
+            return "deep_sleep";
+        case DisplayState::failed:
+            return "failed";
+    }
+    return "unknown";
+}
+
 enum class WifiState : std::uint8_t {
     unknown,
     connecting,
@@ -50,6 +67,16 @@ struct RuntimeSnapshot {
     std::uint32_t last_display_request_id;
     DisplayOutcome last_display_outcome;
     std::uint8_t last_display_stage;
+    // Capacity values are captured during startup and copied with the
+    // snapshot. A zero value is rendered as unknown unless its service is
+    // ready; no handler probes storage or hardware on the request path.
+    std::uint32_t flash_bytes = 0;
+    std::uint32_t psram_bytes = 0;
+    std::uint32_t webfs_total_bytes = 0;
+    std::uint32_t webfs_used_bytes = 0;
+    std::uint32_t imagefs_total_bytes = 0;
+    std::uint32_t imagefs_used_bytes = 0;
+    std::uint32_t carousel_refresh_minutes = 0;
 };
 
 constexpr const char* to_string(const WifiState state)

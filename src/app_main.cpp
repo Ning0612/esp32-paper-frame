@@ -34,6 +34,8 @@ constexpr std::uint64_t kCarouselRetryMs = 1000U;
 struct HardwareProfile {
     bool flash_ready;
     bool psram_ready;
+    std::uint32_t flash_bytes;
+    std::size_t psram_bytes;
 };
 
 struct AccessPointPresenterContext {
@@ -88,6 +90,8 @@ HardwareProfile log_hardware_profile()
     return {
         flash_result == ESP_OK && flash_bytes == kExpectedFlashBytes,
         psram_ready && psram_bytes >= kExpectedPsramBytes,
+        flash_bytes,
+        psram_bytes,
     };
 }
 
@@ -253,6 +257,10 @@ extern "C" void app_main()
 
     const pf_storage::FileSystemSnapshot filesystem_snapshot =
         pf_storage::mount_all();
+    const bool wifi_password_configured =
+        stored_credentials.error == ESP_OK &&
+        stored_credentials.configured &&
+        stored_credentials.credentials.password[0] != '\0';
     const auto log_filesystem = [](const char* label,
                                    const pf_storage::FileSystemStatus& status) {
         ESP_LOGI(
@@ -288,6 +296,19 @@ extern "C" void app_main()
         .last_display_request_id = 0,
         .last_display_outcome = pf_runtime::DisplayOutcome::none,
         .last_display_stage = 0,
+        .flash_bytes = hardware.flash_bytes,
+        .psram_bytes = static_cast<std::uint32_t>(hardware.psram_bytes),
+        .webfs_total_bytes = static_cast<std::uint32_t>(
+            filesystem_snapshot.webfs.total_bytes),
+        .webfs_used_bytes = static_cast<std::uint32_t>(
+            filesystem_snapshot.webfs.used_bytes),
+        .imagefs_total_bytes = static_cast<std::uint32_t>(
+            filesystem_snapshot.imagefs.total_bytes),
+        .imagefs_used_bytes = static_cast<std::uint32_t>(
+            filesystem_snapshot.imagefs.used_bytes),
+        .carousel_refresh_minutes = config_result.record_available
+                                         ? config_result.record.refresh_minutes
+                                         : 0U,
     };
     const esp_err_t runtime_result =
         pf_runtime::coordinator().initialize(initial_snapshot);
@@ -400,10 +421,25 @@ extern "C" void app_main()
         !stored_credentials.configured &&
         password_status.error == ESP_OK &&
         !password_status.configured;
-    const pf_web::HealthServerAccessConfig web_access{
+    pf_web::HealthServerAccessConfig web_access{
         .initial_bootstrap = initial_bootstrap,
         .password_bootstrap = password_bootstrap,
+        .wifi_configured = stored_credentials.configured,
+        .wifi_password_configured = wifi_password_configured,
+        .management_password_configured =
+            password_status.error == ESP_OK && password_status.configured,
+        .refresh_minutes = config_result.record_available
+                               ? config_result.record.refresh_minutes
+                               : 0U,
     };
+    const char* const timezone = config_result.record_available
+                                     ? config_result.record.timezone
+                                     : "unknown";
+    std::strncpy(
+        web_access.timezone,
+        timezone,
+        sizeof(web_access.timezone) - 1U);
+    web_access.timezone[sizeof(web_access.timezone) - 1U] = '\0';
     const esp_err_t health_result =
         network_stack_result == ESP_OK
             ? pf_web::start_health_server(

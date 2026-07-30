@@ -1,5 +1,9 @@
 # Health API contract
 
+`/api/v1/device` 是永久公開的安全裝置描述；`/api/v1/status` 是登入後的
+Dashboard snapshot，會在後續 phase 增量加入圖片、weather 與 sensor 欄位。
+兩者都不回傳 MAC、SSID、IP、credential 或 API key。
+
 ## `GET /api/v1/health`
 
 此 route 是永久公開的最小健康狀態，不要求登入。Phase 3 會在

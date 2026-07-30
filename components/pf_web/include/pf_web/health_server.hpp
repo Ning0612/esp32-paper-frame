@@ -1,13 +1,21 @@
 #pragma once
 
+#include <cstdint>
+
 #include "esp_err.h"
 #include "esp_http_server.h"
+#include "pf_config/schema.hpp"
 
 namespace pf_web {
 
 struct HealthServerAccessConfig {
     bool initial_bootstrap = false;
     bool password_bootstrap = false;
+    bool wifi_configured = false;
+    bool wifi_password_configured = false;
+    bool management_password_configured = false;
+    std::uint32_t refresh_minutes = 0U;
+    char timezone[pf_config::kTimezoneCapacity]{};
 };
 
 esp_err_t start_health_server(

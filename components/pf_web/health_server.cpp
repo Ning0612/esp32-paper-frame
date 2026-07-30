@@ -12,6 +12,7 @@
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_web/access_policy.hpp"
 #include "pf_web/auth_form.hpp"
+#include "pf_web/dashboard_serializer.hpp"
 #include "pf_web/health_serializer.hpp"
 #include "pf_web/http_receive_policy.hpp"
 #include "pf_web/provisioning_form.hpp"
@@ -19,6 +20,8 @@
 
 namespace pf_web {
 namespace {
+
+constexpr char kFirmwareVersion[] = "phase3-dev";
 
 struct StaticAsset {
     const char* path;
@@ -274,6 +277,88 @@ esp_err_t health_handler(httpd_req_t* request)
             request,
             "500 Internal Server Error",
             "{\"ok\":false,\"error\":\"health_serialization\"}");
+    }
+    return send_json(request, nullptr, response);
+}
+
+esp_err_t device_handler(httpd_req_t* request)
+{
+    pf_runtime::RuntimeSnapshot snapshot{};
+    const bool snapshot_valid =
+        pf_runtime::coordinator().read_snapshot(snapshot);
+    const DeviceInfo device{
+        .product = "PaperFrame",
+        .model = "ESP32-S3-N16R8",
+        .firmware = kFirmwareVersion,
+    };
+    char response[768]{};
+    const SerializeResult serialized = serialize_device(
+        device,
+        snapshot,
+        snapshot_valid,
+        response,
+        sizeof(response));
+    if (!serialized.ok) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"device_serialization\"}");
+    }
+    return send_json(request, nullptr, response);
+}
+
+esp_err_t status_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!access.authenticated) {
+        return reject_management_request(request, access, false);
+    }
+
+    pf_runtime::RuntimeSnapshot snapshot{};
+    const bool snapshot_valid =
+        pf_runtime::coordinator().read_snapshot(snapshot);
+    char response[2048]{};
+    const SerializeResult serialized = serialize_status(
+        snapshot,
+        snapshot_valid,
+        monotonic_ms(),
+        response,
+        sizeof(response));
+    if (!serialized.ok) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"status_serialization\"}");
+    }
+    return send_json(request, nullptr, response);
+}
+
+esp_err_t config_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!access.authenticated) {
+        return reject_management_request(request, access, false);
+    }
+
+    const MaskedConfig config{
+        .wifi_configured = server_access_config.wifi_configured,
+        .wifi_password_configured =
+            server_access_config.wifi_password_configured,
+        .management_password_configured =
+            server_access_config.management_password_configured,
+        .refresh_minutes = server_access_config.refresh_minutes,
+        .timezone = server_access_config.timezone,
+    };
+    char response[512]{};
+    const SerializeResult serialized = serialize_masked_config(
+        config,
+        response,
+        sizeof(response));
+    if (!serialized.ok) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"config_serialization\"}");
     }
     return send_json(request, nullptr, response);
 }
@@ -985,6 +1070,24 @@ const httpd_uri_t kHealthRoute{
     .handler = health_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kDeviceRoute{
+    .uri = "/api/v1/device",
+    .method = HTTP_GET,
+    .handler = device_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kStatusRoute{
+    .uri = "/api/v1/status",
+    .method = HTTP_GET,
+    .handler = status_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kConfigRoute{
+    .uri = "/api/v1/config",
+    .method = HTTP_GET,
+    .handler = config_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kScanRoute{
     .uri = "/api/v1/wifi/scan",
     .method = HTTP_GET,
@@ -1063,7 +1166,7 @@ esp_err_t start_health_server(
     }
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-    configuration.max_uri_handlers = 13;
+    configuration.max_uri_handlers = 16;
     configuration.recv_wait_timeout = 5;
     server_access_config = access;
 
@@ -1074,6 +1177,9 @@ esp_err_t start_health_server(
 
     const httpd_uri_t* const routes[] = {
         &kHealthRoute,
+        &kDeviceRoute,
+        &kStatusRoute,
+        &kConfigRoute,
         &kScanRoute,
         &kWifiConfigRoute,
         &kWifiConfigStatusRoute,

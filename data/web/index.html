@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f3efdf">
-  <title>PaperFrame 配網</title>
+  <title>PaperFrame 管理介面</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <script src="/ui.js" defer></script>
@@ -13,135 +13,202 @@
   <div class="color-rail" aria-hidden="true">
     <i></i><i></i><i></i><i></i><i></i><i></i>
   </div>
-  <main class="sheet">
-    <header class="masthead">
-      <div>
-        <p class="eyebrow">PAPERFRAME / LOCAL SETUP</p>
-        <h1>讓畫框<br>找到你的網路</h1>
+  <main class="app-page">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">PF</span>
+        <div>
+          <p class="eyebrow">PAPERFRAME / LOCAL CONSOLE</p>
+          <h1>離線電子紙管理台</h1>
+        </div>
       </div>
-      <div class="step-stamp" aria-label="步驟 1，共 1 步">
-        <b>01</b>
-        <span>連線設定</span>
+      <div class="topbar-actions">
+        <span class="offline-badge">LOCAL ONLY</span>
+        <button id="theme-toggle" class="plain-button" type="button"
+                aria-pressed="false">DARK</button>
+        <div id="authenticated-actions" class="user-actions" hidden>
+          <span>ADMIN</span>
+          <button id="logout-button" class="plain-button" type="button">登出</button>
+        </div>
       </div>
     </header>
 
-    <section class="intro" aria-labelledby="setup-title">
-      <p id="setup-title">
-        目前連線到裝置自己的 Wi‑Fi。選擇家中網路後，PaperFrame
-        會保存設定並重新啟動。
-      </p>
-      <span class="offline-badge">完全離線可用</span>
-    </section>
-
-    <section id="auth-gate" class="panel auth-panel" aria-labelledby="auth-title">
-      <div class="panel-heading">
-        <div>
-          <span class="panel-no">A</span>
-          <h2 id="auth-title">管理員登入</h2>
+    <div class="workspace">
+      <aside id="sidebar" class="sidebar" aria-label="主要導覽" hidden>
+        <p class="nav-label">MANAGEMENT</p>
+        <nav class="primary-nav">
+          <button class="nav-link active" type="button" data-view="dashboard"
+                  aria-current="page">總覽 <span>01</span></button>
+          <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
+          <button class="nav-link future" type="button" disabled
+                  title="Phase 4 開放">圖片 <span>04</span></button>
+          <button class="nav-link future" type="button" disabled
+                  title="Phase 7 開放">環境 <span>07</span></button>
+          <button class="nav-link future" type="button" disabled
+                  title="Phase 8 開放">系統 <span>08</span></button>
+        </nav>
+        <div class="sidebar-note">
+          <strong>可信任網路</strong>
+          <p>管理介面只適合可信任 LAN 或 PaperFrame 裝置 AP。</p>
         </div>
-        <span class="local-only">ADMIN</span>
-      </div>
-      <p id="auth-copy" class="auth-copy">
-        正在確認裝置的管理員狀態…
-      </p>
-      <form id="auth-form" class="auth-form" novalidate>
-        <label class="field">
-          <span>管理帳號</span>
-          <input value="admin" readonly autocomplete="username">
-        </label>
-        <label class="field">
-          <span id="auth-password-label">管理密碼</span>
-          <div class="password-row">
-            <input id="auth-password" type="password" minlength="8"
-                   maxlength="128" autocomplete="current-password" required>
-            <button id="auth-password-toggle" type="button"
-                    aria-pressed="false">顯示</button>
-          </div>
-          <small>至少 8 個字元；只保存加鹽後的強雜湊。</small>
-        </label>
-        <button id="auth-button" class="save-button" type="submit">
-          登入
-        </button>
-        <p id="auth-status" class="save-status" role="status"
-           aria-live="assertive"></p>
-      </form>
-    </section>
+      </aside>
 
-    <div id="authenticated-actions" class="authenticated-actions" hidden>
-      <span>已登入 <b>admin</b></span>
-      <button id="logout-button" type="button">登出</button>
+      <section class="content" aria-live="polite">
+        <section id="auth-gate" class="panel auth-panel" aria-labelledby="auth-title">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-no coral">A</span>
+              <div>
+                <p class="eyebrow">ACCESS CONTROL</p>
+                <h2 id="auth-title">管理員登入</h2>
+              </div>
+            </div>
+            <span class="local-only">ADMIN</span>
+          </div>
+          <p id="auth-copy" class="auth-copy">正在確認裝置的管理員狀態…</p>
+          <form id="auth-form" class="auth-form" novalidate>
+            <label class="field">
+              <span>管理帳號</span>
+              <input value="admin" readonly autocomplete="username">
+            </label>
+            <label class="field">
+              <span id="auth-password-label">管理密碼</span>
+              <div class="password-row">
+                <input id="auth-password" type="password" minlength="8"
+                       maxlength="128" autocomplete="current-password" required>
+                <button id="auth-password-toggle" type="button"
+                        aria-pressed="false">顯示</button>
+              </div>
+              <small>至少 8 個字元；只保存加鹽後的強雜湊。</small>
+            </label>
+            <button id="auth-button" class="primary-button" type="submit">登入</button>
+            <p id="auth-status" class="save-status" role="status"
+               aria-live="assertive"></p>
+          </form>
+        </section>
+
+        <section id="app-shell" hidden>
+          <div id="dashboard-view" class="view" data-view-panel="dashboard">
+            <div class="view-heading">
+              <div>
+                <p class="eyebrow">01 / RUNTIME SNAPSHOT</p>
+                <h2>總覽</h2>
+              </div>
+              <button id="refresh-dashboard" class="plain-button" type="button">重新整理</button>
+            </div>
+            <p id="dashboard-status" class="status-line" role="status">正在讀取 runtime snapshot…</p>
+
+            <div class="metric-grid">
+              <article class="metric-card teal-card">
+                <span class="card-kicker">DEVICE</span>
+                <strong id="device-model" class="metric-title">尚未取得</strong>
+                <span id="device-firmware" class="metric-detail">韌體未知</span>
+                <span id="device-api" class="mono-detail">API —</span>
+              </article>
+              <article class="metric-card mint-card">
+                <span class="card-kicker">NETWORK</span>
+                <strong id="dashboard-wifi" class="metric-title">未知</strong>
+                <span id="dashboard-internet" class="metric-detail">Internet：未知</span>
+                <span id="dashboard-sntp" class="mono-detail">SNTP：未知</span>
+              </article>
+              <article class="metric-card yellow-card">
+                <span class="card-kicker">RUNTIME</span>
+                <strong id="dashboard-uptime" class="metric-title">未知</strong>
+                <span id="dashboard-sequence" class="metric-detail">snapshot —</span>
+                <span id="dashboard-carousel" class="mono-detail">輪播：未知</span>
+              </article>
+            </div>
+
+            <div class="dashboard-grid">
+              <article class="panel status-panel">
+                <div class="panel-heading compact">
+                  <div><span class="panel-no blue">B</span><h3>電子紙與輪播</h3></div>
+                </div>
+                <dl class="definition-list">
+                  <div><dt>面板狀態</dt><dd id="display-state">未知</dd></div>
+                  <div><dt>佇列</dt><dd id="display-queue">未知</dd></div>
+                  <div><dt>最後刷新</dt><dd id="display-last">未知</dd></div>
+                  <div><dt>目前圖片</dt><dd>尚未接入圖片庫</dd></div>
+                  <div><dt>下次輪播</dt><dd>尚未接入圖片庫</dd></div>
+                </dl>
+              </article>
+              <article class="panel status-panel">
+                <div class="panel-heading compact">
+                  <div><span class="panel-no mint">C</span><h3>容量與服務</h3></div>
+                </div>
+                <dl class="definition-list">
+                  <div><dt>Flash</dt><dd id="flash-capacity">未知</dd></div>
+                  <div><dt>PSRAM</dt><dd id="psram-capacity">未知</dd></div>
+                  <div><dt>webfs</dt><dd id="webfs-capacity">未知</dd></div>
+                  <div><dt>imagefs</dt><dd id="imagefs-capacity">未知</dd></div>
+                  <div><dt>服務</dt><dd id="service-state">未知</dd></div>
+                </dl>
+              </article>
+              <article class="panel status-panel muted-panel">
+                <div class="panel-heading compact">
+                  <div><span class="panel-no coral">D</span><h3>後續模組</h3></div>
+                </div>
+                <dl class="definition-list">
+                  <div><dt>天氣快取</dt><dd id="weather-state">尚未提供</dd></div>
+                  <div><dt>溫溼度</dt><dd id="sensor-state">未安裝</dd></div>
+                  <div><dt>光敏電阻</dt><dd>未安裝</dd></div>
+                  <div><dt>SNTP</dt><dd>尚未接入</dd></div>
+                </dl>
+              </article>
+            </div>
+          </div>
+
+          <div id="wifi-view" class="view" data-view-panel="wifi" hidden>
+            <div class="view-heading">
+              <div>
+                <p class="eyebrow">02 / NETWORK CONFIGURATION</p>
+                <h2>Wi‑Fi 配網</h2>
+              </div>
+            </div>
+            <p class="intro-copy">選擇網路後保存設定；裝置會以交易方式寫入並重新啟動。</p>
+            <form id="wifi-form" class="setup-grid" novalidate>
+              <section class="panel network-panel">
+                <div class="panel-heading">
+                  <div><span class="panel-no blue">E</span><h3>附近網路</h3></div>
+                  <button id="scan-button" class="plain-button" type="button">重新掃描</button>
+                </div>
+                <p id="scan-status" class="status-line" role="status" aria-live="polite">準備掃描附近網路</p>
+                <div id="network-list" class="network-list" role="radiogroup" aria-label="附近 Wi‑Fi"></div>
+                <label class="manual-toggle">
+                  <input id="manual-toggle" type="checkbox">
+                  <span>我的網路沒有出現在清單中</span>
+                </label>
+                <label id="manual-field" class="field manual-field" hidden>
+                  <span>網路名稱（SSID）</span>
+                  <input id="manual-ssid" maxlength="32" autocomplete="off">
+                </label>
+              </section>
+              <section class="panel credential-panel">
+                <div class="panel-heading">
+                  <div><span class="panel-no coral">F</span><h3>連線設定</h3></div>
+                </div>
+                <div class="selected-network">
+                  <span>將連線至</span><strong id="selected-ssid">尚未選擇</strong>
+                </div>
+                <label class="field">
+                  <span>Wi‑Fi 密碼</span>
+                  <div class="password-row">
+                    <input id="password" name="password" type="password" maxlength="63" autocomplete="new-password">
+                    <button id="password-toggle" type="button" aria-pressed="false">顯示</button>
+                  </div>
+                  <small>加密網路需 8–63 字元；開放網路可留白。</small>
+                </label>
+                <aside class="trust-note"><b>只留在裝置裡</b><p>密碼不會放進網址、畫面回應或系統紀錄。</p></aside>
+                <button id="save-button" class="primary-button" type="submit">儲存並重新啟動</button>
+                <p id="save-status" class="save-status" role="status" aria-live="assertive"></p>
+              </section>
+            </form>
+          </div>
+        </section>
+      </section>
     </div>
 
-    <form id="wifi-form" class="setup-grid" novalidate hidden>
-      <section class="panel network-panel">
-        <div class="panel-heading">
-          <div>
-            <span class="panel-no">B</span>
-            <h2>選擇 Wi‑Fi</h2>
-          </div>
-          <button id="scan-button" class="scan-button" type="button">
-            重新掃描
-          </button>
-        </div>
-
-        <p id="scan-status" class="status-line" role="status" aria-live="polite">
-          準備掃描附近網路
-        </p>
-        <div id="network-list" class="network-list" role="radiogroup"
-             aria-label="附近 Wi‑Fi"></div>
-
-        <label class="manual-toggle">
-          <input id="manual-toggle" type="checkbox">
-          <span>我的網路沒有出現在清單中</span>
-        </label>
-        <label id="manual-field" class="field manual-field" hidden>
-          <span>網路名稱（SSID）</span>
-          <input id="manual-ssid" maxlength="32" autocomplete="off">
-        </label>
-      </section>
-
-      <section class="panel credential-panel">
-        <div class="panel-heading">
-          <div>
-            <span class="panel-no">C</span>
-            <h2>輸入密碼</h2>
-          </div>
-        </div>
-
-        <div class="selected-network">
-          <span>將連線至</span>
-          <strong id="selected-ssid">尚未選擇</strong>
-        </div>
-
-        <label class="field">
-          <span>Wi‑Fi 密碼</span>
-          <div class="password-row">
-            <input id="password" name="password" type="password"
-                   maxlength="63" autocomplete="new-password">
-            <button id="password-toggle" type="button"
-                    aria-pressed="false">顯示</button>
-          </div>
-          <small>加密網路需 8–63 字元；開放網路可留白。</small>
-        </label>
-
-        <aside class="trust-note">
-          <b>只留在裝置裡</b>
-          <p>密碼不會放進網址、畫面回應或系統紀錄。</p>
-        </aside>
-
-        <button id="save-button" class="save-button" type="submit">
-          儲存並重新啟動
-        </button>
-        <p id="save-status" class="save-status" role="status"
-           aria-live="assertive"></p>
-      </section>
-    </form>
-
-    <footer>
-      <span>PaperFrame Setup</span>
-      <span>192.168.4.1</span>
-      <span>僅限可信任 LAN 或裝置 AP</span>
-    </footer>
+    <footer><span>PaperFrame Management Console</span><span>所有資產皆離線內建</span><span>僅限可信任 LAN 或裝置 AP</span></footer>
   </main>
 </body>
 </html>
