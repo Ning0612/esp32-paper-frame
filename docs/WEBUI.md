@@ -42,11 +42,25 @@ RGBA raster helper。`processRaster()` 固定依序正規化 EXIF orientation 1�
 - `crop`：先以目標比例置中裁切原圖，再等比縮放。
 
 輸出目標必須由 landscape `800×440` 或 portrait `480×760` profile 指定；
-量化、dithering 與 PFR1 pack 會在後續 Phase 4 commit 接入。Node 驗證命令：
+PFR1 pack 與圖片頁會在後續 Phase 4 commit 接入。Node 驗證命令：
 
 ```powershell
 node test\web\test_image_pipeline.mjs
 node --check data\web\image_pipeline.js
+```
+
+`data/web/image_quantizer.js` 使用相同的 E6 native palette，提供 `nearest`、
+`floyd-steinberg`、`atkinson` 與 `bayer-4x4` 四種 deterministic mode；輸出
+同時包含 preview RGBA 與 native palette index。`image_quantize_worker.js`
+透過 transferable `ArrayBuffer` 執行量化，主執行緒不會因大型 raster 計算而
+卡住；worker 失敗只回傳錯誤訊息，不會將原始 RGB buffer 直接送到韌體。
+
+量化測試與 worker 語法檢查：
+
+```powershell
+node test\web\test_image_quantizer.mjs
+node --check data\web\image_quantizer.js
+node --check data\web\image_quantize_worker.js
 ```
 
 ## 視覺與主題
