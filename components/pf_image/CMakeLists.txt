@@ -1,0 +1,8 @@
+idf_component_register(
+    SRCS
+        "pfr1.cpp"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        pf_display
+)

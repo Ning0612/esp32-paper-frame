@@ -13,6 +13,7 @@ idf_component_register(
         pf_config
         pf_display
         pf_network
+        pf_image
         pf_provisioning
         pf_runtime
         pf_storage
