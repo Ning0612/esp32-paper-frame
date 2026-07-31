@@ -740,9 +740,9 @@ extern "C" void app_main()
         pf_sensors::PresenceState::unknown;
     bool pending_presence_force_immediate = false;
     bool pending_presence_away_blank = false;
-    CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
+    static CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
     std::size_t carousel_shown_count = 0U;
-    pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
+    static pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
     static std::uint8_t carousel_status[pf_display::kLandscapeStatusBytes]{};
     std::uint8_t* carousel_payload = static_cast<std::uint8_t*>(
         heap_caps_malloc(
