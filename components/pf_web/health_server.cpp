@@ -91,20 +91,23 @@ constexpr UBaseType_t kImageDownloadTaskPriority = 3U;
 // store_image_transactionally / persist_catalog_transactionally, which run
 // PFR1 validation and a CRC32 pass over the serialized catalog; shrinking
 // those two to 8192 bytes hit a real on-device stack-canary panic in
-// "pf_image_up", but the previous fallback of 32768 bytes each reserves so
+// "pf_image_up", and the previous fallback of 32768 bytes each reserved so
 // much internal SRAM for the lifetime of these xTaskCreateStatic tasks
 // (regardless of whether an upload is in progress) that it starved ordinary
 // WebUI connections instead (httpd send() failing with EAGAIN on a plain
-// page load). 16384 is an interim, evidence-informed middle ground -- 2x the
-// stack size known to overflow -- pending real numbers from the
-// uxTaskGetStackHighWaterMark() logging below.
+// page load). On-device uxTaskGetStackHighWaterMark() logging (below) at
+// 16384 bytes each measured upload using ~9520 bytes (6864 free, healthy
+// margin) but mutation using ~14288 bytes (only 2096 free) -- as tight as
+// the configuration that overflowed before. Keep upload at 16384 and give
+// mutation more headroom; re-measure after any further change to either
+// call path instead of assuming these numbers still hold.
 constexpr std::uint32_t kImageDownloadTaskStackWords = 8192U;
 constexpr std::size_t kImageDownloadContentDispositionCapacity =
     (pf_storage::kCatalogNameCapacity * 2U) + 32U;
 constexpr UBaseType_t kImageUploadTaskPriority = 3U;
 constexpr std::uint32_t kImageUploadTaskStackWords = 16384U;
 constexpr UBaseType_t kImageMutationTaskPriority = 3U;
-constexpr std::uint32_t kImageMutationTaskStackWords = 16384U;
+constexpr std::uint32_t kImageMutationTaskStackWords = 24576U;
 constexpr UBaseType_t kWeatherConfigTaskPriority = 3U;
 constexpr std::uint32_t kWeatherConfigTaskStackWords = 4096U;
 constexpr std::size_t kWeatherConfigBodyCapacity = 512U;
