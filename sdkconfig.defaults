@@ -16,4 +16,12 @@ CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
+# app_main() is one flat function carrying substantial local state
+# (carousel catalog buffers, decision/result tracking, presence
+# bookkeeping); the 3584-byte ESP-IDF default overflowed once Phase 7
+# added a few more locals, corrupting the return address into
+# pf_storage::mount_all() (Guru Meditation InstrFetchProhibited,
+# confirmed on real hardware 2026-07-31).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
