@@ -467,6 +467,7 @@ extern "C" void app_main()
     const pf_storage::FileSystemSnapshot filesystem_snapshot =
         pf_storage::mount_all();
     static pf_storage::LittleFsStorageFileSystem imagefs_filesystem(
+        "imagefs",
         "/images");
     static pf_storage::StorageWorker storage_worker(imagefs_filesystem);
     pf_storage::StorageWorkerResult storage_startup{};

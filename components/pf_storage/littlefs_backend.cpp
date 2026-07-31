@@ -7,16 +7,31 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 
+#include "esp_littlefs.h"
+
 namespace pf_storage {
 
 LittleFsStorageFileSystem::LittleFsStorageFileSystem(
+    const char* const partition_label,
     const char* const mount_path)
-    : mount_path_(mount_path)
+    : partition_label_(partition_label),
+      mount_path_(mount_path)
 {
 }
 
 std::uint64_t LittleFsStorageFileSystem::free_bytes() const
 {
+    if (partition_label_ != nullptr) {
+        std::size_t total_bytes = 0U;
+        std::size_t used_bytes = 0U;
+        if (esp_littlefs_info(
+                partition_label_,
+                &total_bytes,
+                &used_bytes) == ESP_OK &&
+            used_bytes <= total_bytes) {
+            return static_cast<std::uint64_t>(total_bytes - used_bytes);
+        }
+    }
     if (mount_path_ == nullptr) {
         return 0U;
     }
@@ -24,7 +39,11 @@ std::uint64_t LittleFsStorageFileSystem::free_bytes() const
     if (statvfs(mount_path_, &info) != 0) {
         return 0U;
     }
-    return static_cast<std::uint64_t>(info.f_bavail) *
+    const std::uint64_t free_blocks =
+        info.f_bavail != 0U
+            ? static_cast<std::uint64_t>(info.f_bavail)
+            : static_cast<std::uint64_t>(info.f_bfree);
+    return free_blocks *
            static_cast<std::uint64_t>(info.f_frsize);
 }
 

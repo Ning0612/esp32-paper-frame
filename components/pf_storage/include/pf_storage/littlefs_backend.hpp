@@ -6,7 +6,9 @@ namespace pf_storage {
 
 class LittleFsStorageFileSystem final : public StorageFileSystem {
 public:
-    explicit LittleFsStorageFileSystem(const char* mount_path);
+    explicit LittleFsStorageFileSystem(
+        const char* partition_label,
+        const char* mount_path);
 
     std::uint64_t free_bytes() const override;
     bool exists(const char* path) const override;
@@ -31,6 +33,7 @@ public:
         void* context) override;
 
 private:
+    const char* partition_label_ = nullptr;
     const char* mount_path_ = nullptr;
 };
 
