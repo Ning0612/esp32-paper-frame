@@ -101,6 +101,34 @@
   let imageLibraryImages = [];
   const maxSourceBytes = 32 * 1024 * 1024;
   const maxSourcePixels = 16 * 1024 * 1024;
+  const scriptReloadPromises = new Map();
+
+  function loadScriptOnce(path) {
+    if (scriptReloadPromises.has(path)) {
+      return scriptReloadPromises.get(path);
+    }
+    const promise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = path;
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => {
+        scriptReloadPromises.delete(path);
+        reject(new Error(`script_load_failed:${path}`));
+      };
+      document.head.append(script);
+    });
+    scriptReloadPromises.set(path, promise);
+    return promise;
+  }
+
+  async function ensureImageDependency(globalName, scriptPath) {
+    if (window[globalName]) return;
+    await loadScriptOnce(scriptPath);
+    if (!window[globalName]) {
+      throw new Error(`${globalName}_unavailable`);
+    }
+  }
 
   function setTheme(theme) {
     const dark = theme === "dark";
@@ -680,6 +708,7 @@
   }
 
   async function decodeImageFile(file) {
+    await ensureImageDependency("PaperFrameImage", "/image_pipeline.js");
     if (file.size > maxSourceBytes) {
       throw new RangeError("source_file_too_large");
     }
@@ -687,21 +716,27 @@
     const exif = window.PaperFrameImage.readExifOrientation(bytes);
     let bitmap;
     let decoderAppliedOrientation = false;
+    const decodeWithImageElement = () => new Promise((resolve, reject) => {
+      const image = new Image();
+      const url = URL.createObjectURL(file);
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image_decode_failed")); };
+      image.src = url;
+    });
     if (window.createImageBitmap) {
       try {
         bitmap = await window.createImageBitmap(file, { imageOrientation: "none" });
       } catch {
-        bitmap = await window.createImageBitmap(file);
-        decoderAppliedOrientation = true;
+        try {
+          bitmap = await window.createImageBitmap(file);
+          decoderAppliedOrientation = true;
+        } catch {
+          bitmap = await decodeWithImageElement();
+          decoderAppliedOrientation = true;
+        }
       }
     } else {
-      bitmap = await new Promise((resolve, reject) => {
-        const image = new Image();
-        const url = URL.createObjectURL(file);
-        image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
-        image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image_decode_failed")); };
-        image.src = url;
-      });
+      bitmap = await decodeWithImageElement();
       decoderAppliedOrientation = true;
     }
     const canvas = document.createElement("canvas");
@@ -801,6 +836,9 @@
 
   async function processImage() {
     if (!imageWorkingRaster || !imageBaseRaster) return;
+    await ensureImageDependency("PaperFrameImage", "/image_pipeline.js");
+    await ensureImageDependency("PaperFrameQuantizer", "/image_quantizer.js");
+    await ensureImageDependency("PaperFramePfr1", "/image_pfr1.js");
     const requestId = ++imageRevision;
     const workingRaster = imageWorkingRaster;
     const transformFlags = imageTransformFlags;
@@ -894,7 +932,7 @@
       imageProcessButton.disabled = false;
       imageTransformButtons.forEach((button) => { button.disabled = false; });
       await processImage();
-    } catch {
+    } catch (error) {
       if (selectionRevision !== imageSelectionRevision) return;
       imageSourceRaster = null;
       imageBaseRaster = null;
@@ -903,7 +941,20 @@
       imageTransformButtons.forEach((button) => { button.disabled = true; });
       imageProcessButton.disabled = true;
       imageStatus.className = "save-status error";
-      imageStatus.textContent = "無法讀取圖片；請選擇瀏覽器支援的本機格式。";
+      const reason = error && typeof error.message === "string" ? error.message : "";
+      if (reason === "source_file_too_large") {
+        imageStatus.textContent = "圖片檔案過大（上限 32 MB）。";
+      } else if (reason === "source_image_too_large") {
+        imageStatus.textContent = "圖片像素過大（上限 1600 萬像素）。";
+      } else if (reason === "image_decode_failed") {
+        imageStatus.textContent = "瀏覽器無法解碼這張圖片；請改用 PNG/JPEG/WebP。";
+      } else if (reason.startsWith("script_load_failed:")) {
+        imageStatus.textContent = "圖片處理模組下載失敗；請重新整理頁面後再試。";
+      } else if (reason === "PaperFrameImage_unavailable") {
+        imageStatus.textContent = "圖片處理模組未載入完成；請稍候再試。";
+      } else {
+        imageStatus.textContent = `無法讀取圖片：${reason || "unknown_error"}`;
+      }
     }
   }
 

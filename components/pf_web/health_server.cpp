@@ -51,6 +51,22 @@ constexpr StaticAsset kScriptAsset{
     "/web/ui.js",
     "application/javascript; charset=utf-8",
 };
+constexpr StaticAsset kImagePipelineAsset{
+    "/web/image_pipeline.js",
+    "application/javascript; charset=utf-8",
+};
+constexpr StaticAsset kImageQuantizerAsset{
+    "/web/image_quantizer.js",
+    "application/javascript; charset=utf-8",
+};
+constexpr StaticAsset kImagePfr1Asset{
+    "/web/image_pfr1.js",
+    "application/javascript; charset=utf-8",
+};
+constexpr StaticAsset kImageQuantizeWorkerAsset{
+    "/web/image_quantize_worker.js",
+    "application/javascript; charset=utf-8",
+};
 constexpr StaticAsset kFaviconAsset{
     "/web/favicon.svg",
     "image/svg+xml",
@@ -2707,6 +2723,30 @@ const httpd_uri_t kScriptRoute{
     .handler = static_asset_handler,
     .user_ctx = const_cast<StaticAsset*>(&kScriptAsset),
 };
+const httpd_uri_t kImagePipelineRoute{
+    .uri = "/image_pipeline.js",
+    .method = HTTP_GET,
+    .handler = static_asset_handler,
+    .user_ctx = const_cast<StaticAsset*>(&kImagePipelineAsset),
+};
+const httpd_uri_t kImageQuantizerRoute{
+    .uri = "/image_quantizer.js",
+    .method = HTTP_GET,
+    .handler = static_asset_handler,
+    .user_ctx = const_cast<StaticAsset*>(&kImageQuantizerAsset),
+};
+const httpd_uri_t kImagePfr1Route{
+    .uri = "/image_pfr1.js",
+    .method = HTTP_GET,
+    .handler = static_asset_handler,
+    .user_ctx = const_cast<StaticAsset*>(&kImagePfr1Asset),
+};
+const httpd_uri_t kImageQuantizeWorkerRoute{
+    .uri = "/image_quantize_worker.js",
+    .method = HTTP_GET,
+    .handler = static_asset_handler,
+    .user_ctx = const_cast<StaticAsset*>(&kImageQuantizeWorkerAsset),
+};
 const httpd_uri_t kFaviconRoute{
     .uri = "/favicon.svg",
     .method = HTTP_GET,
@@ -2725,9 +2765,16 @@ esp_err_t start_health_server(
     }
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-    configuration.max_uri_handlers = 26;
+    configuration.max_uri_handlers = 32;
     configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
+    // The browser loads WebUI resources on keep-alive connections.
+    // CONFIG_LWIP_MAX_SOCKETS is set to 10 in sdkconfig, so max_open_sockets
+    // must be <= 7 to allow httpd_start() to succeed.
+    // Enabling LRU purge allows the server to automatically close the
+    // least-recently-used idle connection when a new API/upload request arrives.
+    configuration.max_open_sockets = 7;
+    configuration.lru_purge_enable = true;
     // PBKDF2/PSA crypto in auth_login_handler used to run on a
     // dedicated AuthTask sized at 4096 words (16384 bytes) for this
     // exact workload; login() is now called synchronously from this
@@ -2811,6 +2858,10 @@ esp_err_t start_health_server(
         &kIndexRoute,
         &kStyleRoute,
         &kScriptRoute,
+        &kImagePipelineRoute,
+        &kImageQuantizerRoute,
+        &kImagePfr1Route,
+        &kImageQuantizeWorkerRoute,
         &kFaviconRoute,
     };
     for (const httpd_uri_t* const route : routes) {
