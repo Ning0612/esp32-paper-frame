@@ -1,7 +1,8 @@
 # PaperFrame MVP 實作計畫
 
-狀態：Phase 5 程式實作完成；Phase 3／4 的部分實機收尾、Phase 5 實機圖片
-輪播驗證與後續 Weather／sensor 功能仍待完成，暫不部署大功能版本
+狀態：Phase 5、Phase 6 程式實作完成；Phase 3／4 的部分實機收尾、Phase 5
+實機圖片輪播驗證、Phase 6 全部實機驗證（SNTP、HTTPS、狀態列視覺結果）與
+Phase 7 sensor 功能仍待完成，暫不部署大功能版本
 
 需求基線：`Guild.md` v0.1
 
@@ -40,7 +41,7 @@ MVP 不包含草案第十節的 P1 功能，例如多 Wi-Fi profile、批次上�
 | G4 PFR1 | Phase 4 | byte order、header 固定長度、enum/flags、CRC 涵蓋範圍與版本遷移規則 |
 | G5 Partition | Phase 1 開發版；第一個可保存圖片的 Phase 5 build 前凍結發行 layout | 雙 OTA、NVS、webfs、imagefs、coredump 的 offset/size；後續變更的資料保護與 migration |
 | G6 Security | Phase 3 | PBKDF2 參數、session token entropy/storage、首次設定與 Recovery AP 流程；密碼至少 8 字元、idle 30 分鐘、absolute 24 小時是需求固定值 |
-| G7 Weather | Phase 6 | OpenWeatherMap endpoint/version、TLS trust、cache schema 與 rate limit |
+| G7 Weather | Phase 6（已由 `docs/adr/0005-weather-worker-and-status-bar.md` 固定，2026-07-31） | OpenWeatherMap endpoint/version、TLS trust、cache schema 與 rate limit |
 
 若缺少實體硬體，可先完成 host-tested interface 與 fake driver，但該階段不得
 標成 hardware complete。
@@ -456,3 +457,17 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   讀圖／面板提交已完成。離線輪播不依賴 Wi-Fi；硬體長時間輪播與斷電後實機驗證
   仍保留在後續 acceptance。
   `image_02_05.png` 僅作本地測試，不得 commit。
+- [ ] Phase 6：G7 已由 `docs/adr/0005-weather-worker-and-status-bar.md` 固定。
+  程式已完成：`pf_weather` parser/cache 與設定持久化／masked config API
+  （`af4a2c5`、`56d5644`、`14d787f`）；NetworkServiceTask 最小 SNTP 啟動與
+  `RuntimeSnapshot.time_sync`；`pf_weather_worker`（`esp_http_client` +
+  `esp_crt_bundle_attach` 實際 HTTPS 抓取、interval-aware 排程、
+  `report_internet_state` 回報）；`RuntimeSnapshot`／`RuntimeCoordinator`
+  天氣欄位；Dashboard `weather` JSON 三態（available/stale/unavailable）；
+  `pf_display` 自製 bitmap font／9 種天氣圖示／狀態列 renderer；已接線進
+  carousel 圖片幀與 welcome frame。`pio run` 與 `pio test -e native`
+  （192/192）全綠，`test_runtime_coordinator`／`test_display_task`
+  embedded test 通過 build-only 驗證。**尚未做任何實機驗證**：SNTP 實機
+  同步、WeatherWorker 四種 HTTPS 診斷狀態（含 TLS 憑證驗證）、
+  Internet 可達性訊號、狀態列在真實面板上的視覺結果，全部列在
+  `docs/hardware/VALIDATION.md` 2026-07-31 待驗證清單。

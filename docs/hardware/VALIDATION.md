@@ -464,5 +464,45 @@ PlatformIO app upload 沒有重寫 `webfs`、`imagefs`、NVS 或 OTA metadata。
 - 最新 artifact 在 blank-NVS／Recovery AP 的 scan、首次建密碼、401／CSRF、
   masked config、credential save 與 STA reconnect 全流程；
 - SNTP、mDNS、dark-mode 與可正常選檔的瀏覽器端 `image_02_05.png` PFR1
-  產出／下載；
-- Phase 5 imagefs transactional upload、catalog、斷電復原與圖片輪播。
+  產出／下載。
+
+上面「Phase 5 imagefs transactional upload、catalog、斷電復原與圖片輪播」
+一項已在後續 commit（`519b6c0`…`7ad7cbe`）完成程式與 host test，並在
+`docs/IMPLEMENTATION_PLAN.md` checkpoint 標記完成；本檔先前未同步更新，
+硬體長時間輪播與斷電後行為仍列為後續 acceptance 待驗證項，不是「完全
+未實作」。
+
+### 2026-07-31 — Phase 6 WeatherWorker／狀態列渲染：僅完成 host 驗證
+
+本段（見 `docs/adr/0005-weather-worker-and-status-bar.md`）新增
+NetworkServiceTask 最小 SNTP 啟動、`pf_weather_worker`
+HTTPS fetch、`RuntimeSnapshot` 天氣欄位、Dashboard 天氣 JSON，以及
+`pf_display` 的 bitmap font／weather icon／狀態列 renderer，並接線進
+carousel 與 welcome frame。全部變更通過 `pio run`（韌體完整編譯，RAM
+158,848 / 327,680 bytes 48.5%，Flash 1,193,713 / 2,621,440 bytes
+45.5%）與 `pio test -e native`（192/192），`test_runtime_coordinator`／
+`test_display_task` embedded test 以 `--without-uploading
+--without-testing` 完成 build-only 驗證。**本段沒有任何實機（開機、
+Wi-Fi、面板）驗證**，以下項目仍完全待補：
+
+- SNTP 實機同步：`esp_netif_sntp_init` 是否真的在 STA 連線後於合理時間
+  內取得有效牆鐘時間，`RuntimeSnapshot.time_sync` 是否正確轉為
+  `synced`。
+- WeatherWorker HTTPS 四種診斷狀態：API key invalid（401）、DNS 解析
+  失敗、TLS handshake 失敗（含 `esp_crt_bundle_attach` 對
+  `api.openweathermap.org` 憑證的實際驗證）、逾時；目前只有
+  `classify_http_status` 的純邏輯分類有 host test，實際
+  `esp_http_client` 行為完全未在硬體上跑過。
+- `NetworkService::report_internet_state` 觸發後，`internet` 狀態是否
+  真的從永遠 `unknown` 開始正確反映 WeatherWorker 的抓取結果。
+- 狀態列在真實面板上的視覺結果：3x5 點陣字型、9 種天氣圖示、
+  stale marker 在 800×40／480×40 status bar 上的實際可讀性——目前只有
+  golden-vector 像素比對，沒有人眼在面板上看過。
+- Dashboard `weather` JSON 區塊在瀏覽器實際顯示。
+- welcome frame 疊加狀態列後，原本的邊框／`PF` 標記是否仍清楚可辨（新
+  邏輯會覆寫最上方 40 列）。
+
+開發過程中在 host test 階段抓到一個 `draw_line`（Bresenham 演算法）的
+符號計算錯誤，會在向上方向畫線時造成無窮迴圈（太陽圖示的向上射線觸發），
+已修正並加上步數上限防呆；記錄於此供未來類似 pure-geometry 程式碼審查
+參考。
