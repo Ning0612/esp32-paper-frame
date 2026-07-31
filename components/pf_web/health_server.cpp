@@ -2281,6 +2281,14 @@ void image_mutation_task_entry(void* const)
             result.error = pf_storage::ImageStoreError::invalid_argument;
         } else if (queued.kind == ImageMutationKind::activate) {
             result = queued.worker->activate_image(queued.image_id);
+            if (result.ok()) {
+                // Persisting "current" here doesn't make the carousel poll
+                // loop (app_main.cpp, a different task) show it: nudge it to
+                // pick this image up on its next iteration instead of
+                // waiting for the normal rotation interval.
+                pf_runtime::coordinator().request_manual_carousel_activation(
+                    queued.image_id);
+            }
         } else if (queued.kind == ImageMutationKind::remove) {
             result = queued.worker->remove_image(queued.image_id);
         } else {

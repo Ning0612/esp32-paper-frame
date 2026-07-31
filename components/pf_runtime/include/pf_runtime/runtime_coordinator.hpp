@@ -53,6 +53,7 @@ public:
         std::uint32_t request_id,
         DisplayOutcome outcome,
         std::uint8_t driver_stage);
+    void request_manual_carousel_activation(std::uint32_t image_id);
 
     bool lock_flash_display(TickType_t wait_ticks);
     void unlock_flash_display();

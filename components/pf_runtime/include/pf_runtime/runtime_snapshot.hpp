@@ -107,6 +107,14 @@ struct RuntimeSnapshot {
     std::uint16_t light_raw_filtered = 0U;
     std::uint16_t light_threshold = 0U;
     pf_sensors::PresenceState presence = pf_sensors::PresenceState::unknown;
+    // Set by RuntimeCoordinator::request_manual_carousel_activation() when a
+    // WebUI "activate this image" request commits successfully. The carousel
+    // poll loop compares manual_activate_request_id against the value it last
+    // observed (not manual_activate_image_id alone) so a repeat request for
+    // the same id is still detected as a new request, mirroring the
+    // presence-transition detection pattern above. 0 means "none yet".
+    std::uint32_t manual_activate_request_id = 0U;
+    std::uint32_t manual_activate_image_id = 0U;
 };
 
 constexpr const char* to_string(const WifiState state)

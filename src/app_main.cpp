@@ -738,6 +738,10 @@ extern "C" void app_main()
     std::uint32_t active_blank_request_id = 0U;
     pf_sensors::PresenceState previous_presence =
         pf_sensors::PresenceState::unknown;
+    std::uint32_t previous_manual_activate_request_id = 0U;
+    bool pending_manual_activate = false;
+    bool pending_manual_activate_warned = false;
+    std::uint32_t pending_manual_activate_image_id = 0U;
     bool pending_presence_force_immediate = false;
     bool pending_presence_away_blank = false;
     static CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
@@ -956,6 +960,43 @@ extern "C" void app_main()
                 continue;
             }
             carousel_item_count = catalog_context.count;
+        }
+
+        // A WebUI "activate this image" request only persists the new
+        // current-image flag (pf_web runs in a different task); pick up
+        // the change here instead of waiting for the normal rotation
+        // interval. Compare request_id, not image_id, so re-activating the
+        // same id is still treated as a new request. "Observed" and
+        // "handed off to carousel" are tracked separately: request_manual()
+        // can transiently fail (catalog not yet reflecting the write this
+        // tick) and must be retried on a later iteration rather than
+        // silently dropped, since this same tick already told the WebUI
+        // caller the activation succeeded. A newer request replaces any
+        // still-pending one (last click wins), matching how the persisted
+        // "current" flag itself works.
+        if (presence_snapshot.manual_activate_request_id !=
+            previous_manual_activate_request_id) {
+            previous_manual_activate_request_id =
+                presence_snapshot.manual_activate_request_id;
+            pending_manual_activate_image_id =
+                presence_snapshot.manual_activate_image_id;
+            pending_manual_activate = true;
+            pending_manual_activate_warned = false;
+        }
+        if (pending_manual_activate) {
+            if (carousel.request_manual(
+                    pending_manual_activate_image_id,
+                    carousel_items,
+                    carousel_item_count)) {
+                carousel.force_immediate(now_ms);
+                pending_manual_activate = false;
+            } else if (!pending_manual_activate_warned) {
+                pending_manual_activate_warned = true;
+                ESP_LOGW(
+                    kTag,
+                    "carousel_manual_activate_pending id=%" PRIu32,
+                    pending_manual_activate_image_id);
+            }
         }
 
         const pf_carousel::CarouselDecision decision =

@@ -116,6 +116,26 @@ void test_runtime_queues_and_snapshot()
         static_cast<int>(pf_sensors::PresenceState::present),
         static_cast<int>(observed.presence));
 
+    const std::uint32_t sequence_before_manual_activate = observed.sequence;
+    const std::uint32_t request_id_before_manual_activate =
+        observed.manual_activate_request_id;
+    runtime.request_manual_carousel_activation(42U);
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_EQUAL_UINT32(42U, observed.manual_activate_image_id);
+    TEST_ASSERT_EQUAL_UINT32(
+        request_id_before_manual_activate + 1U,
+        observed.manual_activate_request_id);
+    TEST_ASSERT_EQUAL_UINT32(
+        sequence_before_manual_activate + 1U, observed.sequence);
+
+    // Re-activating the same image id must still bump request_id: callers
+    // detect "new request" by request_id, not by whether image_id changed.
+    runtime.request_manual_carousel_activation(42U);
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_EQUAL_UINT32(
+        request_id_before_manual_activate + 2U,
+        observed.manual_activate_request_id);
+
     for (std::uint32_t index = 0; index < 4; ++index) {
         const pf_runtime::RuntimeCommand command{
             .request_id = index,

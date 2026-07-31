@@ -302,6 +302,22 @@ void RuntimeCoordinator::update_light_and_presence(
     portEXIT_CRITICAL(&snapshot_lock_);
 }
 
+void RuntimeCoordinator::request_manual_carousel_activation(
+    const std::uint32_t image_id)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    ++snapshot_.manual_activate_request_id;
+    // 0 is reserved to mean "never requested" (see RuntimeSnapshot); skip
+    // over it on the extremely unlikely wraparound instead of silently
+    // resetting to the sentinel value.
+    if (snapshot_.manual_activate_request_id == 0U) {
+        ++snapshot_.manual_activate_request_id;
+    }
+    snapshot_.manual_activate_image_id = image_id;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
 void RuntimeCoordinator::update_display_started(
     const std::uint32_t request_id)
 {
