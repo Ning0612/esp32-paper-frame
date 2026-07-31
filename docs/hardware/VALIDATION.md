@@ -576,23 +576,81 @@ stack-allocated 結構）應重新檢查 high-water mark，不要只靠「這次
   先前記錄的已知問題一致），改用 ESP32-S3 native USB（COM10）成功上傳。
 - 開機驗證：`carousel_request=1 outcome=1` 於開機後約 32 秒出現，早於
   先前修復的 boot-loop 崩潰點，開機穩定。
-- **首次建密碼測試**：在 WebUI 建立密碼頁輸入新密碼並送出，「驗證中」
-  卡住超過一分鐘才回「登入失敗」；第二次嘗試同樣卡住超過一分鐘。
-  根因：`perform_login()` 建密碼分支呼叫的
-  `runtime_->lock_flash_display(portMAX_DELAY)` 與 `DisplayTask` 刷新
-  面板時持有的是同一個 mutex；這段程式碼原本跑在背景 `AuthTask` 沒有
-  影響，同步化後第一次真正卡住 HTTP handler。已修復為非阻塞
-  `lock_flash_display(0U)`，拿不到鎖立即回 503，並修正前端訊息（見
-  `docs/adr/0007` Consequences 段落）。修復後 `pio run`／
-  `pio test -e native`（227/227）通過，並經 codex-cowork 兩輪審查
-  （第一輪 High：bounded wait 仍違反「不等待面板刷新」規則，已改為
-  完全非阻塞；第二輪阻斷性零問題）。
+這次測試連續發現並修好三個獨立問題，記錄下來避免下次重踩：
+
+**Bug 1 — HTTP handler 卡住等面板刷新（>1 分鐘）**
+
+在 WebUI 建立密碼頁輸入新密碼並送出，「驗證中」卡住超過一分鐘才回
+「登入失敗」；第二次嘗試同樣卡住超過一分鐘。根因：`perform_login()`
+建密碼分支呼叫的 `runtime_->lock_flash_display(portMAX_DELAY)` 與
+`DisplayTask` 刷新面板時持有的是同一個 mutex；這段程式碼原本跑在背景
+`AuthTask` 沒有影響，同步化後第一次真正卡住 HTTP handler。修復為非阻塞
+`lock_flash_display(0U)`，拿不到鎖立即回 503，並修正前端訊息（見
+`docs/adr/0007` Consequences 段落）。經 codex-cowork 兩輪審查（第一輪
+High：bounded wait 仍違反「不等待面板刷新」規則，已改為完全非阻塞；
+第二輪阻斷性零問題）。
+
+**Bug 2 — HTTP server worker task stack overflow（Guru Meditation）**
+
+修完 Bug 1 重新測試，這次「登入失敗」出現得很快，但緊接著面板刷新、
+WiFi AP 關閉——實機 console log 顯示：
+
+```text
+Guru Meditation Error: Core  0 panic'ed (Unhandled debug exception).
+Debug exception reason: Stack canary watchpoint triggered ()
+```
+
+根因：`start_health_server()` 用 `HTTPD_DEFAULT_CONFIG()` 沒有覆寫
+`stack_size`，沿用 ESP-IDF 預設值（4096 bytes）。PBKDF2/PSA crypto
+（`perform_login()`）原本專屬的 `AuthTask` stack 是 4096 words＝
+16384 bytes；同步化後這段運算直接跑在 httpd worker task 上，4096 bytes
+明顯不夠，overflow 觸發 `CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK`
+（見稍早的 boot-loop 修復，同一個防呆機制這次抓到了另一個 task 的
+overflow）panic → reboot。「登入失敗」是連線在 panic 瞬間斷掉；面板
+刷新是重開機後的正常開機畫面；AP 關閉是重開機時 WiFi 電台重置造成的
+暫時斷線。
+
+修復：`configuration.stack_size` 明確設為 24576（比對照的舊 `AuthTask`
+16384 bytes 再留安全餘裕，因為 httpd worker 還要額外承擔
+`esp_http_server` 自己的 request parsing／routing frame——經
+codex-cowork 審查指出 16384 剛好等於舊預算、沒算進這部分開銷，才調高）。
+
+**Bug 3 — `webfs` 沒有隨 `pio run --target upload` 更新，前端跑舊版**
+
+修完 Bug 1／2 重新測試，「登入失敗」訊息還是出現，但**重新整理頁面後
+卻能直接進入已登入畫面**。這個矛盾（後端顯然成功、前端卻回報失敗）
+指向前端本身的問題：`data/web/ui.js` 打包進獨立的 `webfs` LittleFS
+image，而一般的 `pio run --target upload` 只燒錄 app 韌體本體，不含
+`webfs`／`imagefs`（見 `CLAUDE.md` 「Factory filesystem image」一節）。
+這次 session 的所有 `ui.js` 改動（拿掉輪詢改單次 fetch、新增
+409/401/503 訊息）從未真的送到裝置——裝置一直在跑舊版前端，還在等
+已經被拿掉的 `202 + request_token` 回應形狀，收到新後端的 `200` 直接
+成功回應時判斷失敗，丟出通用「登入失敗」訊息；但 `Set-Cookie` header
+是在 HTTP 層生效，與 JS 是否正確解析 body 無關，所以 session 其實已經
+建立，重新整理頁面就直接進去了。
+
+修復：只重新建置＋燒錄 `webfs`（絕不動 `imagefs`，避免清空使用者圖片）：
+
+```powershell
+$env:IDF_PATH = "$PWD\.pio\packages\framework-espidf"
+.\.pio\packages\tool-cmake\bin\cmake.exe --build .\.pio\build\paperframe-s3 --target littlefs_webfs_bin
+.\.venv\Scripts\python.exe -m esptool --chip esp32s3 --port <COM> write-flash 0x510000 .pio\build\paperframe-s3\webfs.bin
+```
+
+`CLAUDE.md` 原本記載的 `cmake --build ... --target littlefs_webfs_bin`
+命令若不先設定 `IDF_PATH`，會直接因為找不到
+`/tools/cmake/project.cmake` 而失敗（PlatformIO 平常呼叫 cmake 時會
+自動注入這個環境變數，直接手動呼叫 cmake 二進位檔則不會）；改好之後
+只會有一個無害的 `ESP_ROM_ELF_DIR` gdbinit 警告，不影響建置結果。
+
+修好 webfs 並強制重新整理瀏覽器頁面（避開快取的舊 `ui.js`）後，使用者
+確認首次建立密碼流程正確運作，同步登入、CSRF、cookie 全部符合預期。
 
 仍待驗證：
 
-- 修復後的首次建密碼流程尚未在實機重新確認成功（含面板未在刷新時的
-  正常路徑，以及刷新中重試後成功的路徑）；
 - blank-NVS（完全清空 NVS）的真正首次開機路徑仍未驗證，本次是在既有
   NVS（有 Wi-Fi 憑證、無 admin 密碼）狀態下測試；
-- Recovery AP、401／CSRF、masked config、credential save／STA
-  reconnect 全流程。
+- Recovery AP、401／CSRF 各種組合、masked config、credential save／
+  STA reconnect 全流程；
+- 面板刷新中送出首次建密碼（應該立即收到「裝置忙碌中」503，而非成功）
+  尚未在實機刻意重現驗證。

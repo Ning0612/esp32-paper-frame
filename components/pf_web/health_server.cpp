@@ -2672,6 +2672,17 @@ esp_err_t start_health_server(
     configuration.max_uri_handlers = 26;
     configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
+    // PBKDF2/PSA crypto in auth_login_handler used to run on a
+    // dedicated AuthTask sized at 4096 words (16384 bytes) for this
+    // exact workload; login() is now called synchronously from this
+    // httpd worker task, and the esp_http_server default stack_size
+    // (4096 bytes) overflows during password hashing (confirmed on
+    // real hardware: Guru Meditation "Stack canary watchpoint
+    // triggered", see docs/hardware/VALIDATION.md). This task also
+    // carries esp_http_server's own request-parsing/routing frames on
+    // top of that budget, so give it headroom above the old AuthTask
+    // size rather than matching it exactly.
+    configuration.stack_size = 24576;
     server_access_config = access;
     weather_config_mutex = xSemaphoreCreateMutexStatic(
         &weather_config_mutex_control);
