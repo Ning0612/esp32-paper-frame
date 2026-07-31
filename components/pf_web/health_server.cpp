@@ -60,13 +60,18 @@ constexpr std::uint8_t kMaximumBodyTimeouts = 3U;
 constexpr char kSessionCookieName[] = "pf_session";
 constexpr char kCsrfHeaderName[] = "X-CSRF-Token";
 constexpr UBaseType_t kImageDownloadTaskPriority = 3U;
-constexpr std::uint32_t kImageDownloadTaskStackWords = 4096U;
+// Catalog (~6.2 KB) used to be stack-copied here directly; it now lives on
+// the heap (see StorageWorker/store_image_transactionally), so these stacks
+// no longer need to absorb a full Catalog copy. Sized with headroom over the
+// pre-heap-migration values (4096/8192), not blanket-oversized, since every
+// extra byte here is internal SRAM taken from WiFi/lwIP/HTTP server heap.
+constexpr std::uint32_t kImageDownloadTaskStackWords = 8192U;
 constexpr std::size_t kImageDownloadContentDispositionCapacity =
     (pf_storage::kCatalogNameCapacity * 2U) + 32U;
 constexpr UBaseType_t kImageUploadTaskPriority = 3U;
 constexpr std::uint32_t kImageUploadTaskStackWords = 8192U;
 constexpr UBaseType_t kImageMutationTaskPriority = 3U;
-constexpr std::uint32_t kImageMutationTaskStackWords = 4096U;
+constexpr std::uint32_t kImageMutationTaskStackWords = 8192U;
 constexpr UBaseType_t kWeatherConfigTaskPriority = 3U;
 constexpr std::uint32_t kWeatherConfigTaskStackWords = 4096U;
 constexpr std::size_t kWeatherConfigBodyCapacity = 512U;

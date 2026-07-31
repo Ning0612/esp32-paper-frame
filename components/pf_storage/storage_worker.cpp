@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstring>
 
+#include <memory>
+#include <new>
+
 namespace pf_storage {
 
 namespace {
@@ -295,17 +298,23 @@ ImageStoreResult StorageWorker::store_image(
         return result;
     }
 
-    Catalog updated{};
+    // C++ exceptions are disabled for this target; a throwing new here
+    // would abort() the device instead of returning an error.
+    auto updated = std::unique_ptr<Catalog>(new (std::nothrow) Catalog());
+    if (updated == nullptr) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
     result = store_image_transactionally(
         *filesystem_,
         catalog_,
-        updated,
+        *updated,
         catalog_buffer_,
         sizeof(catalog_buffer_),
         reader,
         content_length);
     if (result.ok()) {
-        catalog_ = updated;
+        catalog_ = *updated;
     }
     return result;
 }
@@ -322,7 +331,15 @@ ImageStoreResult StorageWorker::activate_image(const std::uint32_t id)
         result.error = ImageStoreError::busy;
         return result;
     }
-    Catalog candidate = catalog_;
+    // C++ exceptions are disabled for this target; a throwing new here
+    // would abort() the device instead of returning an error.
+    auto candidate_ptr = std::unique_ptr<Catalog>(
+        new (std::nothrow) Catalog(catalog_));
+    if (candidate_ptr == nullptr) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
+    Catalog& candidate = *candidate_ptr;
     CatalogError catalog_error = CatalogError::none;
     if (!set_catalog_current(candidate, id, catalog_error)) {
         result.error = ImageStoreError::catalog_invalid;
@@ -363,7 +380,15 @@ ImageStoreResult StorageWorker::remove_image(const std::uint32_t id)
     const CatalogEntry removed_entry = *existing;
     const bool was_current =
         (existing->flags & kCatalogCurrent) != 0U;
-    Catalog candidate = catalog_;
+    // C++ exceptions are disabled for this target; a throwing new here
+    // would abort() the device instead of returning an error.
+    auto candidate_ptr = std::unique_ptr<Catalog>(
+        new (std::nothrow) Catalog(catalog_));
+    if (candidate_ptr == nullptr) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
+    Catalog& candidate = *candidate_ptr;
     CatalogError catalog_error = CatalogError::none;
     if (!remove_catalog_entry(candidate, id, catalog_error)) {
         result.error = ImageStoreError::catalog_invalid;
@@ -436,7 +461,15 @@ ImageStoreResult StorageWorker::reorder_images(
         result.error = ImageStoreError::busy;
         return result;
     }
-    Catalog candidate = catalog_;
+    // C++ exceptions are disabled for this target; a throwing new here
+    // would abort() the device instead of returning an error.
+    auto candidate_ptr = std::unique_ptr<Catalog>(
+        new (std::nothrow) Catalog(catalog_));
+    if (candidate_ptr == nullptr) {
+        result.error = ImageStoreError::not_ready;
+        return result;
+    }
+    Catalog& candidate = *candidate_ptr;
     CatalogError catalog_error = CatalogError::none;
     if (!reorder_catalog(candidate, ids, count, catalog_error)) {
         result.error = ImageStoreError::catalog_invalid;

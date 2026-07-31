@@ -1,6 +1,8 @@
 #include "pf_storage/image_store.hpp"
 
 #include <cstring>
+#include <memory>
+#include <new>
 
 namespace pf_storage {
 namespace {
@@ -321,7 +323,16 @@ ImageStoreResult store_image_transactionally(
         return failure(ImageStoreError::image_conflict);
     }
 
-    Catalog candidate = current_catalog;
+    // C++ exceptions are disabled for this target (CONFIG_COMPILER_CXX_
+    // EXCEPTIONS=n), so a throwing new here would abort() the whole device
+    // instead of returning an error; use nothrow and check explicitly.
+    auto candidate_ptr = std::unique_ptr<Catalog>(
+        new (std::nothrow) Catalog(current_catalog));
+    if (candidate_ptr == nullptr) {
+        cleanup_path(filesystem, kUploadPartPath);
+        return failure(ImageStoreError::not_ready);
+    }
+    Catalog& candidate = *candidate_ptr;
     CatalogEntry entry{};
     entry.created_at_epoch_s = 0U;
     entry.file_bytes = static_cast<std::uint32_t>(content_length);
