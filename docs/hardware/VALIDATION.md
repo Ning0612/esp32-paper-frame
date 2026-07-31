@@ -506,3 +506,37 @@ Wi-Fi、面板）驗證**，以下項目仍完全待補：
 符號計算錯誤，會在向上方向畫線時造成無窮迴圈（太陽圖示的向上射線觸發），
 已修正並加上步數上限防呆；記錄於此供未來類似 pure-geometry 程式碼審查
 參考。
+
+### 2026-07-31 — Phase 7 DHT22／光敏在場偵測：僅完成 host 驗證
+
+本段（見 `docs/adr/0006-sensor-drivers-and-presence.md`）新增
+`pf_sensors` 純邏輯 component（`EnvironmentCache`／`DailyStats`／
+`MovingAverageFilter`／`PresenceTracker`）、移植自 `UncleRus/esp-idf-lib`
+（commit `162af418d4702791fd3bf3e5d1577aea9ec5539c`，BSD-3-Clause）的
+`pf_dht22` driver、新的 `pf_sensor_task`（DHT22 讀取＋ADC 光敏取樣＋
+presence debounce）、`RuntimeSnapshot` 感測器欄位、Dashboard `sensors`
+JSON、`GET /api/v1/sensors` 與 `/api/v1/sensors/config` 路由，以及
+WebUI 環境頁。全部變更通過 `pio run`（韌體完整編譯，RAM
+167,920 / 327,680 bytes 51.2%，Flash 1,213,025 / 2,621,440 bytes
+46.3%）與 `pio test -e native`（225/225），`node --check data/web/ui.js`
+通過。**本段沒有任何實機（DHT22、光敏電阻、實際 presence 轉換）驗證**，
+以下項目仍完全待補：
+
+- DHT22 實際讀值正確性：GPIO6 bit-bang 時序在真實 ESP32-S3 上是否穩定
+  讀到有效溫濕度，`Dht22EnvironmentSensor` 對 `dht_read_float_data`
+  各種失敗回傳（timeout、checksum mismatch、感測器未接）轉換出的
+  `SensorStatus` 是否符合預期；目前只有 fake adapter 的介面契約有
+  host test。
+- 光敏電阻 ADC 實測：GPIO5／`ADC1_CH4` 在真實環境光下的原始讀值範圍、
+  `MovingAverageFilter` 平滑後的數值是否適合作為 threshold 校正基準；
+  預設 `light_threshold=2000` 未經實機校正。
+- AWAY／PRESENT 實機轉換：真的遮蔽／露出光敏電阻後，`PresenceTracker`
+  是否在設定的 `away_duration_s`（預設 180）／`return_duration_s`
+  （預設 30）後正確切換狀態；saturated／error 讀值是否確實不觸發離席。
+- 離席全白刷新與 sleep：`render_blank_frame` 送到面板後的實際視覺結果、
+  刷新後 panel sleep 的電流量測。
+- 返回後重繪與 deadline 重設：`CarouselScheduler::force_immediate` 觸發
+  的下一輪 `poll()` 是否真的在返回後立即重繪目前圖片，而不是延用離席前
+  殘留的 30 分鐘 deadline。
+- WebUI 環境頁在瀏覽器的實際顯示與表單保存流程（`environment-form`
+  submit → `POST /api/v1/sensors/config` → 重新載入）。

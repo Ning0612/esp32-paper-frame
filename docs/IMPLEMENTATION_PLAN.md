@@ -1,8 +1,9 @@
 # PaperFrame MVP 實作計畫
 
-狀態：Phase 5、Phase 6 程式實作完成；Phase 3／4 的部分實機收尾、Phase 5
-實機圖片輪播驗證、Phase 6 全部實機驗證（SNTP、HTTPS、狀態列視覺結果）與
-Phase 7 sensor 功能仍待完成，暫不部署大功能版本
+狀態：Phase 5、Phase 6、Phase 7 程式實作完成；Phase 3／4 的部分實機收尾、
+Phase 5 實機圖片輪播驗證、Phase 6 全部實機驗證（SNTP、HTTPS、狀態列視覺
+結果）與 Phase 7 全部實機驗證（DHT22 讀值、光敏 threshold 校正、
+AWAY/PRESENT 轉換）仍待完成，暫不部署大功能版本
 
 需求基線：`Guild.md` v0.1
 
@@ -471,3 +472,21 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   同步、WeatherWorker 四種 HTTPS 診斷狀態（含 TLS 憑證驗證）、
   Internet 可達性訊號、狀態列在真實面板上的視覺結果，全部列在
   `docs/hardware/VALIDATION.md` 2026-07-31 待驗證清單。
+- [ ] Phase 7：DHT22 driver 來源、讀取頻率/範圍/backoff、光敏濾波方式、
+  presence debounce 機制、`CarouselScheduler` 缺口方案與 sensors API
+  schema 已由 `docs/adr/0006-sensor-drivers-and-presence.md` 固定。
+  程式已完成：`pf_sensors` 純邏輯 component（`EnvironmentCache`／
+  `DailyStats`／`MovingAverageFilter`／`PresenceTracker`）；
+  `pf_config::SensorSettings` 持久化；`RuntimeSnapshot`／
+  `RuntimeCoordinator` 感測器欄位；移植自 `UncleRus/esp-idf-lib`
+  （commit `162af418d4702791fd3bf3e5d1577aea9ec5539c`，BSD-3-Clause）的
+  `pf_dht22` driver；`pf_sensor_task`（DHT22 週期讀取＋ADC 光敏取樣＋
+  presence debounce，接線進 `app_main.cpp`）；`CarouselScheduler::
+  force_immediate` 與 `render_blank_frame`，離席時暫停輪播、返回時立即
+  重繪；Dashboard `sensors` JSON 三態；`GET /api/v1/sensors`、
+  `/api/v1/sensors/config` API 與 WebUI 環境頁。`pio run` 與
+  `pio test -e native`（225/225）全綠，`node --check data/web/ui.js`
+  通過。**尚未做任何實機驗證**：DHT22 實際讀值、光敏 ADC 實測與
+  threshold 校正、AWAY/PRESENT 實機轉換、離席全白刷新＋sleep 電流、
+  返回重繪與 deadline 重設、WebUI 環境頁瀏覽器行為，全部列在
+  `docs/hardware/VALIDATION.md` 2026-07-31 Phase 7 待驗證清單。
