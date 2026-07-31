@@ -1078,6 +1078,7 @@
       if (!response.ok || !payload.data) {
         if (response.status === 409) throw new Error("busy");
         if (response.status === 401) throw new Error("invalid_credentials");
+        if (response.status === 503) throw new Error("device_busy");
         throw new Error(payload.error || "login_failed");
       }
       showAuthenticated(payload.data.csrf_token);
@@ -1087,6 +1088,8 @@
         authStatus.textContent = "已有另一個登入嘗試進行中，請稍候再試。";
       } else if (error && error.message === "invalid_credentials") {
         authStatus.textContent = "密碼錯誤，請重新輸入。";
+      } else if (error && error.message === "device_busy") {
+        authStatus.textContent = "裝置忙碌中（可能正在刷新面板），請稍後再試。";
       } else {
         authStatus.textContent = "登入失敗，請確認密碼後再試一次。";
       }

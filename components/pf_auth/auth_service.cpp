@@ -261,11 +261,20 @@ LoginResult AuthService::perform_login(
         candidate.crc32 =
             pf_config::management_password_crc32(candidate);
 
+        // DisplayTask holds this same lock for the full duration of a
+        // panel refresh (display_task_esp_idf.cpp), which can run well
+        // past a minute. login() runs on the HTTP handler's own task,
+        // so any wait here -- even a bounded one -- blocks that
+        // request; try once, non-blocking, and fail closed instead
+        // (mirrors login_mutex_'s 0-tick try-lock above).
         esp_err_t saved = ESP_ERR_INVALID_STATE;
-        if (runtime_ != nullptr &&
-            runtime_->lock_flash_display(portMAX_DELAY)) {
-            saved = pf_config::save_management_password(candidate);
-            runtime_->unlock_flash_display();
+        if (runtime_ != nullptr) {
+            if (runtime_->lock_flash_display(0U)) {
+                saved = pf_config::save_management_password(candidate);
+                runtime_->unlock_flash_display();
+            } else {
+                saved = ESP_ERR_TIMEOUT;
+            }
         }
         if (saved != ESP_OK) {
             ESP_LOGE(

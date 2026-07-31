@@ -94,6 +94,18 @@ TLS）。對這個威脅模型，現實的攻擊面是：
 - `test/web/test_auth_ui_contract.mjs` 原本釘住的 `180000` 常數不再
   存在，改為斷言新的同步 contract（存在 `/api/v1/auth/login`、不存在
   `/api/v1/auth/login/status`）。
+- **同步化揭露了一個先前被非同步機制掩蓋的隱藏耦合**：`perform_login()`
+  首次建密碼分支呼叫的 `runtime_->lock_flash_display(...)` 與
+  `DisplayTask`（`components/pf_display/display_task_esp_idf.cpp`）在
+  整個 e-paper 面板刷新期間持有的是**同一個 mutex**。這段程式碼原本跑在
+  背景 `AuthTask`，卡多久都不影響 HTTP handler；改成同步後第一次在真實
+  硬體上走到這條路徑，就直接讓 HTTP handler 卡住等面板刷新（實測超過
+  一分鐘），違反 `AGENTS.md` 的硬性規則。修法是把這次 lock 呼叫改成非
+  阻塞（`0U`），拿不到鎖立即以 `LoginStatus::unavailable`（HTTP 503）
+  失敗，前端顯示「裝置忙碌中，請稍後再試」。**任何未來要把某段程式碼
+  從背景 task 改成同步跑在 HTTP handler 上的重構，都必須先檢查該程式碼
+  路徑有沒有呼叫 `lock_flash_display`（或其他跨 task 共用的長時間持有
+  鎖），否則會重複踩到同一類問題。**
 
 ## Verification
 

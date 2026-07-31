@@ -564,3 +564,35 @@ stack-allocated 結構）應重新檢查 high-water mark，不要只靠「這次
 
 - WebUI 環境頁在瀏覽器的實際顯示與表單保存流程（`environment-form`
   submit → `POST /api/v1/sensors/config` → 重新載入）。
+
+### 2026-08-01 — 首次建立 admin 密碼：第一次實機端到端驗證，發現並修復真實 bug
+
+`docs/adr/0007-auth-pbkdf2-iterations-and-sync-login.md` 把登入從非同步
+（背景 `AuthTask`）改成同步（PBKDF2 迭代次數同時降到 10,000）後，上傳到
+實機測試首次建立 admin 密碼——這是本專案第一次真正在硬體上走到這條路徑
+（先前每一筆相關 VALIDATION.md 紀錄都把它列為未驗證）。
+
+- 韌體上傳：CH343 UART（COM11）沒有回應 ROM download handshake（與此板
+  先前記錄的已知問題一致），改用 ESP32-S3 native USB（COM10）成功上傳。
+- 開機驗證：`carousel_request=1 outcome=1` 於開機後約 32 秒出現，早於
+  先前修復的 boot-loop 崩潰點，開機穩定。
+- **首次建密碼測試**：在 WebUI 建立密碼頁輸入新密碼並送出，「驗證中」
+  卡住超過一分鐘才回「登入失敗」；第二次嘗試同樣卡住超過一分鐘。
+  根因：`perform_login()` 建密碼分支呼叫的
+  `runtime_->lock_flash_display(portMAX_DELAY)` 與 `DisplayTask` 刷新
+  面板時持有的是同一個 mutex；這段程式碼原本跑在背景 `AuthTask` 沒有
+  影響，同步化後第一次真正卡住 HTTP handler。已修復為非阻塞
+  `lock_flash_display(0U)`，拿不到鎖立即回 503，並修正前端訊息（見
+  `docs/adr/0007` Consequences 段落）。修復後 `pio run`／
+  `pio test -e native`（227/227）通過，並經 codex-cowork 兩輪審查
+  （第一輪 High：bounded wait 仍違反「不等待面板刷新」規則，已改為
+  完全非阻塞；第二輪阻斷性零問題）。
+
+仍待驗證：
+
+- 修復後的首次建密碼流程尚未在實機重新確認成功（含面板未在刷新時的
+  正常路徑，以及刷新中重試後成功的路徑）；
+- blank-NVS（完全清空 NVS）的真正首次開機路徑仍未驗證，本次是在既有
+  NVS（有 Wi-Fi 憑證、無 admin 密碼）狀態下測試；
+- Recovery AP、401／CSRF、masked config、credential save／STA
+  reconnect 全流程。

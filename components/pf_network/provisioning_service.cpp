@@ -9,7 +9,7 @@
 namespace pf_network {
 namespace {
 
-constexpr char kTag[] = "pf_provisioning";
+constexpr char kTag[] = "pf_network_provisioning";
 
 }  // namespace
 
