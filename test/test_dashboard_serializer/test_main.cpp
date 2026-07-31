@@ -152,6 +152,146 @@ void test_weather_reports_last_failure_reason_when_unavailable()
         std::strstr(output, "\"last_failure\":\"api_key_invalid\""));
 }
 
+void test_sensors_report_readings_when_online()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.environment.has_reading = true;
+    data.environment.reading.temperature_c = 24.4F;
+    data.environment.reading.humidity_percent = 62.5F;
+    data.environment_status = pf_sensors::SensorStatus::online;
+    data.light_status = pf_sensors::LightSensorStatus::online;
+    data.light_raw_filtered = 1234U;
+    data.presence = pf_sensors::PresenceState::present;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data, true, 123456, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"environment_status\":\"online\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":24.4"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"humidity_percent\":62.5"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"light_status\":\"online\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light_adc\":1234"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"present\""));
+}
+
+void test_sensors_report_null_readings_when_disabled_or_not_online()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.environment_status = pf_sensors::SensorStatus::disabled;
+    data.light_status = pf_sensors::LightSensorStatus::saturated;
+    data.light_raw_filtered = 4095U;
+    data.presence = pf_sensors::PresenceState::unknown;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data, true, 123456, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"environment_status\":\"disabled\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":null"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"humidity_percent\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"light_status\":\"saturated\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light_adc\":null"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"unknown\""));
+}
+
+void test_serialize_sensors_reports_readings_and_daily_stats()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.environment.has_reading = true;
+    data.environment.reading.temperature_c = 24.4F;
+    data.environment.reading.humidity_percent = 62.5F;
+    data.environment.last_success_epoch_s = 1700000000U;
+    data.environment_status = pf_sensors::SensorStatus::online;
+    pf_sensors::record_daily_reading(
+        data.environment_daily, data.environment.reading, 1700000000U);
+    data.light_status = pf_sensors::LightSensorStatus::online;
+    data.light_raw_filtered = 1234U;
+    data.light_threshold = 2000U;
+    data.presence = pf_sensors::PresenceState::present;
+
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        data, true, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"status\":\"online\",\"gpio\":6"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":24.4"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"stale\":false"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"temperature_min_c\":24.4"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"gpio\":5,\"raw\":1234"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"threshold\":2000"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"present\""));
+}
+
+void test_serialize_sensors_reports_null_when_never_read()
+{
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        pf_runtime::RuntimeSnapshot{}, false, 0U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"status\":\"disabled\",\"gpio\":6"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":null"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_min_c\":null"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"raw\":null"));
+    // Regression: an unavailable snapshot must not leak threshold=0,
+    // which would look like a genuinely configured value instead of
+    // "we don't know".
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"threshold\":null"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"unknown\""));
+}
+
+void test_sensors_hide_stale_reading_after_environment_disabled()
+{
+    // Regression: disabling the sensor after it had a valid reading must
+    // not leave the last cached temperature/humidity/daily stats visible
+    // through the API -- only the status flips to "disabled", the cache
+    // itself is intentionally left alone so a re-enable can resume.
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.environment.has_reading = true;
+    data.environment.reading.temperature_c = 24.4F;
+    data.environment.reading.humidity_percent = 62.5F;
+    data.environment.last_success_epoch_s = 1700000000U;
+    pf_sensors::record_daily_reading(
+        data.environment_daily, data.environment.reading, 1700000000U);
+    data.environment_status = pf_sensors::SensorStatus::disabled;
+
+    char status_output[2048]{};
+    const pf_web::SerializeResult status_result = pf_web::serialize_status(
+        data, true, 123456, 1700000000U, status_output, sizeof(status_output));
+    TEST_ASSERT_TRUE(status_result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"environment_status\":\"disabled\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"temperature_c\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"humidity_percent\":null"));
+
+    char sensors_output[1024]{};
+    const pf_web::SerializeResult sensors_result = pf_web::serialize_sensors(
+        data, true, 1700000000U, sensors_output, sizeof(sensors_output));
+    TEST_ASSERT_TRUE(sensors_result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(sensors_output, "\"status\":\"disabled\",\"gpio\":6"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(sensors_output, "\"temperature_c\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(sensors_output, "\"humidity_percent\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(sensors_output, "\"temperature_min_c\":null"));
+    TEST_ASSERT_NOT_NULL(std::strstr(sensors_output, "\"stale\":false"));
+}
+
 void test_device_is_safe_and_uses_snapshot_capacity()
 {
     const pf_web::DeviceInfo device{
@@ -192,6 +332,11 @@ void test_masked_config_never_returns_secret_values()
         .weather_units = "metric",
         .weather_language = "zh_tw",
         .weather_ntp_server = "pool.ntp.org",
+        .environment_enabled = true,
+        .light_enabled = true,
+        .light_threshold = 2000U,
+        .away_duration_s = 180U,
+        .return_duration_s = 30U,
     };
     char output[1024]{};
     const pf_web::SerializeResult result = pf_web::serialize_masked_config(
@@ -201,6 +346,10 @@ void test_masked_config_never_returns_secret_values()
 
     TEST_ASSERT_TRUE(result.ok);
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"ssid_set\":true"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"environment_enabled\":true"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light_threshold\":2000"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"away_duration_s\":180"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"password_set\":true"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"timezone\":\"Asia/Taipei\""));
     TEST_ASSERT_NULL(std::strstr(output, "secret"));
@@ -294,6 +443,11 @@ int main(int, char**)
     RUN_TEST(test_weather_reports_available_when_fresh);
     RUN_TEST(test_weather_reports_stale_past_max_age);
     RUN_TEST(test_weather_reports_last_failure_reason_when_unavailable);
+    RUN_TEST(test_sensors_report_readings_when_online);
+    RUN_TEST(test_sensors_report_null_readings_when_disabled_or_not_online);
+    RUN_TEST(test_serialize_sensors_reports_readings_and_daily_stats);
+    RUN_TEST(test_serialize_sensors_reports_null_when_never_read);
+    RUN_TEST(test_sensors_hide_stale_reading_after_environment_disabled);
     RUN_TEST(test_device_is_safe_and_uses_snapshot_capacity);
     RUN_TEST(test_masked_config_never_returns_secret_values);
     RUN_TEST(test_unknown_snapshot_has_null_capacities);

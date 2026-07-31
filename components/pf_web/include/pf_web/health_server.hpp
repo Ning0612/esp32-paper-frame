@@ -5,6 +5,7 @@
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "pf_config/schema.hpp"
+#include "pf_config/sensor_settings.hpp"
 #include "pf_config/weather_settings.hpp"
 
 namespace pf_storage {
@@ -23,6 +24,7 @@ struct HealthServerAccessConfig {
     char timezone[pf_config::kTimezoneCapacity]{};
     bool weather_configured = false;
     pf_config::WeatherSettings weather_settings{};
+    pf_config::SensorSettings sensor_settings{};
     pf_storage::StorageWorker* storage_worker = nullptr;
 };
 

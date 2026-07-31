@@ -44,6 +44,15 @@
   const weatherNtpServer = $("#weather-ntp-server");
   const weatherSave = $("#weather-save");
   const weatherStatus = $("#weather-status");
+  const environmentView = $("#environment-view");
+  const environmentForm = $("#environment-form");
+  const environmentEnabled = $("#environment-enabled");
+  const lightEnabled = $("#light-enabled");
+  const lightThreshold = $("#light-threshold");
+  const awayDuration = $("#away-duration");
+  const returnDuration = $("#return-duration");
+  const environmentSave = $("#environment-save");
+  const environmentStatus = $("#environment-status");
   const imageSourceInput = $("#image-source");
   const imageSourceInfo = $("#image-source-info");
   const imageOrientation = $("#image-orientation");
@@ -340,6 +349,103 @@
       weatherStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
     } finally {
       weatherSave.disabled = false;
+    }
+  });
+
+  function labelSensorStatus(status) {
+    const labels = {
+      disabled: "未啟用", probing: "偵測中", online: "正常",
+      stale: "資料過舊", not_detected: "未偵測到", error: "錯誤",
+      saturated: "訊號飽和", unknown: "未知", present: "在場", away: "離席",
+    };
+    return labels[status] || status || "未知";
+  }
+
+  async function loadEnvironmentConfig() {
+    environmentStatus.textContent = "正在讀取感測器設定…";
+    try {
+      const response = await fetch("/api/v1/sensors/config", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.data || !payload.data.sensors) {
+        throw new Error(payload.error || "sensor_config_failed");
+      }
+      const sensors = payload.data.sensors;
+      environmentEnabled.checked = !!sensors.environment_enabled;
+      lightEnabled.checked = !!sensors.light_enabled;
+      lightThreshold.value = sensors.light_threshold ?? 2000;
+      awayDuration.value = sensors.away_duration_s ?? 180;
+      returnDuration.value = sensors.return_duration_s ?? 30;
+      environmentStatus.textContent = "設定已載入。";
+    } catch (error) {
+      environmentStatus.className = "save-status error";
+      environmentStatus.textContent = `感測器設定讀取失敗：${error.message || "請稍後重試"}`;
+    }
+    await loadSensorReadings();
+  }
+
+  async function loadSensorReadings() {
+    try {
+      const response = await fetch("/api/v1/sensors", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || !payload.data) return;
+      const environment = payload.data.environment || {};
+      const light = payload.data.light || {};
+      $("#environment-reading-status").textContent = labelSensorStatus(environment.status);
+      $("#environment-temperature").textContent = environment.temperature_c == null ? "—" : `${environment.temperature_c} °C`;
+      $("#environment-humidity").textContent = environment.humidity_percent == null ? "—" : `${environment.humidity_percent} %`;
+      const today = environment.today || {};
+      $("#environment-today-temperature").textContent = today.temperature_min_c == null
+        ? "—"
+        : `${today.temperature_min_c} / ${today.temperature_avg_c} / ${today.temperature_max_c} °C`;
+      $("#light-reading-status").textContent = labelSensorStatus(light.status);
+      $("#light-raw").textContent = light.raw == null ? "—" : `${light.raw}`;
+      $("#presence-state").textContent = labelSensorStatus(payload.data.presence);
+    } catch (error) {
+      // Live readings are a best-effort overlay; config load already
+      // reported an error if the device is unreachable.
+    }
+  }
+
+  environmentForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!csrfToken) return;
+    const values = {
+      light_threshold: lightThreshold.value.trim(),
+      away_duration_s: awayDuration.value.trim(),
+      return_duration_s: returnDuration.value.trim(),
+    };
+    if (environmentEnabled.checked) values.environment_enabled = "on";
+    if (lightEnabled.checked) values.light_enabled = "on";
+    environmentSave.disabled = true;
+    environmentStatus.className = "save-status";
+    environmentStatus.textContent = "正在保存感測器設定…";
+    try {
+      const response = await fetch("/api/v1/sensors/config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: new URLSearchParams(values).toString(),
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "sensor_save_failed");
+      environmentStatus.className = "save-status success";
+      environmentStatus.textContent = "感測器設定已保存。";
+      await loadEnvironmentConfig();
+    } catch (error) {
+      environmentStatus.className = "save-status error";
+      environmentStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+    } finally {
+      environmentSave.disabled = false;
     }
   });
 
@@ -856,6 +962,7 @@
     wifiView.hidden = view !== "wifi";
     weatherView.hidden = view !== "weather";
     imageView.hidden = view !== "image";
+    environmentView.hidden = view !== "environment";
     $$(".nav-link[data-view]").forEach((link) => {
       const active = link.dataset.view === view;
       link.classList.toggle("active", active);
@@ -866,6 +973,7 @@
     if (refresh && view === "wifi") scan(true);
     if (refresh && view === "weather") loadWeatherConfig();
     if (refresh && view === "image") loadImageLibrary();
+    if (refresh && view === "environment") loadEnvironmentConfig();
   }
 
   $$(".nav-link[data-view]").forEach((link) => link.addEventListener("click", () => showView(link.dataset.view)));

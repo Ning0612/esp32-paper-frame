@@ -25,6 +25,7 @@
 #include "pf_web/http_receive_policy.hpp"
 #include "pf_web/provisioning_form.hpp"
 #include "pf_web/provisioning_service.hpp"
+#include "pf_web/sensor_config_form.hpp"
 #include "pf_web/weather_config_form.hpp"
 #include "pf_weather_worker/weather_worker.hpp"
 
@@ -70,6 +71,9 @@ constexpr std::uint32_t kImageMutationTaskStackWords = 4096U;
 constexpr UBaseType_t kWeatherConfigTaskPriority = 3U;
 constexpr std::uint32_t kWeatherConfigTaskStackWords = 4096U;
 constexpr std::size_t kWeatherConfigBodyCapacity = 512U;
+constexpr UBaseType_t kSensorConfigTaskPriority = 3U;
+constexpr std::uint32_t kSensorConfigTaskStackWords = 4096U;
+constexpr std::size_t kSensorConfigBodyCapacity = 160U;
 
 HealthServerAccessConfig server_access_config{};
 
@@ -148,6 +152,20 @@ StackType_t weather_config_task_stack[
     kWeatherConfigTaskStackWords]{};
 SemaphoreHandle_t weather_config_mutex = nullptr;
 StaticSemaphore_t weather_config_mutex_control{};
+
+struct SensorConfigRequest {
+    httpd_req_t* request = nullptr;
+};
+
+QueueHandle_t sensor_config_queue = nullptr;
+StaticQueue_t sensor_config_queue_control{};
+std::uint8_t sensor_config_queue_storage[
+    sizeof(SensorConfigRequest)]{};
+StaticTask_t sensor_config_task_control{};
+StackType_t sensor_config_task_stack[
+    kSensorConfigTaskStackWords]{};
+SemaphoreHandle_t sensor_config_mutex = nullptr;
+StaticSemaphore_t sensor_config_mutex_control{};
 
 esp_err_t set_common_headers(
     httpd_req_t* const request,
@@ -457,6 +475,32 @@ esp_err_t status_handler(httpd_req_t* request)
     return send_json(request, nullptr, response);
 }
 
+esp_err_t sensors_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!access.authenticated) {
+        return reject_management_request(request, access, false);
+    }
+
+    pf_runtime::RuntimeSnapshot snapshot{};
+    const bool snapshot_valid =
+        pf_runtime::coordinator().read_snapshot(snapshot);
+    char response[1024]{};
+    const SerializeResult serialized = serialize_sensors(
+        snapshot,
+        snapshot_valid,
+        static_cast<std::uint64_t>(std::time(nullptr)),
+        response,
+        sizeof(response));
+    if (!serialized.ok) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"sensors_serialization\"}");
+    }
+    return send_json(request, nullptr, response);
+}
+
 esp_err_t config_handler(httpd_req_t* request)
 {
     const AccessContext access = current_access_context(request);
@@ -493,13 +537,45 @@ esp_err_t config_handler(httpd_req_t* request)
         .weather_units = server_access_config.weather_settings.units,
         .weather_language = server_access_config.weather_settings.language,
         .weather_ntp_server = server_access_config.weather_settings.ntp_server,
+        .environment_enabled = false,
+        .light_enabled = false,
+        .light_threshold = 0U,
+        .away_duration_s = 0U,
+        .return_duration_s = 0U,
     };
+    xSemaphoreGive(weather_config_mutex);
+
+    if (sensor_config_mutex == nullptr ||
+        xSemaphoreTake(
+            sensor_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        // Falling through with the zero-value defaults above would be
+        // indistinguishable from a user who genuinely disabled every
+        // sensor with threshold/durations at 0 -- fail the request
+        // instead (matches the weather_config_mutex failure path above).
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"sensor_config_busy\"}");
+    }
+    MaskedConfig config_with_sensors = config;
+    config_with_sensors.environment_enabled =
+        server_access_config.sensor_settings.environment_enabled;
+    config_with_sensors.light_enabled =
+        server_access_config.sensor_settings.light_enabled;
+    config_with_sensors.light_threshold =
+        server_access_config.sensor_settings.light_threshold;
+    config_with_sensors.away_duration_s =
+        server_access_config.sensor_settings.away_duration_s;
+    config_with_sensors.return_duration_s =
+        server_access_config.sensor_settings.return_duration_s;
+    xSemaphoreGive(sensor_config_mutex);
+
     char response[1024]{};
     const SerializeResult serialized = serialize_masked_config(
-        config,
+        config_with_sensors,
         response,
         sizeof(response));
-    xSemaphoreGive(weather_config_mutex);
     if (!serialized.ok) {
         return send_json(
             request,
@@ -756,6 +832,198 @@ esp_err_t weather_config_post_handler(httpd_req_t* const request)
         return send_async_error(
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"weather_config_busy\"}");
+    }
+    return ESP_OK;
+}
+
+esp_err_t process_sensor_config(
+    httpd_req_t* const request,
+    const char* const body,
+    const std::size_t received)
+{
+    SensorConfigForm form{};
+    const SensorConfigParseStatus parsed =
+        parse_sensor_config_form(body, received, form);
+    if (parsed != SensorConfigParseStatus::ok) {
+        char response[112]{};
+        std::snprintf(
+            response,
+            sizeof(response),
+            "{\"ok\":false,\"error\":\"%s\"}",
+            to_string(parsed));
+        return send_json(request, "400 Bad Request", response);
+    }
+
+    pf_config::SensorSettings candidate{};
+    candidate.environment_enabled = form.environment_enabled;
+    candidate.light_enabled = form.light_enabled;
+    std::uint32_t light_threshold_value = 0U;
+    std::uint32_t away_duration_value = 0U;
+    std::uint32_t return_duration_value = 0U;
+    if (!parse_sensor_u32(form.light_threshold, light_threshold_value) ||
+        !parse_sensor_u32(form.away_duration_s, away_duration_value) ||
+        !parse_sensor_u32(form.return_duration_s, return_duration_value) ||
+        light_threshold_value > 0xFFFFU) {
+        return send_json(
+            request,
+            "422 Unprocessable Entity",
+            "{\"ok\":false,\"error\":\"invalid_value\"}");
+    }
+    candidate.light_threshold =
+        static_cast<std::uint16_t>(light_threshold_value);
+    candidate.away_duration_s = away_duration_value;
+    candidate.return_duration_s = return_duration_value;
+
+    if (!pf_config::sensor_settings_valid(candidate)) {
+        return send_json(
+            request,
+            "422 Unprocessable Entity",
+            "{\"ok\":false,\"error\":\"invalid_value\"}");
+    }
+    if (!pf_runtime::coordinator().lock_flash_display(
+            pdMS_TO_TICKS(10000U))) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"flash_busy\"}");
+    }
+    const esp_err_t saved = pf_config::save_sensor_settings(candidate);
+    pf_runtime::coordinator().unlock_flash_display();
+    if (saved != ESP_OK) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    if (sensor_config_mutex == nullptr ||
+        xSemaphoreTake(
+            sensor_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"sensor_config_busy\"}");
+    }
+    server_access_config.sensor_settings = candidate;
+    xSemaphoreGive(sensor_config_mutex);
+    return send_json(
+        request,
+        nullptr,
+        "{\"ok\":true,\"data\":{\"saved\":true}}");
+}
+
+void sensor_config_task_entry(void* const context)
+{
+    (void)context;
+    while (true) {
+        SensorConfigRequest queued{};
+        if (sensor_config_queue == nullptr ||
+            xQueueReceive(
+                sensor_config_queue,
+                &queued,
+                portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        char body[kSensorConfigBodyCapacity]{};
+        std::size_t received = 0U;
+        esp_err_t response_result = ESP_OK;
+        if (queued.request == nullptr) {
+            continue;
+        }
+        // receive_weather_config_body is generic (body/deadline handling
+        // only); reused here rather than duplicated for sensor config.
+        if (!receive_weather_config_body(
+                queued.request,
+                body,
+                sizeof(body),
+                received)) {
+            response_result = send_json(
+                queued.request,
+                "400 Bad Request",
+                "{\"ok\":false,\"error\":\"body_receive_failed\"}");
+        } else {
+            response_result = process_sensor_config(
+                queued.request,
+                body,
+                received);
+        }
+        finish_async_upload_request(
+            queued.request,
+            response_result,
+            true);
+    }
+}
+
+esp_err_t start_sensor_config_task()
+{
+    if (sensor_config_queue != nullptr) {
+        return ESP_OK;
+    }
+    sensor_config_queue = xQueueCreateStatic(
+        1U,
+        sizeof(SensorConfigRequest),
+        sensor_config_queue_storage,
+        &sensor_config_queue_control);
+    if (sensor_config_queue == nullptr ||
+        xTaskCreateStatic(
+            sensor_config_task_entry,
+            "pf_sensor_cfg",
+            kSensorConfigTaskStackWords,
+            nullptr,
+            kSensorConfigTaskPriority,
+            sensor_config_task_stack,
+            &sensor_config_task_control) == nullptr) {
+        sensor_config_queue = nullptr;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+esp_err_t sensor_config_post_handler(httpd_req_t* const request)
+{
+    httpd_req_t* async_request = nullptr;
+    if (httpd_req_async_handler_begin(request, &async_request) != ESP_OK) {
+        close_request_session(request);
+        return ESP_FAIL;
+    }
+    const auto send_async_error = [&](const char* const status,
+                                      const char* const body) {
+        const esp_err_t response_result = send_json(
+            async_request,
+            status,
+            body);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    };
+    const AccessContext access = current_access_context(async_request);
+    if (!access.authenticated || !access.csrf_valid) {
+        const esp_err_t response_result =
+            reject_management_request(async_request, access, true);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    }
+    if (async_request->content_len <= 0 ||
+        static_cast<std::size_t>(async_request->content_len) >=
+            kSensorConfigBodyCapacity) {
+        return send_async_error(
+            "413 Payload Too Large",
+            "{\"ok\":false,\"error\":\"invalid_body\"}");
+    }
+    if (sensor_config_queue == nullptr ||
+        uxQueueSpacesAvailable(sensor_config_queue) == 0U) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"sensor_config_busy\"}");
+    }
+    const SensorConfigRequest queued{async_request};
+    if (xQueueSend(sensor_config_queue, &queued, 0U) != pdTRUE) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"sensor_config_busy\"}");
     }
     return ESP_OK;
 }
@@ -2366,6 +2634,24 @@ const httpd_uri_t kWeatherConfigGetRoute{
     .handler = config_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kSensorConfigRoute{
+    .uri = "/api/v1/sensors/config",
+    .method = HTTP_POST,
+    .handler = sensor_config_post_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kSensorConfigGetRoute{
+    .uri = "/api/v1/sensors/config",
+    .method = HTTP_GET,
+    .handler = config_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kSensorsRoute{
+    .uri = "/api/v1/sensors",
+    .method = HTTP_GET,
+    .handler = sensors_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kScanRoute{
     .uri = "/api/v1/wifi/scan",
     .method = HTTP_GET,
@@ -2480,13 +2766,18 @@ esp_err_t start_health_server(
     }
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-    configuration.max_uri_handlers = 24;
+    configuration.max_uri_handlers = 26;
     configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
     server_access_config = access;
     weather_config_mutex = xSemaphoreCreateMutexStatic(
         &weather_config_mutex_control);
     if (weather_config_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    sensor_config_mutex = xSemaphoreCreateMutexStatic(
+        &sensor_config_mutex_control);
+    if (sensor_config_mutex == nullptr) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -2518,6 +2809,12 @@ esp_err_t start_health_server(
         *server = nullptr;
         return result;
     }
+    result = start_sensor_config_task();
+    if (result != ESP_OK) {
+        httpd_stop(*server);
+        *server = nullptr;
+        return result;
+    }
 
     const httpd_uri_t* const routes[] = {
         &kHealthRoute,
@@ -2526,6 +2823,9 @@ esp_err_t start_health_server(
         &kConfigRoute,
         &kWeatherConfigRoute,
         &kWeatherConfigGetRoute,
+        &kSensorConfigRoute,
+        &kSensorConfigGetRoute,
+        &kSensorsRoute,
         &kScanRoute,
         &kWifiConfigRoute,
         &kWifiConfigStatusRoute,

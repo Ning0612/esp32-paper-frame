@@ -6,6 +6,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pf_runtime/runtime_coordinator.hpp"
+#include "pf_sensors/daily_stats.hpp"
+#include "pf_sensors/environment_sensor.hpp"
+#include "pf_sensors/light_sensor.hpp"
+#include "pf_sensors/presence.hpp"
 #include "pf_weather/weather.hpp"
 #include "unity.h"
 
@@ -78,6 +82,39 @@ void test_runtime_queues_and_snapshot()
     TEST_ASSERT_EQUAL_FLOAT(
         21.5F, observed.weather.observation.temperature);
     TEST_ASSERT_EQUAL_STRING("metric", observed.weather_units);
+
+    pf_sensors::EnvironmentCache environment{};
+    environment.has_reading = true;
+    environment.reading.temperature_c = 24.4F;
+    pf_sensors::DailyStats environment_daily{};
+    pf_sensors::record_daily_reading(
+        environment_daily, environment.reading, 1700000000U);
+    runtime.update_environment(
+        environment, pf_sensors::SensorStatus::online, environment_daily);
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_TRUE(observed.environment.has_reading);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_sensors::SensorStatus::online),
+        static_cast<int>(observed.environment_status));
+    TEST_ASSERT_EQUAL_FLOAT(
+        24.4F, observed.environment.reading.temperature_c);
+    TEST_ASSERT_EQUAL_UINT32(
+        1U, observed.environment_daily.temperature_c.sample_count);
+
+    runtime.update_light_and_presence(
+        pf_sensors::LightSensorStatus::online,
+        1234U,
+        2000U,
+        pf_sensors::PresenceState::present);
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_sensors::LightSensorStatus::online),
+        static_cast<int>(observed.light_status));
+    TEST_ASSERT_EQUAL_UINT16(1234U, observed.light_raw_filtered);
+    TEST_ASSERT_EQUAL_UINT16(2000U, observed.light_threshold);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_sensors::PresenceState::present),
+        static_cast<int>(observed.presence));
 
     for (std::uint32_t index = 0; index < 4; ++index) {
         const pf_runtime::RuntimeCommand command{

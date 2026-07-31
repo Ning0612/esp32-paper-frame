@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "dht22_environment_sensor.cpp"
+        "third_party/dht.c"
+    INCLUDE_DIRS
+        "include"
+    PRIV_INCLUDE_DIRS
+        "third_party"
+    REQUIRES
+        esp_driver_gpio
+        esp_rom
+        freertos
+        pf_sensors
+    PRIV_REQUIRES
+        log
+)

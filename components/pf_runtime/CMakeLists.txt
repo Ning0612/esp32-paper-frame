@@ -6,5 +6,6 @@ idf_component_register(
     REQUIRES
         esp_system
         freertos
+        pf_sensors
         pf_weather
 )

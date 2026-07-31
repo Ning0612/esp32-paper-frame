@@ -3,6 +3,10 @@
 #include <cstdint>
 
 #include "pf_runtime/runtime_messages.hpp"
+#include "pf_sensors/daily_stats.hpp"
+#include "pf_sensors/environment_sensor.hpp"
+#include "pf_sensors/light_sensor.hpp"
+#include "pf_sensors/presence.hpp"
 #include "pf_weather/weather.hpp"
 
 namespace pf_runtime {
@@ -92,6 +96,17 @@ struct RuntimeSnapshot {
     // carry that (the API response never echoes back the requested units).
     pf_weather::Cache weather{};
     char weather_units[pf_weather::kUnitsCapacity]{};
+    // Phase 7 sensor/presence state; see
+    // docs/adr/0006-sensor-drivers-and-presence.md.
+    pf_sensors::EnvironmentCache environment{};
+    pf_sensors::SensorStatus environment_status =
+        pf_sensors::SensorStatus::disabled;
+    pf_sensors::DailyStats environment_daily{};
+    pf_sensors::LightSensorStatus light_status =
+        pf_sensors::LightSensorStatus::disabled;
+    std::uint16_t light_raw_filtered = 0U;
+    std::uint16_t light_threshold = 0U;
+    pf_sensors::PresenceState presence = pf_sensors::PresenceState::unknown;
 };
 
 constexpr const char* to_string(const WifiState state)

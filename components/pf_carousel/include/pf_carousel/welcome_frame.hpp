@@ -135,4 +135,21 @@ inline bool render_welcome_frame(
     return true;
 }
 
+// A single all-white frame with no status content, used for the one-time
+// AWAY refresh (Guild.md 4.9: "只執行一次全白刷新"). Submitting it through
+// the normal refresh path already puts the panel to sleep afterward, so
+// no separate blank/sleep-only API is needed.
+inline bool render_blank_frame(
+    std::uint8_t* const frame,
+    const std::size_t length)
+{
+    if (frame == nullptr || length != pf_display::kFullFramebufferBytes) {
+        return false;
+    }
+    const std::uint8_t white = pf_display::native_code(pf_display::Color::white);
+    std::fill_n(
+        frame, length, static_cast<std::uint8_t>((white << 4U) | white));
+    return true;
+}
+
 }  // namespace pf_carousel

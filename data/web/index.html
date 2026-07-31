@@ -32,8 +32,7 @@
           <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
           <button class="nav-link" type="button" data-view="weather">天氣 <span>03</span></button>
           <button class="nav-link" type="button" data-view="image">圖片 <span>04</span></button>
-          <button class="nav-link future" type="button" disabled
-                  title="Phase 7 開放">環境 <span>07</span></button>
+          <button class="nav-link" type="button" data-view="environment">環境 <span>07</span></button>
           <button class="nav-link future" type="button" disabled
                   title="Phase 8 開放">系統 <span>08</span></button>
         </nav>
@@ -238,6 +237,46 @@
                   <div><dt>API key</dt><dd id="weather-api-key-state">未知</dd></div>
                   <div><dt>資料快取</dt><dd id="weather-cache-state">尚未接入 HTTPS worker</dd></div>
                   <div><dt>時間同步</dt><dd id="weather-ntp-state">設定完成後接入 SNTP</dd></div>
+                </dl>
+              </section>
+            </form>
+          </div>
+
+          <div id="environment-view" class="view" data-view-panel="environment" hidden>
+            <div class="view-heading">
+              <div>
+                <p class="eyebrow">07 / ENVIRONMENT &amp; PRESENCE</p>
+                <h2>環境與在場</h2>
+              </div>
+            </div>
+            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與光敏電阻在場偵測（GPIO5）都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。</p>
+            <form id="environment-form" class="setup-grid" novalidate>
+              <section class="panel credential-panel">
+                <div class="panel-heading">
+                  <div><span class="panel-no coral">L</span><h3>感測器設定</h3></div>
+                </div>
+                <label class="manual-toggle"><input id="environment-enabled" type="checkbox"><span>啟用溫溼度感測器（DHT22）</span></label>
+                <label class="manual-toggle"><input id="light-enabled" type="checkbox"><span>啟用光敏電阻在場偵測</span></label>
+                <div class="image-option-grid">
+                  <label class="field"><span>光線 threshold（ADC 0–4095）</span><input id="light-threshold" type="number" min="0" max="4095" required></label>
+                  <label class="field"><span>離席持續時間（秒）</span><input id="away-duration" type="number" min="10" max="3600" required></label>
+                  <label class="field"><span>返回持續時間（秒）</span><input id="return-duration" type="number" min="1" max="3600" required></label>
+                </div>
+                <button id="environment-save" class="primary-button" type="submit">保存設定</button>
+                <p id="environment-status" class="save-status" role="status" aria-live="assertive"></p>
+              </section>
+              <section class="panel status-panel muted-panel">
+                <div class="panel-heading compact">
+                  <div><span class="panel-no mint">M</span><h3>即時讀值</h3></div>
+                </div>
+                <dl class="definition-list">
+                  <div><dt>溫溼度狀態</dt><dd id="environment-reading-status">未知</dd></div>
+                  <div><dt>溫度</dt><dd id="environment-temperature">—</dd></div>
+                  <div><dt>濕度</dt><dd id="environment-humidity">—</dd></div>
+                  <div><dt>今日溫度 min/avg/max</dt><dd id="environment-today-temperature">—</dd></div>
+                  <div><dt>光敏狀態</dt><dd id="light-reading-status">未知</dd></div>
+                  <div><dt>光線 ADC</dt><dd id="light-raw">—</dd></div>
+                  <div><dt>在場狀態</dt><dd id="presence-state">未知</dd></div>
                 </dl>
               </section>
             </form>

@@ -274,6 +274,34 @@ void RuntimeCoordinator::update_weather(
     portEXIT_CRITICAL(&snapshot_lock_);
 }
 
+void RuntimeCoordinator::update_environment(
+    const pf_sensors::EnvironmentCache& environment,
+    const pf_sensors::SensorStatus environment_status,
+    const pf_sensors::DailyStats& environment_daily)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    snapshot_.environment = environment;
+    snapshot_.environment_status = environment_status;
+    snapshot_.environment_daily = environment_daily;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
+void RuntimeCoordinator::update_light_and_presence(
+    const pf_sensors::LightSensorStatus light_status,
+    const std::uint16_t light_raw_filtered,
+    const std::uint16_t light_threshold,
+    const pf_sensors::PresenceState presence)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    snapshot_.light_status = light_status;
+    snapshot_.light_raw_filtered = light_raw_filtered;
+    snapshot_.light_threshold = light_threshold;
+    snapshot_.presence = presence;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
 void RuntimeCoordinator::update_display_started(
     const std::uint32_t request_id)
 {

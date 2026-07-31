@@ -16,6 +16,7 @@ idf_component_register(
         pf_image
         pf_provisioning
         pf_runtime
+        pf_sensor_task
         pf_storage
         pf_weather
         pf_weather_worker

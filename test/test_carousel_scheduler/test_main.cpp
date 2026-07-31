@@ -323,6 +323,72 @@ void test_welcome_frame_rejects_wrong_length_without_writing()
             pf_display::kFullFramebufferBytes));
 }
 
+void test_blank_frame_is_entirely_white()
+{
+    std::vector<std::uint8_t> frame(pf_display::kFullFramebufferBytes);
+    TEST_ASSERT_TRUE(
+        pf_carousel::render_blank_frame(frame.data(), frame.size()));
+
+    const std::uint8_t white = pf_display::native_code(pf_display::Color::white);
+    const std::uint8_t expected =
+        static_cast<std::uint8_t>((white << 4U) | white);
+    for (const std::uint8_t byte : frame) {
+        TEST_ASSERT_EQUAL_HEX8(expected, byte);
+    }
+}
+
+void test_blank_frame_rejects_wrong_length_without_writing()
+{
+    std::uint8_t byte = 0xA5U;
+    TEST_ASSERT_FALSE(pf_carousel::render_blank_frame(&byte, 1U));
+    TEST_ASSERT_EQUAL_HEX8(0xA5U, byte);
+    TEST_ASSERT_FALSE(
+        pf_carousel::render_blank_frame(
+            nullptr,
+            pf_display::kFullFramebufferBytes));
+}
+
+void test_force_immediate_makes_the_next_poll_issue_a_decision()
+{
+    CarouselItem items[1] = {{7U, true, true, true}};
+    CarouselScheduler scheduler;
+    const CarouselDecision first = scheduler.poll(0U, items, 1U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_image),
+        static_cast<int>(first.kind));
+    TEST_ASSERT_TRUE(scheduler.complete(first, true, 0U));
+
+    // Still well within the normal interval: poll() waits.
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::wait),
+        static_cast<int>(scheduler.poll(1U, items, 1U).kind));
+
+    TEST_ASSERT_TRUE(scheduler.force_immediate(1U));
+    TEST_ASSERT_EQUAL_UINT64(1U, scheduler.next_due_ms());
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_image),
+        static_cast<int>(scheduler.poll(1U, items, 1U).kind));
+}
+
+void test_force_immediate_is_refused_while_a_decision_is_in_flight()
+{
+    CarouselItem items[1] = {{7U, true, true, true}};
+    CarouselScheduler scheduler;
+    const CarouselDecision decision = scheduler.poll(0U, items, 1U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_image),
+        static_cast<int>(decision.kind));
+    TEST_ASSERT_TRUE(scheduler.in_flight());
+
+    const std::uint64_t due_before = scheduler.next_due_ms();
+    TEST_ASSERT_FALSE(scheduler.force_immediate(999U));
+    TEST_ASSERT_EQUAL_UINT64(due_before, scheduler.next_due_ms());
+
+    TEST_ASSERT_TRUE(scheduler.complete(decision, true, 100U));
+    TEST_ASSERT_TRUE(scheduler.force_immediate(200U));
+    TEST_ASSERT_EQUAL_UINT64(200U, scheduler.next_due_ms());
+}
+
 }  // namespace
 
 void setUp()
@@ -350,5 +416,10 @@ int main(int, char**)
     RUN_TEST(test_each_new_scheduler_displays_welcome_once_per_boot);
     RUN_TEST(test_welcome_frame_has_stable_status_and_logo_geometry);
     RUN_TEST(test_welcome_frame_rejects_wrong_length_without_writing);
+    RUN_TEST(test_blank_frame_is_entirely_white);
+    RUN_TEST(test_blank_frame_rejects_wrong_length_without_writing);
+    RUN_TEST(test_force_immediate_makes_the_next_poll_issue_a_decision);
+    RUN_TEST(
+        test_force_immediate_is_refused_while_a_decision_is_in_flight);
     return UNITY_END();
 }

@@ -4,6 +4,7 @@
 #include "pf_config/management_password.hpp"
 #include "pf_config/network_credentials.hpp"
 #include "pf_config/schema.hpp"
+#include "pf_config/sensor_settings.hpp"
 #include "pf_config/weather_settings.hpp"
 
 namespace pf_config {
@@ -52,5 +53,14 @@ struct WeatherSettingsLoadResult {
 
 WeatherSettingsLoadResult load_weather_settings();
 esp_err_t save_weather_settings(const WeatherSettings& settings);
+
+struct SensorSettingsLoadResult {
+    esp_err_t error;
+    bool configured;
+    SensorSettings settings;
+};
+
+SensorSettingsLoadResult load_sensor_settings();
+esp_err_t save_sensor_settings(const SensorSettings& settings);
 
 }  // namespace pf_config

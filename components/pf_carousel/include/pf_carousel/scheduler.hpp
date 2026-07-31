@@ -198,6 +198,22 @@ public:
         return true;
     }
 
+    // Resets the deadline so the next poll() no longer waits on the old
+    // interval, without touching in_flight_/manual_pending_/current-image
+    // state (used when presence returns from away: "輪播計時重新開始…
+    // 不使用離席前殘留的刷新 deadline", Guild.md 4.9). Returns false
+    // without effect while a decision is still in flight, so a caller
+    // can never use this to bypass the in-flight guard that complete()/
+    // abandon() rely on; retry after the in-flight decision resolves.
+    bool force_immediate(const std::uint64_t now_ms)
+    {
+        if (in_flight_) {
+            return false;
+        }
+        next_due_ms_ = now_ms;
+        return true;
+    }
+
 private:
     static bool valid_items_pointer(
         const CarouselItem* const items,

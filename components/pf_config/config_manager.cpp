@@ -19,6 +19,8 @@ constexpr char kAuthenticationNamespace[] = "pf_auth";
 constexpr char kManagementPasswordHashKey[] = "password_hash";
 constexpr char kWeatherNamespace[] = "pf_weather";
 constexpr char kWeatherSettingsKey[] = "settings";
+constexpr char kSensorNamespace[] = "pf_sensors";
+constexpr char kSensorSettingsKey[] = "settings";
 
 esp_err_t initialize_nvs()
 {
@@ -354,6 +356,66 @@ esp_err_t save_weather_settings(const WeatherSettings& settings)
     }
     nvs_close(handle);
     secure_zero(blob);
+    return result;
+}
+
+SensorSettingsLoadResult load_sensor_settings()
+{
+    SensorSettings defaults{};
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kSensorNamespace, NVS_READONLY, &handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        return {ESP_OK, false, defaults};
+    }
+    if (result != ESP_OK) {
+        return {result, false, {}};
+    }
+
+    SensorSettingsBlob blob{};
+    std::size_t length = sizeof(blob);
+    result = nvs_get_blob(handle, kSensorSettingsKey, &blob, &length);
+    nvs_close(handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        return {ESP_OK, false, defaults};
+    }
+    if (result != ESP_OK || length != sizeof(blob)) {
+        return {
+            result == ESP_OK ? ESP_ERR_INVALID_SIZE : result,
+            false,
+            {},
+        };
+    }
+
+    SensorSettings settings{};
+    if (!decode_sensor_settings(blob, settings)) {
+        return {ESP_ERR_INVALID_CRC, false, {}};
+    }
+    return {ESP_OK, true, settings};
+}
+
+esp_err_t save_sensor_settings(const SensorSettings& settings)
+{
+    SensorSettingsBlob blob{};
+    if (!encode_sensor_settings(settings, blob)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle = 0;
+    esp_err_t result =
+        nvs_open(kSensorNamespace, NVS_READWRITE, &handle);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = nvs_set_blob(
+        handle,
+        kSensorSettingsKey,
+        &blob,
+        sizeof(blob));
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
     return result;
 }
 

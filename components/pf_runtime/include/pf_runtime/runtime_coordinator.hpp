@@ -39,6 +39,15 @@ public:
     void update_weather(
         const pf_weather::Cache& weather,
         const char* units);
+    void update_environment(
+        const pf_sensors::EnvironmentCache& environment,
+        pf_sensors::SensorStatus environment_status,
+        const pf_sensors::DailyStats& environment_daily);
+    void update_light_and_presence(
+        pf_sensors::LightSensorStatus light_status,
+        std::uint16_t light_raw_filtered,
+        std::uint16_t light_threshold,
+        pf_sensors::PresenceState presence);
     void update_display_started(std::uint32_t request_id);
     void update_display_finished(
         std::uint32_t request_id,

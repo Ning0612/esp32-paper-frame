@@ -24,6 +24,8 @@
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_provisioning/ap_screen.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
+#include "pf_sensor_task/sensor_task.hpp"
+#include "pf_sensors/presence.hpp"
 #include "pf_storage/filesystem_manager.hpp"
 #include "pf_storage/catalog.hpp"
 #include "pf_storage/littlefs_backend.hpp"
@@ -445,6 +447,20 @@ extern "C" void app_main()
                 ? "true"
                 : "false");
     }
+    pf_config::SensorSettingsLoadResult sensor_settings_result =
+        config_result.error == ESP_OK
+            ? pf_config::load_sensor_settings()
+            : pf_config::SensorSettingsLoadResult{
+                  config_result.error,
+                  false,
+                  {},
+              };
+    if (sensor_settings_result.error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "sensor_settings_load_failed=%s; using defaults",
+            esp_err_to_name(sensor_settings_result.error));
+    }
 
     const pf_storage::FileSystemSnapshot filesystem_snapshot =
         pf_storage::mount_all();
@@ -615,6 +631,17 @@ extern "C" void app_main()
             esp_err_to_name(weather_worker_result));
     }
 
+    const esp_err_t sensor_task_result =
+        runtime_result == ESP_OK
+            ? pf_sensor_task::sensor_task().start(pf_runtime::coordinator())
+            : ESP_ERR_INVALID_STATE;
+    if (sensor_task_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "sensor_task_start_failed=%s; sensors stay unavailable",
+            esp_err_to_name(sensor_task_result));
+    }
+
     const esp_err_t provisioning_store_result =
         config_result.error != ESP_OK
             ? config_result.error
@@ -665,6 +692,9 @@ extern "C" void app_main()
         .weather_settings = weather_settings_result.error == ESP_OK
                                 ? weather_settings_result.settings
                                 : pf_config::WeatherSettings{},
+        .sensor_settings = sensor_settings_result.error == ESP_OK
+                                ? sensor_settings_result.settings
+                                : pf_config::SensorSettings{},
     };
     const char* const timezone = config_result.record_available
                                      ? config_result.record.timezone
@@ -707,6 +737,11 @@ extern "C" void app_main()
     };
     pf_carousel::CarouselDecision active_carousel_decision{};
     std::uint32_t active_carousel_request_id = 0U;
+    std::uint32_t active_blank_request_id = 0U;
+    pf_sensors::PresenceState previous_presence =
+        pf_sensors::PresenceState::unknown;
+    bool pending_presence_force_immediate = false;
+    bool pending_presence_away_blank = false;
     CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
     std::size_t carousel_shown_count = 0U;
     pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
@@ -726,8 +761,122 @@ extern "C" void app_main()
             static_cast<unsigned>(kCarouselPayloadBytes));
     }
 
+    // Guild.md 4.9: a single all-white refresh while away, then panel
+    // sleep (refresh already sleeps afterward). This bypasses the
+    // carousel scheduler entirely -- it is not tracked as an
+    // active_carousel_decision, but its request_id still reserves a
+    // RuntimeCoordinator terminal-result slot (the same refresh_display
+    // path carousel decisions use) and must be drained once the refresh
+    // completes, or repeated away/present cycles exhaust the fixed-size
+    // reservation pool. Returns true if a blank refresh is already
+    // in flight or was just accepted (nothing left to retry); false if
+    // the attempt failed and should be retried on a later tick.
+    const auto submit_presence_away_blank = [&]() -> bool {
+        if (active_blank_request_id != 0U) {
+            return true;
+        }
+        pf_display::FrameWriteLease blank_frame =
+            pf_display::display_task().try_acquire_frame();
+        if (!blank_frame.valid() ||
+            !pf_carousel::render_blank_frame(
+                blank_frame.data(), blank_frame.size())) {
+            ESP_LOGW(kTag, "presence_away_blank_frame_unavailable");
+            return false;
+        }
+        const std::uint32_t blank_request_id =
+            pf_runtime::coordinator().allocate_request_id();
+        const pf_display::SubmitStatus blank_submit =
+            pf_display::display_task().try_submit_refresh(
+                blank_request_id, blank_frame);
+        if (blank_submit != pf_display::SubmitStatus::accepted) {
+            ESP_LOGW(
+                kTag,
+                "presence_away_blank_submit_failed status=%u",
+                static_cast<unsigned>(blank_submit));
+            return false;
+        }
+        active_blank_request_id = blank_request_id;
+        ESP_LOGI(
+            kTag,
+            "presence_away_blank_queued request=%" PRIu32,
+            blank_request_id);
+        return true;
+    };
+
     while (true) {
         const std::uint64_t now_ms = monotonic_ms();
+
+        // A failed snapshot read carries no presence information -- it
+        // must not be treated as an observed "unknown" transition (that
+        // would flip away/unknown/away and re-trigger blank-frame
+        // submission every failed read). previous_presence is only ever
+        // updated from a successful read, and doubles as the "last known
+        // presence" used by the carousel-pause gate below.
+        pf_runtime::RuntimeSnapshot presence_snapshot{};
+        if (pf_runtime::coordinator().read_snapshot(presence_snapshot) &&
+            presence_snapshot.presence != previous_presence) {
+            const pf_sensors::PresenceState current_presence =
+                presence_snapshot.presence;
+            // Default to "nothing pending" on every observed transition;
+            // only the branches below that actually need a retry set
+            // their flag back to true. This also covers presence
+            // collapsing to `unknown` (e.g. sensor error mid-debounce),
+            // which previously left a stale pending_presence_force_immediate
+            // from an earlier `present` transition armed indefinitely.
+            pending_presence_force_immediate = false;
+            pending_presence_away_blank = false;
+            if (current_presence == pf_sensors::PresenceState::away &&
+                display_started) {
+                pending_presence_away_blank = !submit_presence_away_blank();
+            } else if (current_presence ==
+                       pf_sensors::PresenceState::present) {
+                // Returning from away or unknown: redraw immediately and
+                // never reuse a deadline computed while away. If a
+                // carousel decision is still in flight, force_immediate
+                // refuses to mutate scheduler state (by contract); defer
+                // and retry once that decision completes, below.
+                if (carousel.force_immediate(now_ms)) {
+                    ESP_LOGI(kTag, "presence_return_deadline_reset");
+                } else {
+                    pending_presence_force_immediate = true;
+                }
+            }
+            previous_presence = current_presence;
+        }
+
+        // A transient failure at the moment of the away transition (frame
+        // pool busy, submit rejected) must not permanently strand the
+        // panel showing its pre-away content: retry every tick while
+        // still away and nothing is currently in flight.
+        if (pending_presence_away_blank &&
+            previous_presence == pf_sensors::PresenceState::away) {
+            pending_presence_away_blank = !submit_presence_away_blank();
+        }
+
+        if (active_blank_request_id != 0U) {
+            pf_runtime::RuntimeResult blank_result{};
+            if (pf_runtime::coordinator().try_take_terminal_result(
+                    active_blank_request_id,
+                    blank_result)) {
+                ESP_LOGI(
+                    kTag,
+                    "presence_away_blank_request=%" PRIu32 " outcome=%u",
+                    active_blank_request_id,
+                    static_cast<unsigned>(blank_result.display_outcome));
+                active_blank_request_id = 0U;
+                if (blank_result.display_outcome !=
+                        pf_runtime::DisplayOutcome::refreshed_and_slept &&
+                    previous_presence == pf_sensors::PresenceState::away) {
+                    // Accepted into the queue but the refresh itself
+                    // failed (e.g. panel/transport error): the panel
+                    // never actually went blank, so retry rather than
+                    // silently giving up for the rest of this away
+                    // period.
+                    pending_presence_away_blank = true;
+                }
+            }
+        }
+
         if (carousel.in_flight() &&
             active_carousel_request_id != 0U) {
             pf_runtime::RuntimeResult terminal_result{};
@@ -780,6 +929,19 @@ extern "C" void app_main()
             }
         }
 
+        if (pending_presence_force_immediate && !carousel.in_flight()) {
+            if (carousel.force_immediate(now_ms)) {
+                pending_presence_force_immediate = false;
+                ESP_LOGI(kTag, "presence_return_deadline_reset_deferred");
+            }
+        }
+
+        // Guild.md 4.9: pause carousel advancement while away (an
+        // in-flight decision above still gets its completion processed;
+        // this only stops new work from being issued). previous_presence
+        // is the last successfully observed presence (see the snapshot
+        // read above), not necessarily this tick's value.
+        if (previous_presence != pf_sensors::PresenceState::away) {
         std::size_t carousel_item_count = 0U;
         if (storage_worker.ready()) {
             CarouselCatalogContext catalog_context{
@@ -908,6 +1070,7 @@ extern "C" void app_main()
                 decision,
                 now_ms + kCarouselRetryMs);
         }
+        }  // previous_presence != away
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

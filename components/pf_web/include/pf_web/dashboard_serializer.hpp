@@ -6,6 +6,9 @@
 
 #include "pf_config/schema.hpp"
 #include "pf_config/weather_settings.hpp"
+#include "pf_sensors/environment_sensor.hpp"
+#include "pf_sensors/light_sensor.hpp"
+#include "pf_sensors/presence.hpp"
 #include "pf_weather/weather.hpp"
 #include "pf_web/health_serializer.hpp"
 
@@ -32,6 +35,11 @@ struct MaskedConfig {
     const char* weather_units;
     const char* weather_language;
     const char* weather_ntp_server;
+    bool environment_enabled;
+    bool light_enabled;
+    std::uint16_t light_threshold;
+    std::uint32_t away_duration_s;
+    std::uint32_t return_duration_s;
 };
 
 inline SerializeResult serialize_device(
@@ -192,6 +200,57 @@ inline SerializeResult serialize_status(
             ? pf_weather::to_string(snapshot.weather.last_failure)
             : "none";
 
+    const char* const environment_status = pf_sensors::to_string(
+        snapshot_valid ? snapshot.environment_status
+                        : pf_sensors::SensorStatus::disabled);
+    const char* const light_status = pf_sensors::to_string(
+        snapshot_valid ? snapshot.light_status
+                        : pf_sensors::LightSensorStatus::disabled);
+    const char* const presence = pf_sensors::to_string(
+        snapshot_valid ? snapshot.presence
+                        : pf_sensors::PresenceState::unknown);
+    // Disabling the sensor must hide any reading left over from before it
+    // was disabled (CLAUDE.md: never report a stale/historical value as
+    // if it were current); the cache itself is intentionally not wiped
+    // so a re-enable can resume backoff/daily-stat state.
+    const bool environment_reading_visible =
+        snapshot_valid && snapshot.environment.has_reading &&
+        snapshot.environment_status != pf_sensors::SensorStatus::disabled;
+    char environment_temperature[16]{};
+    char environment_humidity[16]{};
+    char light_adc[16]{};
+    if (environment_reading_visible) {
+        std::snprintf(
+            environment_temperature,
+            sizeof(environment_temperature),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment.reading.temperature_c));
+        std::snprintf(
+            environment_humidity,
+            sizeof(environment_humidity),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment.reading.humidity_percent));
+    } else {
+        std::snprintf(
+            environment_temperature,
+            sizeof(environment_temperature),
+            "null");
+        std::snprintf(
+            environment_humidity, sizeof(environment_humidity), "null");
+    }
+    if (snapshot_valid &&
+        snapshot.light_status == pf_sensors::LightSensorStatus::online) {
+        std::snprintf(
+            light_adc,
+            sizeof(light_adc),
+            "%u",
+            static_cast<unsigned>(snapshot.light_raw_filtered));
+    } else {
+        std::snprintf(light_adc, sizeof(light_adc), "null");
+    }
+
     char flash_bytes[16]{};
     char psram_bytes[16]{};
     char webfs_total[16]{};
@@ -282,9 +341,10 @@ inline SerializeResult serialize_status(
         "\"units\":\"%s\",\"icon\":\"%s\",\"description\":\"%s\","
         "\"humidity_percent\":%s,\"observed_at_epoch_s\":%s,"
         "\"last_failure\":\"%s\"},"
-        "\"sensors\":{\"temperature_c\":null,"
-        "\"humidity_percent\":null,\"light_adc\":null,"
-        "\"presence\":null}}}",
+        "\"sensors\":{\"environment_status\":\"%s\","
+        "\"temperature_c\":%s,\"humidity_percent\":%s,"
+        "\"light_status\":\"%s\",\"light_adc\":%s,"
+        "\"presence\":\"%s\"}}}",
         static_cast<unsigned long>(
             snapshot_valid ? snapshot.sequence : 0U),
         static_cast<unsigned long long>(snapshot_valid ? uptime_ms : 0U),
@@ -325,7 +385,197 @@ inline SerializeResult serialize_status(
         weather_description,
         weather_humidity,
         weather_observed_at,
-        weather_last_failure);
+        weather_last_failure,
+        environment_status,
+        environment_temperature,
+        environment_humidity,
+        light_status,
+        light_adc,
+        presence);
+
+    if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
+        output[0] = '\0';
+        return {false, 0U};
+    }
+    return {true, static_cast<std::size_t>(written)};
+}
+
+// GET /api/v1/sensors readings (distinct from serialize_masked_config's
+// *settings*): see docs/adr/0006-sensor-drivers-and-presence.md for the
+// schema. GPIO numbers are the ADR-0003 pin assignments, not read from
+// the snapshot (they are fixed at build time).
+inline SerializeResult serialize_sensors(
+    const pf_runtime::RuntimeSnapshot& snapshot,
+    const bool snapshot_valid,
+    const std::uint64_t now_epoch_s,
+    char* output,
+    const std::size_t output_size)
+{
+    if (output == nullptr || output_size == 0U) {
+        return {false, 0U};
+    }
+
+    const char* const environment_status = pf_sensors::to_string(
+        snapshot_valid ? snapshot.environment_status
+                        : pf_sensors::SensorStatus::disabled);
+    const char* const light_status = pf_sensors::to_string(
+        snapshot_valid ? snapshot.light_status
+                        : pf_sensors::LightSensorStatus::disabled);
+    const char* const presence = pf_sensors::to_string(
+        snapshot_valid ? snapshot.presence
+                        : pf_sensors::PresenceState::unknown);
+    const bool environment_online =
+        snapshot_valid &&
+        snapshot.environment_status == pf_sensors::SensorStatus::online;
+    const bool environment_disabled =
+        !snapshot_valid ||
+        snapshot.environment_status == pf_sensors::SensorStatus::disabled;
+    // Disabling the sensor must hide any reading/daily-stat left over
+    // from before it was disabled (CLAUDE.md: never report a
+    // stale/historical value as if it were current); the cache itself is
+    // intentionally not wiped so a re-enable can resume backoff/daily-
+    // stat state.
+    const bool environment_has_reading =
+        !environment_disabled && snapshot.environment.has_reading;
+    const bool environment_stale_flag =
+        environment_has_reading &&
+        pf_sensors::environment_stale(snapshot.environment, now_epoch_s);
+    const bool light_online =
+        snapshot_valid &&
+        snapshot.light_status == pf_sensors::LightSensorStatus::online;
+    const bool light_saturated =
+        snapshot_valid &&
+        snapshot.light_status == pf_sensors::LightSensorStatus::saturated;
+
+    char temperature_c[16]{};
+    char humidity_percent[16]{};
+    if (environment_has_reading) {
+        std::snprintf(
+            temperature_c,
+            sizeof(temperature_c),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment.reading.temperature_c));
+        std::snprintf(
+            humidity_percent,
+            sizeof(humidity_percent),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment.reading.humidity_percent));
+    } else {
+        std::snprintf(temperature_c, sizeof(temperature_c), "null");
+        std::snprintf(humidity_percent, sizeof(humidity_percent), "null");
+    }
+
+    char today_temp_min[16]{};
+    char today_temp_max[16]{};
+    char today_temp_avg[16]{};
+    char today_humidity_min[16]{};
+    char today_humidity_max[16]{};
+    char today_humidity_avg[16]{};
+    const bool has_daily =
+        !environment_disabled &&
+        snapshot.environment_daily.temperature_c.has_samples;
+    if (has_daily) {
+        std::snprintf(
+            today_temp_min,
+            sizeof(today_temp_min),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment_daily.temperature_c.min_value));
+        std::snprintf(
+            today_temp_max,
+            sizeof(today_temp_max),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment_daily.temperature_c.max_value));
+        std::snprintf(
+            today_temp_avg,
+            sizeof(today_temp_avg),
+            "%.1f",
+            static_cast<double>(pf_sensors::daily_stat_average(
+                snapshot.environment_daily.temperature_c)));
+        std::snprintf(
+            today_humidity_min,
+            sizeof(today_humidity_min),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment_daily.humidity_percent.min_value));
+        std::snprintf(
+            today_humidity_max,
+            sizeof(today_humidity_max),
+            "%.1f",
+            static_cast<double>(
+                snapshot.environment_daily.humidity_percent.max_value));
+        std::snprintf(
+            today_humidity_avg,
+            sizeof(today_humidity_avg),
+            "%.1f",
+            static_cast<double>(pf_sensors::daily_stat_average(
+                snapshot.environment_daily.humidity_percent)));
+    } else {
+        std::snprintf(today_temp_min, sizeof(today_temp_min), "null");
+        std::snprintf(today_temp_max, sizeof(today_temp_max), "null");
+        std::snprintf(today_temp_avg, sizeof(today_temp_avg), "null");
+        std::snprintf(
+            today_humidity_min, sizeof(today_humidity_min), "null");
+        std::snprintf(
+            today_humidity_max, sizeof(today_humidity_max), "null");
+        std::snprintf(
+            today_humidity_avg, sizeof(today_humidity_avg), "null");
+    }
+
+    char light_raw[16]{};
+    if (light_online) {
+        std::snprintf(
+            light_raw,
+            sizeof(light_raw),
+            "%u",
+            static_cast<unsigned>(snapshot.light_raw_filtered));
+    } else {
+        std::snprintf(light_raw, sizeof(light_raw), "null");
+    }
+    char light_threshold[16]{};
+    if (snapshot_valid) {
+        std::snprintf(
+            light_threshold,
+            sizeof(light_threshold),
+            "%u",
+            static_cast<unsigned>(snapshot.light_threshold));
+    } else {
+        // 0 would look like a genuinely configured threshold rather than
+        // "the whole snapshot is unavailable" -- unlike light_status,
+        // which already falls back to a distinguishable "disabled".
+        std::snprintf(light_threshold, sizeof(light_threshold), "null");
+    }
+
+    const int written = std::snprintf(
+        output,
+        output_size,
+        "{\"ok\":true,\"data\":{\"environment\":{"
+        "\"status\":\"%s\",\"gpio\":6,\"driver\":\"dht22\","
+        "\"temperature_c\":%s,\"humidity_percent\":%s,\"stale\":%s,"
+        "\"today\":{\"temperature_min_c\":%s,\"temperature_max_c\":%s,"
+        "\"temperature_avg_c\":%s,\"humidity_min_percent\":%s,"
+        "\"humidity_max_percent\":%s,\"humidity_avg_percent\":%s}},"
+        "\"light\":{\"status\":\"%s\",\"gpio\":5,\"raw\":%s,"
+        "\"threshold\":%s,\"saturated\":%s},"
+        "\"presence\":\"%s\"}}",
+        environment_status,
+        temperature_c,
+        humidity_percent,
+        environment_online && environment_stale_flag ? "true" : "false",
+        today_temp_min,
+        today_temp_max,
+        today_temp_avg,
+        today_humidity_min,
+        today_humidity_max,
+        today_humidity_avg,
+        light_status,
+        light_raw,
+        light_threshold,
+        light_saturated ? "true" : "false",
+        presence);
 
     if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
         output[0] = '\0';
@@ -414,7 +664,10 @@ inline SerializeResult serialize_masked_config(
         "\"latitude_e6\":%ld,\"longitude_e6\":%ld,"
         "\"interval_minutes\":%lu,\"location\":\"%s\","
         "\"units\":\"%s\",\"language\":\"%s\","
-        "\"ntp_server\":\"%s\"}}}",
+        "\"ntp_server\":\"%s\"},\"sensors\":{"
+        "\"environment_enabled\":%s,\"light_enabled\":%s,"
+        "\"light_threshold\":%u,\"away_duration_s\":%lu,"
+        "\"return_duration_s\":%lu}}}",
         config.wifi_configured ? "true" : "false",
         config.wifi_password_configured ? "true" : "false",
         config.management_password_configured ? "true" : "false",
@@ -428,7 +681,12 @@ inline SerializeResult serialize_masked_config(
         location,
         units,
         language,
-        ntp_server);
+        ntp_server,
+        config.environment_enabled ? "true" : "false",
+        config.light_enabled ? "true" : "false",
+        static_cast<unsigned>(config.light_threshold),
+        static_cast<unsigned long>(config.away_duration_s),
+        static_cast<unsigned long>(config.return_duration_s));
 
     if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
         output[0] = '\0';
