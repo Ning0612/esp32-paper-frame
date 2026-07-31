@@ -1,5 +1,7 @@
 #include "pf_runtime/runtime_coordinator.hpp"
 
+#include <cstring>
+
 namespace pf_runtime {
 
 esp_err_t RuntimeCoordinator::initialize(
@@ -234,6 +236,40 @@ void RuntimeCoordinator::update_network(
     portENTER_CRITICAL(&snapshot_lock_);
     snapshot_.wifi = wifi;
     snapshot_.internet = internet;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
+void RuntimeCoordinator::update_time_sync(
+    const TimeSyncState time_sync)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    snapshot_.time_sync = time_sync;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
+void RuntimeCoordinator::update_weather(
+    const pf_weather::Cache& weather,
+    const char* const units)
+{
+    char bounded_units[pf_weather::kUnitsCapacity]{};
+    if (units != nullptr) {
+        std::size_t index = 0U;
+        while (index < sizeof(bounded_units) - 1U &&
+               units[index] != '\0') {
+            bounded_units[index] = units[index];
+            ++index;
+        }
+        bounded_units[index] = '\0';
+    }
+
+    portENTER_CRITICAL(&snapshot_lock_);
+    snapshot_.weather = weather;
+    std::memcpy(
+        snapshot_.weather_units,
+        bounded_units,
+        sizeof(bounded_units));
     ++snapshot_.sequence;
     portEXIT_CRITICAL(&snapshot_lock_);
 }

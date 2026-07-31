@@ -6,6 +6,7 @@
 
 #include "pf_config/schema.hpp"
 #include "pf_config/weather_settings.hpp"
+#include "pf_weather/weather.hpp"
 #include "pf_web/health_serializer.hpp"
 
 namespace pf_web {
@@ -96,12 +97,100 @@ inline SerializeResult serialize_status(
     const pf_runtime::RuntimeSnapshot& snapshot,
     const bool snapshot_valid,
     const std::uint64_t uptime_ms,
+    const std::uint64_t now_epoch_s,
     char* output,
     const std::size_t output_size)
 {
     if (output == nullptr || output_size == 0U) {
         return {false, 0U};
     }
+
+    const auto safe_weather_text = [](
+        const char* const value,
+        const std::size_t capacity) {
+        if (value == nullptr || capacity == 0U) {
+            return false;
+        }
+        const std::size_t length =
+            pf_config::bounded_text_length(value, capacity);
+        if (length >= capacity) {
+            return false;
+        }
+        for (std::size_t index = 0U; index < length; ++index) {
+            const unsigned char byte =
+                static_cast<unsigned char>(value[index]);
+            if (byte < 0x20U || byte == '"' || byte == '\\') {
+                return false;
+            }
+        }
+        return true;
+    };
+    const bool weather_has_observation =
+        snapshot_valid && snapshot.weather.has_observation;
+    const bool weather_is_stale =
+        weather_has_observation &&
+        pf_weather::stale(snapshot.weather, now_epoch_s);
+    const char* const weather_state =
+        !weather_has_observation
+            ? "unavailable"
+            : (weather_is_stale ? "stale" : "available");
+    char weather_temperature[24]{};
+    char weather_humidity[8]{};
+    char weather_observed_at[24]{};
+    if (weather_has_observation) {
+        std::snprintf(
+            weather_temperature,
+            sizeof(weather_temperature),
+            "%.1f",
+            static_cast<double>(
+                snapshot.weather.observation.temperature));
+        if (snapshot.weather.observation.humidity_percent >= 0) {
+            std::snprintf(
+                weather_humidity,
+                sizeof(weather_humidity),
+                "%d",
+                static_cast<int>(
+                    snapshot.weather.observation.humidity_percent));
+        } else {
+            std::snprintf(weather_humidity, sizeof(weather_humidity), "null");
+        }
+        std::snprintf(
+            weather_observed_at,
+            sizeof(weather_observed_at),
+            "%llu",
+            static_cast<unsigned long long>(
+                snapshot.weather.last_success_epoch_s));
+    } else {
+        std::snprintf(
+            weather_temperature, sizeof(weather_temperature), "null");
+        std::snprintf(weather_humidity, sizeof(weather_humidity), "null");
+        std::snprintf(
+            weather_observed_at, sizeof(weather_observed_at), "null");
+    }
+    const char* const weather_units =
+        weather_has_observation &&
+                safe_weather_text(
+                    snapshot.weather_units, pf_weather::kUnitsCapacity)
+            ? snapshot.weather_units
+            : "unknown";
+    const char* const weather_icon =
+        weather_has_observation &&
+                safe_weather_text(
+                    snapshot.weather.observation.icon,
+                    pf_weather::kIconCapacity)
+            ? snapshot.weather.observation.icon
+            : "unknown";
+    const char* const weather_description =
+        weather_has_observation &&
+                safe_weather_text(
+                    snapshot.weather.observation.description,
+                    pf_weather::kDescriptionCapacity)
+            ? snapshot.weather.observation.description
+            : "unknown";
+    const char* const weather_last_failure =
+        snapshot_valid
+            ? pf_weather::to_string(snapshot.weather.last_failure)
+            : "none";
 
     char flash_bytes[16]{};
     char psram_bytes[16]{};
@@ -179,7 +268,7 @@ inline SerializeResult serialize_status(
         "\"config\":\"%s\",\"webfs\":\"%s\","
         "\"imagefs\":\"%s\"},\"network\":{"
         "\"wifi\":\"%s\",\"internet\":\"%s\","
-        "\"sntp\":\"unknown\"},\"storage\":{"
+        "\"sntp\":\"%s\"},\"storage\":{"
         "\"flash_bytes\":%s,\"psram_bytes\":%s,"
         "\"webfs_total_bytes\":%s,\"webfs_used_bytes\":%s,"
         "\"imagefs_total_bytes\":%s,\"imagefs_used_bytes\":%s},"
@@ -189,7 +278,10 @@ inline SerializeResult serialize_status(
         "\"last_stage\":%u},\"carousel\":{"
         "\"state\":\"%s\",\"refresh_minutes\":%s,"
         "\"current_image\":null,\"next_refresh_ms\":null},"
-        "\"weather\":{\"state\":\"unavailable\"},"
+        "\"weather\":{\"state\":\"%s\",\"temperature\":%s,"
+        "\"units\":\"%s\",\"icon\":\"%s\",\"description\":\"%s\","
+        "\"humidity_percent\":%s,\"observed_at_epoch_s\":%s,"
+        "\"last_failure\":\"%s\"},"
         "\"sensors\":{\"temperature_c\":null,"
         "\"humidity_percent\":null,\"light_adc\":null,"
         "\"presence\":null}}}",
@@ -203,6 +295,7 @@ inline SerializeResult serialize_status(
         snapshot_valid ? pf_runtime::to_string(snapshot.imagefs) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.wifi) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.internet) : "unknown",
+        snapshot_valid ? pf_runtime::to_string(snapshot.time_sync) : "unknown",
         flash_bytes,
         psram_bytes,
         webfs_total,
@@ -224,7 +317,15 @@ inline SerializeResult serialize_status(
         snapshot_valid && snapshot.carousel_refresh_minutes != 0U
             ? "ready"
             : "unavailable",
-        refresh_minutes);
+        refresh_minutes,
+        weather_state,
+        weather_temperature,
+        weather_units,
+        weather_icon,
+        weather_description,
+        weather_humidity,
+        weather_observed_at,
+        weather_last_failure);
 
     if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
         output[0] = '\0';

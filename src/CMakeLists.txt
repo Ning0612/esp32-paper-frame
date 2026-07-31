@@ -17,6 +17,8 @@ idf_component_register(
         pf_provisioning
         pf_runtime
         pf_storage
+        pf_weather
+        pf_weather_worker
         pf_web
         spi_flash
 )

@@ -44,6 +44,7 @@ enum class NetworkEvent : std::uint8_t {
     ap_start_failed,
     wifi_initialize_failed,
     scan_requested,
+    sntp_time_synced,
 };
 
 enum class NetworkAction : std::uint8_t {

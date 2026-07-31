@@ -1,6 +1,7 @@
 #include <cinttypes>
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 
 #include "esp_chip_info.h"
 #include "esp_flash.h"
@@ -19,6 +20,7 @@
 #include "pf_config/config_manager.hpp"
 #include "pf_config/secure_memory.hpp"
 #include "pf_display/display_task_esp_idf.hpp"
+#include "pf_display/status_bar_renderer.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_provisioning/ap_screen.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
@@ -26,6 +28,7 @@
 #include "pf_storage/catalog.hpp"
 #include "pf_storage/littlefs_backend.hpp"
 #include "pf_storage/storage_worker.hpp"
+#include "pf_weather_worker/weather_worker.hpp"
 #include "pf_web/health_server.hpp"
 #include "pf_web/provisioning_service.hpp"
 
@@ -192,6 +195,49 @@ bool feed_carousel_pfr1(
     return decoder != nullptr && decoder->feed(data, length);
 }
 
+pf_display::StatusBarContent build_status_bar_content()
+{
+    pf_display::StatusBarContent content{};
+
+    pf_runtime::RuntimeSnapshot snapshot{};
+    if (!pf_runtime::coordinator().read_snapshot(snapshot)) {
+        return content;
+    }
+
+    if (snapshot.time_sync == pf_runtime::TimeSyncState::synced) {
+        const std::time_t now = std::time(nullptr);
+        std::tm utc{};
+        // Displayed in UTC: the minimal SNTP integration in this phase
+        // does not carry a configured timezone offset (see
+        // docs/adr/0005-weather-worker-and-status-bar.md).
+        if (gmtime_r(&now, &utc) != nullptr) {
+            content.time_valid = true;
+            content.year = static_cast<std::uint16_t>(utc.tm_year + 1900);
+            content.month = static_cast<std::uint8_t>(utc.tm_mon + 1);
+            content.day = static_cast<std::uint8_t>(utc.tm_mday);
+            content.iso_weekday = static_cast<std::uint8_t>(
+                utc.tm_wday == 0 ? 7 : utc.tm_wday);
+        }
+    }
+
+    content.weather_available = snapshot.weather.has_observation;
+    if (content.weather_available) {
+        content.weather_stale = pf_weather::stale(
+            snapshot.weather,
+            static_cast<std::uint64_t>(std::time(nullptr)));
+        const float temperature = snapshot.weather.observation.temperature;
+        content.temperature_rounded = static_cast<int>(
+            temperature >= 0.0F ? temperature + 0.5F : temperature - 0.5F);
+        std::memcpy(
+            content.icon_code,
+            snapshot.weather.observation.icon,
+            sizeof(content.icon_code));
+        content.icon_code[sizeof(content.icon_code) - 1U] = '\0';
+    }
+
+    return content;
+}
+
 bool render_carousel_image(
     pf_storage::StorageWorker& storage_worker,
     const pf_storage::CatalogEntry& entry,
@@ -224,7 +270,8 @@ bool render_carousel_image(
             status,
             pf_display::kLandscapeStatusBytes,
             frame,
-            frame_length)) {
+            frame_length,
+            build_status_bar_content())) {
         ESP_LOGW(
             kTag,
             "carousel_image_decode_failed id=%" PRIu32 " error=%u",
@@ -458,6 +505,7 @@ extern "C" void app_main()
                 : pf_runtime::ServiceState::degraded,
         .wifi = pf_runtime::WifiState::unknown,
         .internet = pf_runtime::InternetState::unknown,
+        .time_sync = pf_runtime::TimeSyncState::unsynced,
         .display = pf_runtime::DisplayState::unknown,
         .active_display_request_id = 0,
         .queued_display_count = 0,
@@ -552,6 +600,19 @@ extern "C" void app_main()
             kTag,
             "network_service_start_failed=%s; continuing degraded",
             esp_err_to_name(network_service_result));
+    }
+
+    const esp_err_t weather_worker_result =
+        network_service_result == ESP_OK && runtime_result == ESP_OK
+            ? pf_weather_worker::weather_worker().start(
+                  pf_runtime::coordinator(),
+                  pf_network::network_service())
+            : ESP_ERR_INVALID_STATE;
+    if (weather_worker_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "weather_worker_start_failed=%s; weather stays unavailable",
+            esp_err_to_name(weather_worker_result));
     }
 
     const esp_err_t provisioning_store_result =
@@ -748,6 +809,17 @@ extern "C" void app_main()
                 pf_carousel::render_welcome_frame(
                     frame.data(),
                     frame.size())) {
+                // Overlay the status bar onto the welcome frame's top
+                // rows (the same 800x40 band image_frame.hpp composes
+                // into) so date/weather show up even before any images
+                // exist in the catalog.
+                pf_display::PackedFramebufferView welcome_status_view(
+                    frame.data(),
+                    pf_display::kLandscapeStatusBytes,
+                    pf_display::kPanelWidth,
+                    pf_display::kStatusBarHeight);
+                pf_display::render_status_bar(
+                    build_status_bar_content(), welcome_status_view);
                 const std::uint32_t request_id =
                     pf_runtime::coordinator().allocate_request_id();
                 const pf_display::SubmitStatus submit =

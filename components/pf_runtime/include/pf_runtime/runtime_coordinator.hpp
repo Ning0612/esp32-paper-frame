@@ -35,6 +35,10 @@ public:
     void update_network(
         WifiState wifi,
         InternetState internet);
+    void update_time_sync(TimeSyncState time_sync);
+    void update_weather(
+        const pf_weather::Cache& weather,
+        const char* units);
     void update_display_started(std::uint32_t request_id);
     void update_display_finished(
         std::uint32_t request_id,

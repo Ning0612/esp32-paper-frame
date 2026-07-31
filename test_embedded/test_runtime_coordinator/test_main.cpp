@@ -1,9 +1,12 @@
 #include <cstdint>
 #include <initializer_list>
 
+#include <cstring>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pf_runtime/runtime_coordinator.hpp"
+#include "pf_weather/weather.hpp"
 #include "unity.h"
 
 extern "C" void setUp() {}
@@ -26,6 +29,7 @@ void test_runtime_queues_and_snapshot()
         .imagefs = pf_runtime::ServiceState::degraded,
         .wifi = pf_runtime::WifiState::unknown,
         .internet = pf_runtime::InternetState::unknown,
+        .time_sync = pf_runtime::TimeSyncState::unsynced,
         .display = pf_runtime::DisplayState::unknown,
         .active_display_request_id = 0,
         .queued_display_count = 0,
@@ -57,6 +61,23 @@ void test_runtime_queues_and_snapshot()
         static_cast<int>(pf_runtime::InternetState::unknown),
         static_cast<int>(observed.internet));
     TEST_ASSERT_EQUAL_UINT32(updated.sequence + 1U, observed.sequence);
+
+    runtime.update_time_sync(pf_runtime::TimeSyncState::synced);
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_runtime::TimeSyncState::synced),
+        static_cast<int>(observed.time_sync));
+
+    pf_weather::Cache weather{};
+    weather.has_observation = true;
+    weather.observation.temperature = 21.5F;
+    weather.last_success_epoch_s = 1700000000U;
+    runtime.update_weather(weather, "metric");
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_TRUE(observed.weather.has_observation);
+    TEST_ASSERT_EQUAL_FLOAT(
+        21.5F, observed.weather.observation.temperature);
+    TEST_ASSERT_EQUAL_STRING("metric", observed.weather_units);
 
     for (std::uint32_t index = 0; index < 4; ++index) {
         const pf_runtime::RuntimeCommand command{

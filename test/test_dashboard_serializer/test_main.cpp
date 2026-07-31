@@ -3,6 +3,7 @@
 #include <unity.h>
 
 #include "pf_runtime/runtime_snapshot.hpp"
+#include "pf_weather/weather.hpp"
 #include "pf_web/dashboard_serializer.hpp"
 
 extern "C" void setUp() {}
@@ -45,6 +46,7 @@ void test_status_contains_runtime_and_null_future_modules()
         snapshot(),
         true,
         123456,
+        1700000000U,
         output,
         sizeof(output));
 
@@ -59,6 +61,95 @@ void test_status_contains_runtime_and_null_future_modules()
         std::strstr(output, "\"temperature_c\":null"));
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"last_outcome\":\"refreshed_and_slept\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"weather\":{\"state\":\"unavailable\""));
+}
+
+void test_weather_reports_available_when_fresh()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.weather.has_observation = true;
+    data.weather.observation.temperature = 27.4F;
+    data.weather.observation.humidity_percent = 80;
+    data.weather.observation.weather_id = 500;
+    std::strncpy(
+        data.weather.observation.description,
+        "light rain",
+        sizeof(data.weather.observation.description) - 1U);
+    std::strncpy(
+        data.weather.observation.icon,
+        "10d",
+        sizeof(data.weather.observation.icon) - 1U);
+    data.weather.last_success_epoch_s = 1700000000U;
+    data.weather.last_failure = pf_weather::Failure::none;
+    std::strncpy(
+        data.weather_units,
+        "metric",
+        sizeof(data.weather_units) - 1U);
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data,
+        true,
+        123456,
+        1700000100U,
+        output,
+        sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"weather\":{\"state\":\"available\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature\":27.4"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"units\":\"metric\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"icon\":\"10d\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"description\":\"light rain\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"humidity_percent\":80"));
+}
+
+void test_weather_reports_stale_past_max_age()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.weather.has_observation = true;
+    data.weather.observation.temperature = 10.0F;
+    data.weather.last_success_epoch_s = 1000U;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data,
+        true,
+        123456,
+        1000U + pf_weather::kDefaultCacheMaxAgeSeconds + 1U,
+        output,
+        sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"weather\":{\"state\":\"stale\""));
+}
+
+void test_weather_reports_last_failure_reason_when_unavailable()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.weather.has_observation = false;
+    data.weather.last_failure = pf_weather::Failure::api_key_invalid;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data,
+        true,
+        123456,
+        1700000000U,
+        output,
+        sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"weather\":{\"state\":\"unavailable\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"temperature\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"last_failure\":\"api_key_invalid\""));
 }
 
 void test_device_is_safe_and_uses_snapshot_capacity()
@@ -123,6 +214,7 @@ void test_unknown_snapshot_has_null_capacities()
         pf_runtime::RuntimeSnapshot{},
         false,
         999,
+        0,
         output,
         sizeof(output));
 
@@ -199,6 +291,9 @@ int main(int, char**)
 {
     UNITY_BEGIN();
     RUN_TEST(test_status_contains_runtime_and_null_future_modules);
+    RUN_TEST(test_weather_reports_available_when_fresh);
+    RUN_TEST(test_weather_reports_stale_past_max_age);
+    RUN_TEST(test_weather_reports_last_failure_reason_when_unavailable);
     RUN_TEST(test_device_is_safe_and_uses_snapshot_capacity);
     RUN_TEST(test_masked_config_never_returns_secret_values);
     RUN_TEST(test_unknown_snapshot_has_null_capacities);

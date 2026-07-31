@@ -1,17 +1,16 @@
 idf_component_register(
     SRCS
-        "health_server.cpp"
-        "provisioning_service.cpp"
+        "weather_worker_esp_idf.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES
-        esp_http_server
+        esp-tls
+        esp_http_client
         esp_timer
         freertos
-        pf_auth
+        mbedtls
         pf_config
         pf_network
         pf_runtime
-        pf_storage
-        pf_weather_worker
+        pf_weather
 )

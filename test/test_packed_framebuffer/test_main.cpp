@@ -87,6 +87,8 @@ void test_set_pixel_preserves_its_neighbor_and_addresses_boundaries()
     TEST_ASSERT_EQUAL_HEX8(0x5A, buffer[last_offset]);
     TEST_ASSERT_TRUE(framebuffer.set_pixel(799, 479, Color::green));
     TEST_ASSERT_EQUAL_HEX8(0x56, buffer[last_offset]);
+    TEST_ASSERT_EQUAL_UINT(pf_display::kPanelWidth, framebuffer.width());
+    TEST_ASSERT_EQUAL_UINT(pf_display::kPanelHeight, framebuffer.height());
 }
 
 void test_read_and_fill_use_the_same_palette_contract()

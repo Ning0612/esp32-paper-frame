@@ -7,8 +7,11 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_random.h"
+#include "esp_sntp.h"
 #include "esp_wifi.h"
+#include "pf_config/config_manager.hpp"
 #include "pf_config/secure_memory.hpp"
 #include "pf_network/access_point_credentials.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
@@ -147,6 +150,13 @@ bool NetworkService::request_scan()
     return false;
 }
 
+bool NetworkService::report_internet_state(const bool reachable)
+{
+    return enqueue_event(
+        reachable ? NetworkEvent::internet_reachable
+                  : NetworkEvent::internet_unreachable);
+}
+
 bool NetworkService::scan_snapshot(
     ScanSnapshot& destination)
 {
@@ -220,6 +230,25 @@ void NetworkService::task_main()
         if (event == NetworkEvent::scan_requested) {
             begin_scan();
             continue;
+        }
+        if (event == NetworkEvent::sntp_time_synced) {
+            time_sync_state_ = next_time_sync_state(
+                time_sync_state_,
+                TimeSyncEvent::sntp_synced);
+            publish_state();
+            continue;
+        }
+        if (event == NetworkEvent::sta_got_ip) {
+            time_sync_state_ = next_time_sync_state(
+                time_sync_state_,
+                TimeSyncEvent::wifi_connected);
+            maybe_start_sntp();
+        } else if (
+            event == NetworkEvent::sta_disconnected ||
+            event == NetworkEvent::sta_connect_timeout) {
+            time_sync_state_ = next_time_sync_state(
+                time_sync_state_,
+                TimeSyncEvent::wifi_disconnected);
         }
         action = state_machine_.handle(event);
         publish_state();
@@ -557,6 +586,80 @@ void NetworkService::publish_state()
         internet = pf_runtime::InternetState::unreachable;
     }
     runtime_->update_network(wifi, internet);
+
+    // Authoritative fallback: publish_state() runs on every processed
+    // network event, so polling here (cheap, non-blocking) catches a
+    // completed sync even if the notification callback fired inside the
+    // narrow window before it was registered, or its queued event was
+    // dropped because the event queue was momentarily full.
+    if (sntp_started_ &&
+        time_sync_state_ != TimeSyncState::synced &&
+        sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+        time_sync_state_ = TimeSyncState::synced;
+    }
+
+    pf_runtime::TimeSyncState time_sync =
+        pf_runtime::TimeSyncState::unsynced;
+    switch (time_sync_state_) {
+        case TimeSyncState::unsynced:
+            time_sync = pf_runtime::TimeSyncState::unsynced;
+            break;
+        case TimeSyncState::syncing:
+            time_sync = pf_runtime::TimeSyncState::syncing;
+            break;
+        case TimeSyncState::synced:
+            time_sync = pf_runtime::TimeSyncState::synced;
+            break;
+    }
+    runtime_->update_time_sync(time_sync);
+}
+
+void NetworkService::maybe_start_sntp()
+{
+    if (sntp_started_) {
+        return;
+    }
+
+    std::strncpy(
+        sntp_server_buffer_,
+        "pool.ntp.org",
+        sizeof(sntp_server_buffer_) - 1U);
+    sntp_server_buffer_[sizeof(sntp_server_buffer_) - 1U] = '\0';
+
+    const pf_config::WeatherSettingsLoadResult settings_result =
+        pf_config::load_weather_settings();
+    if (settings_result.error == ESP_OK &&
+        settings_result.settings.ntp_server[0] != '\0') {
+        std::strncpy(
+            sntp_server_buffer_,
+            settings_result.settings.ntp_server,
+            sizeof(sntp_server_buffer_) - 1U);
+        sntp_server_buffer_[sizeof(sntp_server_buffer_) - 1U] = '\0';
+    }
+
+    esp_sntp_config_t config =
+        ESP_NETIF_SNTP_DEFAULT_CONFIG(sntp_server_buffer_);
+    const esp_err_t init_result = esp_netif_sntp_init(&config);
+    if (init_result != ESP_OK) {
+        ESP_LOGW(
+            kTag,
+            "sntp_init_failed=%s; will retry on next sta_got_ip",
+            esp_err_to_name(init_result));
+        return;
+    }
+    sntp_started_ = true;
+    sntp_set_time_sync_notification_cb(
+        &NetworkService::sntp_synced_callback);
+}
+
+void NetworkService::sntp_synced_callback(struct timeval*)
+{
+    if (!network_service().enqueue_event(NetworkEvent::sntp_time_synced)) {
+        ESP_LOGW(
+            kTag,
+            "sntp_synced_event_queue_full; time_sync snapshot may lag "
+            "until the next network event");
+    }
 }
 
 bool NetworkService::enqueue_event(const NetworkEvent event)

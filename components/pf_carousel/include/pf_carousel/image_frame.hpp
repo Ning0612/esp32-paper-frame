@@ -5,12 +5,13 @@
 #include <cstdint>
 
 #include "pf_display/frame_renderer.hpp"
+#include "pf_display/status_bar_renderer.hpp"
 #include "pf_image/pfr1.hpp"
 
 namespace pf_carousel {
 
 // Decodes one streamed PFR1 file into a caller-owned payload buffer and then
-// composes it with a white status strip into the panel framebuffer. The
+// composes it with a rendered status strip into the panel framebuffer. The
 // decoder is deliberately independent from StorageWorker so it remains
 // host-testable; callers only need to forward stream chunks to feed().
 class Pfr1FrameDecoder final {
@@ -34,6 +35,7 @@ public:
         const std::size_t status_capacity,
         std::uint8_t* const output,
         const std::size_t output_length,
+        const pf_display::StatusBarContent& status_content,
         const pf_display::StatusPlacement placement =
             pf_display::StatusPlacement::top,
         const pf_display::PortraitRotation portrait_rotation =
@@ -46,15 +48,16 @@ public:
             return false;
         }
 
-        const std::uint8_t white = pf_display::native_code(
-            pf_display::Color::white);
-        std::fill_n(
-            status,
-            pf_display::kLandscapeStatusBytes,
-            static_cast<std::uint8_t>((white << 4U) | white));
-
         const pf_image::Pfr1Header& header = validator_.header();
         if (header.orientation == pf_image::Orientation::landscape) {
+            pf_display::PackedFramebufferView status_view(
+                status,
+                pf_display::kLandscapeStatusBytes,
+                pf_display::kPanelWidth,
+                pf_display::kStatusBarHeight);
+            if (!pf_display::render_status_bar(status_content, status_view)) {
+                return false;
+            }
             const pf_display::RenderResult result =
                 pf_display::compose_landscape(
                     {
@@ -75,6 +78,14 @@ public:
             return result.succeeded();
         }
 
+        pf_display::PackedFramebufferView status_view(
+            status,
+            pf_display::kPortraitStatusBytes,
+            pf_display::kPortraitImageWidth,
+            pf_display::kStatusBarHeight);
+        if (!pf_display::render_status_bar(status_content, status_view)) {
+            return false;
+        }
         const pf_display::RenderResult result = pf_display::compose_portrait(
             {
                 status,

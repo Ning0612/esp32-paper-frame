@@ -10,6 +10,7 @@ idf_component_register(
         esp_netif
         esp_wifi
         freertos
+        lwip
         pf_config
         pf_runtime
 )

@@ -8,6 +8,10 @@ namespace pf_weather {
 inline constexpr std::size_t kDescriptionCapacity = 64U;
 inline constexpr std::size_t kIconCapacity = 8U;
 inline constexpr std::size_t kLocationCapacity = 48U;
+// Units ("metric"/"imperial") the observation in a Cache was fetched with;
+// not part of Observation itself since the OpenWeatherMap response never
+// echoes back the units it was requested with.
+inline constexpr std::size_t kUnitsCapacity = 9U;
 inline constexpr std::uint64_t kDefaultCacheMaxAgeSeconds = 3600U;
 inline constexpr std::uint64_t kUpdateIntervalMs = 10U * 60U * 1000U;
 inline constexpr std::uint64_t kInitialRetryMs = 10U * 1000U;
@@ -71,7 +75,8 @@ void record_success(
     Cache& cache,
     const Observation& observation,
     std::uint64_t success_epoch_s,
-    std::uint64_t now_ms);
+    std::uint64_t now_ms,
+    std::uint64_t interval_ms = kUpdateIntervalMs);
 
 void record_failure(
     Cache& cache,
@@ -79,6 +84,11 @@ void record_failure(
     std::uint64_t now_ms);
 
 bool retry_due(const Cache& cache, std::uint64_t now_ms);
+
+// Classifies an OpenWeatherMap HTTP response status into a cache failure
+// category once headers have been received (connection-level failures
+// before a status code exists are always Failure::network).
+Failure classify_http_status(int status_code);
 
 bool stale(
     const Cache& cache,

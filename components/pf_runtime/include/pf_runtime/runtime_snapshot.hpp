@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "pf_runtime/runtime_messages.hpp"
+#include "pf_weather/weather.hpp"
 
 namespace pf_runtime {
 
@@ -52,6 +53,14 @@ enum class InternetState : std::uint8_t {
     unreachable,
 };
 
+// Mirrors pf_network::TimeSyncState; pf_network translates into this type
+// when publishing so pf_runtime stays free of a pf_network dependency.
+enum class TimeSyncState : std::uint8_t {
+    unsynced,
+    syncing,
+    synced,
+};
+
 struct RuntimeSnapshot {
     std::uint32_t sequence;
     ServiceState flash;
@@ -61,6 +70,7 @@ struct RuntimeSnapshot {
     ServiceState imagefs;
     WifiState wifi;
     InternetState internet;
+    TimeSyncState time_sync;
     DisplayState display;
     std::uint32_t active_display_request_id;
     std::uint8_t queued_display_count;
@@ -77,6 +87,11 @@ struct RuntimeSnapshot {
     std::uint32_t imagefs_total_bytes = 0;
     std::uint32_t imagefs_used_bytes = 0;
     std::uint32_t carousel_refresh_minutes = 0;
+    // Value copy of the latest weather fetch cache; units records what the
+    // cached observation was fetched in, since Observation itself does not
+    // carry that (the API response never echoes back the requested units).
+    pf_weather::Cache weather{};
+    char weather_units[pf_weather::kUnitsCapacity]{};
 };
 
 constexpr const char* to_string(const WifiState state)
@@ -109,6 +124,19 @@ constexpr const char* to_string(const InternetState state)
             return "unreachable";
     }
     return "unknown";
+}
+
+constexpr const char* to_string(const TimeSyncState state)
+{
+    switch (state) {
+        case TimeSyncState::unsynced:
+            return "unsynced";
+        case TimeSyncState::syncing:
+            return "syncing";
+        case TimeSyncState::synced:
+            return "synced";
+    }
+    return "unsynced";
 }
 
 constexpr const char* to_string(const ServiceState state)

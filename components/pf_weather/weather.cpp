@@ -69,7 +69,8 @@ bool find_key(
                     break;
                 }
             }
-            if (cursor > end || cursor == end && json[cursor - 1U] != '"') {
+            if (cursor > end ||
+                (cursor == end && json[cursor - 1U] != '"')) {
                 return false;
             }
             if (depth == 1 && matches_key(json, end, quote, key)) {
@@ -545,14 +546,28 @@ void record_success(
     Cache& cache,
     const Observation& observation,
     const std::uint64_t success_epoch_s,
-    const std::uint64_t now_ms)
+    const std::uint64_t now_ms,
+    const std::uint64_t interval_ms)
 {
     cache.observation = observation;
     cache.has_observation = true;
     cache.last_success_epoch_s = success_epoch_s;
-    cache.next_attempt_ms = now_ms + kUpdateIntervalMs;
+    cache.next_attempt_ms = now_ms > UINT64_MAX - interval_ms
+                                 ? UINT64_MAX
+                                 : now_ms + interval_ms;
     cache.consecutive_failures = 0U;
     cache.last_failure = Failure::none;
+}
+
+Failure classify_http_status(const int status_code)
+{
+    if (status_code == 200) {
+        return Failure::none;
+    }
+    if (status_code == 401) {
+        return Failure::api_key_invalid;
+    }
+    return Failure::http_error;
 }
 
 void record_failure(

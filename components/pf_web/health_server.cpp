@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -25,6 +26,7 @@
 #include "pf_web/provisioning_form.hpp"
 #include "pf_web/provisioning_service.hpp"
 #include "pf_web/weather_config_form.hpp"
+#include "pf_weather_worker/weather_worker.hpp"
 
 namespace pf_web {
 namespace {
@@ -443,6 +445,7 @@ esp_err_t status_handler(httpd_req_t* request)
         snapshot,
         snapshot_valid,
         monotonic_ms(),
+        static_cast<std::uint64_t>(std::time(nullptr)),
         response,
         sizeof(response));
     if (!serialized.ok) {
@@ -633,6 +636,7 @@ esp_err_t process_weather_config(
     const bool api_key_set =
         server_access_config.weather_settings.api_key[0] != '\0';
     xSemaphoreGive(weather_config_mutex);
+    pf_weather_worker::weather_worker().request_immediate_refresh();
     return send_json(
         request,
         nullptr,

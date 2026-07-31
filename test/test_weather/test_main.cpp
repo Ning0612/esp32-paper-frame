@@ -136,6 +136,34 @@ void test_cache_preserves_last_success_and_backs_off_failures()
         cache.next_attempt_ms);
 }
 
+void test_record_success_honors_custom_interval()
+{
+    const pf_weather::ParseResult parsed =
+        pf_weather::parse_current_weather(kResponse, sizeof(kResponse) - 1U);
+    TEST_ASSERT_TRUE(parsed.ok());
+
+    pf_weather::Cache cache{};
+    pf_weather::record_success(
+        cache, parsed.observation, 1000U, 5000U, 60U * 60U * 1000U);
+    TEST_ASSERT_EQUAL_UINT64(5000U + 60U * 60U * 1000U, cache.next_attempt_ms);
+}
+
+void test_classify_http_status_maps_known_and_unknown_codes()
+{
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::none),
+        static_cast<int>(pf_weather::classify_http_status(200)));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::api_key_invalid),
+        static_cast<int>(pf_weather::classify_http_status(401)));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::http_error),
+        static_cast<int>(pf_weather::classify_http_status(500)));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::http_error),
+        static_cast<int>(pf_weather::classify_http_status(404)));
+}
+
 }  // namespace
 
 int main()
@@ -147,5 +175,7 @@ int main()
     RUN_TEST(test_parser_does_not_take_values_from_nested_objects);
     RUN_TEST(test_parser_rejects_number_prefixes_with_trailing_garbage);
     RUN_TEST(test_cache_preserves_last_success_and_backs_off_failures);
+    RUN_TEST(test_record_success_honors_custom_interval);
+    RUN_TEST(test_classify_http_status_maps_known_and_unknown_codes);
     return UNITY_END();
 }

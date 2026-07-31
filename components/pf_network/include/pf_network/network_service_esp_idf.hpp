@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <sys/time.h>
 
 #include "esp_err.h"
 #include "esp_event.h"
@@ -9,8 +10,10 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "pf_config/weather_settings.hpp"
 #include "pf_network/scan_results.hpp"
 #include "pf_network/state_machine.hpp"
+#include "pf_network/time_sync_state.hpp"
 
 namespace pf_runtime {
 class RuntimeCoordinator;
@@ -66,6 +69,10 @@ public:
 
     bool request_scan();
     bool scan_snapshot(ScanSnapshot& destination);
+    // Reported by whichever component first makes an outbound network
+    // call (currently WeatherWorker); drives the otherwise-unfed
+    // NetworkEvent::internet_reachable/unreachable transitions.
+    bool report_internet_state(bool reachable);
 
 private:
     static constexpr UBaseType_t kEventQueueLength = 8U;
@@ -81,6 +88,7 @@ private:
         esp_event_base_t event_base,
         std::int32_t event_id,
         void* event_data);
+    static void sntp_synced_callback(struct timeval* synced_time);
 
     void task_main();
     void perform_action_chain(NetworkAction action);
@@ -94,11 +102,15 @@ private:
     void publish_state();
     bool enqueue_event(NetworkEvent event);
     bool build_access_point_info();
+    void maybe_start_sntp();
 
     pf_runtime::RuntimeCoordinator* runtime_ = nullptr;
     NetworkCredentials credentials_{};
     AccessPointInfo access_point_{};
     NetworkStateMachine state_machine_{};
+    TimeSyncState time_sync_state_ = TimeSyncState::unsynced;
+    bool sntp_started_ = false;
+    char sntp_server_buffer_[pf_config::kWeatherNtpServerCapacity]{};
     QueueHandle_t event_queue_ = nullptr;
     TaskHandle_t task_handle_ = nullptr;
     StaticQueue_t event_queue_control_{};

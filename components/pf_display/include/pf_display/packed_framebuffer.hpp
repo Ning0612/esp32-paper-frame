@@ -126,6 +126,16 @@ public:
                capacity_ >= required.bytes;
     }
 
+    std::size_t width() const
+    {
+        return width_;
+    }
+
+    std::size_t height() const
+    {
+        return height_;
+    }
+
     bool set_pixel(
         const std::size_t x,
         const std::size_t y,

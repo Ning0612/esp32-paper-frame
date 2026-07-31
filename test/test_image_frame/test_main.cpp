@@ -88,7 +88,36 @@ bool feed_file(
     return true;
 }
 
-void test_landscape_file_composes_with_white_status()
+pf_display::StatusBarContent make_status_content()
+{
+    pf_display::StatusBarContent content{};
+    content.time_valid = true;
+    content.year = 2026;
+    content.month = 7;
+    content.day = 31;
+    content.iso_weekday = 5;
+    content.weather_available = true;
+    content.weather_stale = false;
+    content.temperature_rounded = 27;
+    content.icon_code[0] = '0';
+    content.icon_code[1] = '1';
+    content.icon_code[2] = 'd';
+    return content;
+}
+
+bool any_byte_differs_from(
+    const std::vector<std::uint8_t>& data,
+    const std::uint8_t value)
+{
+    for (const std::uint8_t byte : data) {
+        if (byte != value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void test_landscape_file_composes_rendered_status_and_preserves_image()
 {
     const auto file = make_file(0U);
     std::vector<std::uint8_t> payload(pf_image::kPfr1MaxPayloadBytes);
@@ -99,16 +128,35 @@ void test_landscape_file_composes_with_white_status()
     pf_carousel::Pfr1FrameDecoder decoder(
         payload.data(),
         payload.size());
+    const pf_display::StatusBarContent content = make_status_content();
 
     TEST_ASSERT_TRUE(feed_file(decoder, file));
     TEST_ASSERT_TRUE(decoder.finish_and_compose(
         status.data(),
         status.size(),
         frame.data(),
-        frame.size()));
-    for (const std::uint8_t value : frame) {
-        TEST_ASSERT_EQUAL_HEX8(0x11U, value);
+        frame.size(),
+        content));
+
+    // The image band (everything below the top status strip, since
+    // placement defaults to top) is untouched all-white payload data.
+    for (std::size_t index = pf_display::kLandscapeStatusBytes;
+         index < frame.size();
+         ++index) {
+        TEST_ASSERT_EQUAL_HEX8(0x11U, frame[index]);
     }
+    // The status strip now carries rendered date/weather glyphs rather
+    // than a blank white fill.
+    bool status_has_content = false;
+    for (std::size_t index = 0U;
+         index < pf_display::kLandscapeStatusBytes;
+         ++index) {
+        if (frame[index] != 0x11U) {
+            status_has_content = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(status_has_content);
 }
 
 void test_portrait_file_composes_and_rejects_small_payload_buffer()
@@ -122,16 +170,18 @@ void test_portrait_file_composes_and_rejects_small_payload_buffer()
     pf_carousel::Pfr1FrameDecoder decoder(
         payload.data(),
         payload.size());
+    const pf_display::StatusBarContent content = make_status_content();
 
     TEST_ASSERT_TRUE(feed_file(decoder, file));
     TEST_ASSERT_TRUE(decoder.finish_and_compose(
         status.data(),
         status.size(),
         frame.data(),
-        frame.size()));
-    for (const std::uint8_t value : frame) {
-        TEST_ASSERT_EQUAL_HEX8(0x11U, value);
-    }
+        frame.size(),
+        content));
+    // Rendered status content means the composed frame is no longer a
+    // uniform all-white buffer.
+    TEST_ASSERT_TRUE(any_byte_differs_from(frame, 0x11U));
 
     std::vector<std::uint8_t> too_small(1U);
     pf_carousel::Pfr1FrameDecoder rejected(
@@ -140,12 +190,40 @@ void test_portrait_file_composes_and_rejects_small_payload_buffer()
     TEST_ASSERT_FALSE(rejected.feed(file.data(), file.size()));
 }
 
+void test_unsynced_time_still_composes_a_safe_placeholder()
+{
+    const auto file = make_file(0U);
+    std::vector<std::uint8_t> payload(pf_image::kPfr1MaxPayloadBytes);
+    std::vector<std::uint8_t> status(pf_display::kLandscapeStatusBytes);
+    std::vector<std::uint8_t> frame(
+        pf_display::kFullFramebufferBytes,
+        0x55U);
+    pf_carousel::Pfr1FrameDecoder decoder(
+        payload.data(),
+        payload.size());
+    const pf_display::StatusBarContent content{};  // time_valid=false
+
+    TEST_ASSERT_TRUE(feed_file(decoder, file));
+    TEST_ASSERT_TRUE(decoder.finish_and_compose(
+        status.data(),
+        status.size(),
+        frame.data(),
+        frame.size(),
+        content));
+    for (std::size_t index = pf_display::kLandscapeStatusBytes;
+         index < frame.size();
+         ++index) {
+        TEST_ASSERT_EQUAL_HEX8(0x11U, frame[index]);
+    }
+}
+
 }  // namespace
 
 int main()
 {
     UNITY_BEGIN();
-    RUN_TEST(test_landscape_file_composes_with_white_status);
+    RUN_TEST(test_landscape_file_composes_rendered_status_and_preserves_image);
     RUN_TEST(test_portrait_file_composes_and_rejects_small_payload_buffer);
+    RUN_TEST(test_unsynced_time_still_composes_a_safe_placeholder);
     return UNITY_END();
 }
