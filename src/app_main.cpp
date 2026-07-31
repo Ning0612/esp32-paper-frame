@@ -23,7 +23,8 @@
 #include "pf_display/display_task_esp_idf.hpp"
 #include "pf_display/status_bar_renderer.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
-#include "pf_provisioning/ap_screen.hpp"
+#include "pf_network/ap_screen.hpp"
+#include "pf_network/provisioning_service.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_sensor_task/sensor_task.hpp"
 #include "pf_sensors/presence.hpp"
@@ -33,7 +34,6 @@
 #include "pf_storage/storage_worker.hpp"
 #include "pf_weather_worker/weather_worker.hpp"
 #include "pf_web/health_server.hpp"
-#include "pf_web/provisioning_service.hpp"
 
 namespace {
 
@@ -67,7 +67,7 @@ struct HardwareProfile {
 struct AccessPointPresenterContext {
     bool display_started = false;
     bool payload_valid = false;
-    pf_provisioning::AccessPointScreenPayload last_payload{};
+    pf_network::AccessPointScreenPayload last_payload{};
 };
 
 HardwareProfile log_hardware_profile()
@@ -295,9 +295,9 @@ esp_err_t present_access_point_screen(
         return ESP_ERR_INVALID_STATE;
     }
 
-    pf_provisioning::AccessPointScreenPayload payload{};
+    pf_network::AccessPointScreenPayload payload{};
     const pf_config::SecureZeroGuard payload_guard(payload);
-    if (!pf_provisioning::build_access_point_screen_payload(
+    if (!pf_network::build_access_point_screen_payload(
             info.ssid,
             info.password,
             info.device_suffix,
@@ -305,7 +305,7 @@ esp_err_t present_access_point_screen(
         return ESP_ERR_INVALID_ARG;
     }
     if (presenter->payload_valid &&
-        pf_provisioning::same_access_point_screen_payload(
+        pf_network::same_access_point_screen_payload(
             presenter->last_payload,
             payload)) {
         ESP_LOGI(
@@ -319,7 +319,7 @@ esp_err_t present_access_point_screen(
     if (!frame.valid()) {
         return ESP_ERR_TIMEOUT;
     }
-    if (!pf_provisioning::render_access_point_screen(
+    if (!pf_network::render_access_point_screen(
             frame.data(),
             frame.size(),
             payload)) {
@@ -574,22 +574,16 @@ extern "C" void app_main()
             esp_err_to_name(network_stack_result));
     }
 
-    pf_network::NetworkCredentials network_credentials{};
+    pf_config::NetworkCredentials network_credentials{};
     const bool password_bootstrap =
         password_status.error == ESP_OK &&
         !password_status.configured;
-    if (stored_credentials.error == ESP_OK &&
+    const bool network_configured =
+        stored_credentials.error == ESP_OK &&
         stored_credentials.configured &&
-        !password_bootstrap) {
-        network_credentials.configured = true;
-        std::memcpy(
-            network_credentials.ssid,
-            stored_credentials.credentials.ssid,
-            sizeof(network_credentials.ssid));
-        std::memcpy(
-            network_credentials.password,
-            stored_credentials.credentials.password,
-            sizeof(network_credentials.password));
+        !password_bootstrap;
+    if (network_configured) {
+        network_credentials = stored_credentials.credentials;
     } else if (
         stored_credentials.error == ESP_OK &&
         stored_credentials.configured &&
@@ -609,6 +603,7 @@ extern "C" void app_main()
             ? pf_network::network_service().start(
                   pf_runtime::coordinator(),
                   network_credentials,
+                  network_configured,
                   &present_access_point_screen,
                   &ap_presenter)
             : ESP_ERR_INVALID_STATE;
@@ -649,7 +644,7 @@ extern "C" void app_main()
             ? config_result.error
             : runtime_result != ESP_OK
                   ? runtime_result
-                  : pf_web::provisioning_service().start(
+                  : pf_network::provisioning_service().start(
                         pf_runtime::coordinator());
     if (provisioning_store_result != ESP_OK) {
         ESP_LOGE(

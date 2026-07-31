@@ -2,7 +2,7 @@
 
 #include <unity.h>
 
-#include "pf_provisioning/ap_screen.hpp"
+#include "pf_network/ap_screen.hpp"
 
 extern "C" void setUp() {}
 extern "C" void tearDown() {}
@@ -11,9 +11,9 @@ namespace {
 
 void test_ap_screen_payload_has_stable_golden_values()
 {
-    pf_provisioning::AccessPointScreenPayload payload{};
+    pf_network::AccessPointScreenPayload payload{};
     TEST_ASSERT_TRUE(
-        pf_provisioning::build_access_point_screen_payload(
+        pf_network::build_access_point_screen_payload(
             "PaperFrame-Setup-A1B2",
             "PF-ABCDEFGHJKMN",
             "A1B2",
@@ -35,9 +35,9 @@ void test_ap_screen_payload_has_stable_golden_values()
 
 void test_qr_payload_escapes_wifi_reserved_characters()
 {
-    pf_provisioning::AccessPointScreenPayload payload{};
+    pf_network::AccessPointScreenPayload payload{};
     TEST_ASSERT_TRUE(
-        pf_provisioning::build_access_point_screen_payload(
+        pf_network::build_access_point_screen_payload(
             "Lab;2",
             "pass:word",
             "00AF",
@@ -49,9 +49,9 @@ void test_qr_payload_escapes_wifi_reserved_characters()
 
 void test_same_payload_suppresses_redundant_refresh()
 {
-    pf_provisioning::AccessPointScreenPayload first{};
-    pf_provisioning::AccessPointScreenPayload second{};
-    pf_provisioning::build_access_point_screen_payload(
+    pf_network::AccessPointScreenPayload first{};
+    pf_network::AccessPointScreenPayload second{};
+    pf_network::build_access_point_screen_payload(
         "PaperFrame-Setup-A1B2",
         "PF-ABCDEFGHJKMN",
         "A1B2",
@@ -59,12 +59,12 @@ void test_same_payload_suppresses_redundant_refresh()
     second = first;
 
     TEST_ASSERT_TRUE(
-        pf_provisioning::same_access_point_screen_payload(
+        pf_network::same_access_point_screen_payload(
             first,
             second));
     second.device_suffix[3] = 'F';
     TEST_ASSERT_FALSE(
-        pf_provisioning::same_access_point_screen_payload(
+        pf_network::same_access_point_screen_payload(
             first,
             second));
 }

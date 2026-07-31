@@ -133,25 +133,6 @@ bool fill_nonzero_secret(SessionSecret& destination)
     return false;
 }
 
-LoginOperationState operation_state_for(
-    const LoginStatus status)
-{
-    switch (status) {
-        case LoginStatus::authenticated:
-            return LoginOperationState::authenticated;
-        case LoginStatus::password_created:
-            return LoginOperationState::password_created;
-        case LoginStatus::invalid_credentials:
-        case LoginStatus::invalid_input:
-            return LoginOperationState::invalid_credentials;
-        case LoginStatus::setup_forbidden:
-            return LoginOperationState::setup_forbidden;
-        case LoginStatus::unavailable:
-            return LoginOperationState::failed;
-    }
-    return LoginOperationState::failed;
-}
-
 }  // namespace
 
 esp_err_t AuthService::start(
@@ -166,19 +147,11 @@ esp_err_t AuthService::start(
     }
     state_mutex_ =
         xSemaphoreCreateMutexStatic(&state_mutex_control_);
-    operation_mutex_ =
-        xSemaphoreCreateMutexStatic(&operation_mutex_control_);
-    queue_ = xQueueCreateStatic(
-        1U,
-        sizeof(QueuedLogin),
-        queue_storage_,
-        &queue_control_);
-    if (state_mutex_ == nullptr ||
-        operation_mutex_ == nullptr ||
-        queue_ == nullptr) {
+    login_mutex_ =
+        xSemaphoreCreateMutexStatic(&login_mutex_control_);
+    if (state_mutex_ == nullptr || login_mutex_ == nullptr) {
         state_mutex_ = nullptr;
-        operation_mutex_ = nullptr;
-        queue_ = nullptr;
+        login_mutex_ = nullptr;
         return ESP_ERR_NO_MEM;
     }
 
@@ -187,8 +160,7 @@ esp_err_t AuthService::start(
     if (loaded.error != ESP_OK) {
         pf_config::secure_zero(loaded.record);
         state_mutex_ = nullptr;
-        operation_mutex_ = nullptr;
-        queue_ = nullptr;
+        login_mutex_ = nullptr;
         return loaded.error;
     }
     if (loaded.configured) {
@@ -197,21 +169,6 @@ esp_err_t AuthService::start(
     pf_config::secure_zero(loaded.record);
     password_configured_ = loaded.configured;
     runtime_ = &runtime;
-    task_handle_ = xTaskCreateStatic(
-        &AuthService::task_entry,
-        "AuthTask",
-        kTaskStackWords,
-        this,
-        kTaskPriority,
-        task_stack_,
-        &task_control_);
-    if (task_handle_ == nullptr) {
-        runtime_ = nullptr;
-        state_mutex_ = nullptr;
-        operation_mutex_ = nullptr;
-        queue_ = nullptr;
-        return ESP_ERR_NO_MEM;
-    }
     initialized_ = true;
     return ESP_OK;
 }
@@ -227,7 +184,7 @@ bool AuthService::password_configured() const
     return guard.locked() ? password_configured_ : true;
 }
 
-LoginSubmitResult AuthService::submit_login(
+LoginResult AuthService::login(
     const char* const username,
     const char* const password,
     const bool setup_allowed,
@@ -236,106 +193,24 @@ LoginSubmitResult AuthService::submit_login(
     if (username == nullptr ||
         std::strcmp(username, kManagementUsername) != 0 ||
         !password_valid(password)) {
-        return {LoginSubmitStatus::invalid, {}};
+        return {LoginStatus::invalid_input, {}, {}, 0U};
     }
-    if (!initialized_ || queue_ == nullptr ||
-        task_handle_ == nullptr || operation_mutex_ == nullptr) {
-        return {LoginSubmitStatus::unavailable, {}};
+    if (!initialized_ || login_mutex_ == nullptr) {
+        return {LoginStatus::unavailable, {}, {}, 0U};
     }
 
-    MutexGuard guard(
-        operation_mutex_,
-        pdMS_TO_TICKS(50U));
+    MutexGuard guard(login_mutex_, 0U);
     if (!guard.locked()) {
-        return {LoginSubmitStatus::busy, {}};
-    }
-    if (operation_.state != LoginOperationState::idle) {
-        return {LoginSubmitStatus::busy, {}};
+        return {LoginStatus::busy, {}, {}, 0U};
     }
 
-    QueuedLogin queued{};
-    const pf_config::SecureZeroGuard queued_guard(queued);
-    if (!fill_nonzero_secret(queued.request_token)) {
-        return {LoginSubmitStatus::unavailable, {}};
-    }
-    std::memcpy(
-        queued.password,
-        password,
-        std::strlen(password) + 1U);
-    queued.setup_allowed = setup_allowed;
-    queued.now_ms = now_ms;
-    if (xQueueSend(queue_, &queued, 0U) != pdTRUE) {
-        return {LoginSubmitStatus::busy, {}};
-    }
-
-    operation_.request_token = queued.request_token;
-    operation_.state = LoginOperationState::verifying;
-    pf_config::secure_zero(operation_.result);
-
-    LoginSubmitResult result{
-        .status = LoginSubmitStatus::accepted,
-    };
-    encode_secret(queued.request_token, result.request_token);
+    LoginResult result = perform_login(password, setup_allowed, now_ms);
+    ESP_LOGI(
+        kTag,
+        "authentication_result=%s hash_elapsed_ms=%" PRIu32,
+        to_string(result.status),
+        result.hash_elapsed_ms);
     return result;
-}
-
-bool AuthService::login_status(
-    const char* const request_token,
-    LoginOperationSnapshot& destination)
-{
-    if (!initialized_ || operation_mutex_ == nullptr) {
-        return false;
-    }
-    SessionSecret decoded{};
-    const pf_config::SecureZeroGuard decoded_guard(decoded);
-    if (!decode_secret(request_token, decoded)) {
-        return false;
-    }
-    MutexGuard guard(
-        operation_mutex_,
-        pdMS_TO_TICKS(50U));
-    if (!guard.locked() ||
-        operation_.state == LoginOperationState::idle ||
-        !pf_config::constant_time_equal(
-            decoded.data(),
-            operation_.request_token.data(),
-            decoded.size())) {
-        return false;
-    }
-    destination = {
-        .state = operation_.state,
-        .result = operation_.result,
-    };
-    return true;
-}
-
-bool AuthService::acknowledge_login(
-    const char* const request_token)
-{
-    if (!initialized_ || operation_mutex_ == nullptr ||
-        task_handle_ == nullptr) {
-        return false;
-    }
-    SessionSecret decoded{};
-    const pf_config::SecureZeroGuard decoded_guard(decoded);
-    if (!decode_secret(request_token, decoded)) {
-        return false;
-    }
-    MutexGuard guard(
-        operation_mutex_,
-        pdMS_TO_TICKS(50U));
-    if (!guard.locked() ||
-        !login_operation_terminal(operation_.state) ||
-        !pf_config::constant_time_equal(
-            decoded.data(),
-            operation_.request_token.data(),
-            decoded.size())) {
-        return false;
-    }
-    pf_config::secure_zero(operation_);
-    operation_.state = LoginOperationState::idle;
-    xTaskNotifyGive(task_handle_);
-    return true;
 }
 
 LoginResult AuthService::perform_login(
@@ -456,67 +331,6 @@ LoginResult AuthService::perform_login(
                   elapsed_us / 1000)
             : 0U;
     return result;
-}
-
-void AuthService::task_entry(void* const context)
-{
-    static_cast<AuthService*>(context)->task_main();
-}
-
-void AuthService::task_main()
-{
-    while (true) {
-        QueuedLogin queued{};
-        const pf_config::SecureZeroGuard queued_guard(queued);
-        if (xQueueReceive(
-                queue_,
-                &queued,
-                portMAX_DELAY) != pdTRUE) {
-            continue;
-        }
-        pf_config::secure_zero(
-            queue_storage_,
-            sizeof(queue_storage_));
-        LoginResult result = perform_login(
-            queued.password,
-            queued.setup_allowed,
-            queued.now_ms);
-        const pf_config::SecureZeroGuard result_guard(result);
-        const LoginOperationState final_state =
-            operation_state_for(result.status);
-        {
-            MutexGuard guard(operation_mutex_);
-            if (guard.locked() &&
-                operation_.state ==
-                    LoginOperationState::verifying &&
-                pf_config::constant_time_equal(
-                    queued.request_token.data(),
-                    operation_.request_token.data(),
-                    queued.request_token.size())) {
-                operation_.state = final_state;
-                operation_.result = result;
-            }
-        }
-        ESP_LOGI(
-            kTag,
-            "authentication_result=%s hash_elapsed_ms=%" PRIu32,
-            to_string(result.status),
-            result.hash_elapsed_ms);
-
-        ulTaskNotifyTake(pdTRUE, kResultRetentionTicks);
-        {
-            MutexGuard guard(operation_mutex_);
-            if (guard.locked() &&
-                pf_config::constant_time_equal(
-                    queued.request_token.data(),
-                    operation_.request_token.data(),
-                    queued.request_token.size())) {
-                pf_config::secure_zero(operation_);
-                operation_.state = LoginOperationState::idle;
-            }
-        }
-        ulTaskNotifyTake(pdTRUE, 0U);
-    }
 }
 
 RequestAuthentication AuthService::authenticate_request(

@@ -1,7 +1,6 @@
 idf_component_register(
     SRCS
         "health_server.cpp"
-        "provisioning_service.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES

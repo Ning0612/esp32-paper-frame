@@ -2,7 +2,7 @@
 
 #include <unity.h>
 
-#include "pf_web/provisioning_status.hpp"
+#include "pf_network/provisioning_status.hpp"
 
 extern "C" void setUp() {}
 extern "C" void tearDown() {}
@@ -11,28 +11,28 @@ namespace {
 
 void test_status_is_visible_only_to_the_matching_request()
 {
-    const pf_web::ProvisioningOperationStatus status{
+    const pf_network::ProvisioningOperationStatus status{
         .request_id = 42U,
-        .state = pf_web::ProvisioningOperationState::saving,
+        .state = pf_network::ProvisioningOperationState::saving,
     };
 
     TEST_ASSERT_TRUE(
-        pf_web::provisioning_status_matches(status, 42U));
+        pf_network::provisioning_status_matches(status, 42U));
     TEST_ASSERT_FALSE(
-        pf_web::provisioning_status_matches(status, 41U));
+        pf_network::provisioning_status_matches(status, 41U));
     TEST_ASSERT_FALSE(
-        pf_web::provisioning_status_matches(status, 0U));
+        pf_network::provisioning_status_matches(status, 0U));
 }
 
 void test_status_serializer_reports_truthful_lifecycle()
 {
     char output[128]{};
-    const pf_web::ProvisioningOperationStatus saving{
+    const pf_network::ProvisioningOperationStatus saving{
         .request_id = 7U,
-        .state = pf_web::ProvisioningOperationState::saving,
+        .state = pf_network::ProvisioningOperationState::saving,
     };
     TEST_ASSERT_TRUE(
-        pf_web::serialize_provisioning_status(
+        pf_network::serialize_provisioning_status(
             saving,
             output,
             sizeof(output)));
@@ -41,24 +41,24 @@ void test_status_serializer_reports_truthful_lifecycle()
         "\"rebooting\":false}}",
         output);
 
-    const pf_web::ProvisioningOperationStatus committed{
+    const pf_network::ProvisioningOperationStatus committed{
         .request_id = 7U,
-        .state = pf_web::ProvisioningOperationState::committed,
+        .state = pf_network::ProvisioningOperationState::committed,
     };
     TEST_ASSERT_TRUE(
-        pf_web::serialize_provisioning_status(
+        pf_network::serialize_provisioning_status(
             committed,
             output,
             sizeof(output)));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"state\":\"committed\""));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"rebooting\":false"));
 
-    const pf_web::ProvisioningOperationStatus reboot_pending{
+    const pf_network::ProvisioningOperationStatus reboot_pending{
         .request_id = 7U,
-        .state = pf_web::ProvisioningOperationState::reboot_pending,
+        .state = pf_network::ProvisioningOperationState::reboot_pending,
     };
     TEST_ASSERT_TRUE(
-        pf_web::serialize_provisioning_status(
+        pf_network::serialize_provisioning_status(
             reboot_pending,
             output,
             sizeof(output)));
@@ -66,12 +66,12 @@ void test_status_serializer_reports_truthful_lifecycle()
         std::strstr(output, "\"state\":\"reboot_pending\""));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"rebooting\":true"));
 
-    const pf_web::ProvisioningOperationStatus failed{
+    const pf_network::ProvisioningOperationStatus failed{
         .request_id = 7U,
-        .state = pf_web::ProvisioningOperationState::failed,
+        .state = pf_network::ProvisioningOperationState::failed,
     };
     TEST_ASSERT_TRUE(
-        pf_web::serialize_provisioning_status(
+        pf_network::serialize_provisioning_status(
             failed,
             output,
             sizeof(output)));
@@ -83,19 +83,19 @@ void test_status_serializer_reports_truthful_lifecycle()
 void test_status_serializer_rejects_idle_and_small_buffers()
 {
     char output[24]{};
-    const pf_web::ProvisioningOperationStatus idle{};
+    const pf_network::ProvisioningOperationStatus idle{};
     TEST_ASSERT_FALSE(
-        pf_web::serialize_provisioning_status(
+        pf_network::serialize_provisioning_status(
             idle,
             output,
             sizeof(output)));
 
-    const pf_web::ProvisioningOperationStatus saving{
+    const pf_network::ProvisioningOperationStatus saving{
         .request_id = 1U,
-        .state = pf_web::ProvisioningOperationState::saving,
+        .state = pf_network::ProvisioningOperationState::saving,
     };
     TEST_ASSERT_FALSE(
-        pf_web::serialize_provisioning_status(
+        pf_network::serialize_provisioning_status(
             saving,
             output,
             sizeof(output)));
@@ -104,50 +104,50 @@ void test_status_serializer_rejects_idle_and_small_buffers()
 void test_terminal_failure_blocks_resubmit_until_acknowledged()
 {
     TEST_ASSERT_FALSE(
-        pf_web::provisioning_operation_blocks_submission(
-            pf_web::ProvisioningOperationState::idle));
+        pf_network::provisioning_operation_blocks_submission(
+            pf_network::ProvisioningOperationState::idle));
     TEST_ASSERT_TRUE(
-        pf_web::provisioning_operation_blocks_submission(
-            pf_web::ProvisioningOperationState::saving));
+        pf_network::provisioning_operation_blocks_submission(
+            pf_network::ProvisioningOperationState::saving));
     TEST_ASSERT_TRUE(
-        pf_web::provisioning_operation_blocks_submission(
-            pf_web::ProvisioningOperationState::committed));
+        pf_network::provisioning_operation_blocks_submission(
+            pf_network::ProvisioningOperationState::committed));
     TEST_ASSERT_TRUE(
-        pf_web::provisioning_operation_blocks_submission(
-            pf_web::ProvisioningOperationState::reboot_pending));
+        pf_network::provisioning_operation_blocks_submission(
+            pf_network::ProvisioningOperationState::reboot_pending));
     TEST_ASSERT_TRUE(
-        pf_web::provisioning_operation_blocks_submission(
-            pf_web::ProvisioningOperationState::failed));
+        pf_network::provisioning_operation_blocks_submission(
+            pf_network::ProvisioningOperationState::failed));
     const auto acknowledged_failure =
-        pf_web::provisioning_state_after_ack(
-            pf_web::ProvisioningOperationState::failed);
+        pf_network::provisioning_state_after_ack(
+            pf_network::ProvisioningOperationState::failed);
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(pf_web::ProvisioningOperationState::idle),
+        static_cast<int>(pf_network::ProvisioningOperationState::idle),
         static_cast<int>(acknowledged_failure));
     TEST_ASSERT_FALSE(
-        pf_web::provisioning_operation_blocks_submission(
+        pf_network::provisioning_operation_blocks_submission(
             acknowledged_failure));
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(
-            pf_web::ProvisioningOperationState::reboot_pending),
+            pf_network::ProvisioningOperationState::reboot_pending),
         static_cast<int>(
-            pf_web::provisioning_state_after_ack(
-                pf_web::ProvisioningOperationState::committed)));
+            pf_network::provisioning_state_after_ack(
+                pf_network::ProvisioningOperationState::committed)));
 }
 
 void test_failure_ack_at_timeout_boundary_cannot_wake_next_request()
 {
-    pf_web::ProvisioningOperationStatus status{
+    pf_network::ProvisioningOperationStatus status{
         .request_id = 11U,
-        .state = pf_web::ProvisioningOperationState::failed,
+        .state = pf_network::ProvisioningOperationState::failed,
     };
     std::uint32_t pending_notifications = 0U;
 
     status.state =
-        pf_web::provisioning_state_after_ack(status.state);
+        pf_network::provisioning_state_after_ack(status.state);
     ++pending_notifications;
 
-    if (pf_web::finalize_failed_provisioning_operation(
+    if (pf_network::finalize_failed_provisioning_operation(
             status,
             11U)) {
         pending_notifications = 0U;
@@ -157,11 +157,11 @@ void test_failure_ack_at_timeout_boundary_cannot_wake_next_request()
 
     status = {
         .request_id = 12U,
-        .state = pf_web::ProvisioningOperationState::committed,
+        .state = pf_network::ProvisioningOperationState::committed,
     };
     TEST_ASSERT_EQUAL_UINT32(0U, pending_notifications);
     TEST_ASSERT_TRUE(
-        pf_web::provisioning_operation_blocks_submission(
+        pf_network::provisioning_operation_blocks_submission(
             status.state));
 }
 

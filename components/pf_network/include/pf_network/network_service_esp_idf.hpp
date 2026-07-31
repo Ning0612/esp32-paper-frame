@@ -10,6 +10,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "pf_config/network_credentials.hpp"
 #include "pf_config/weather_settings.hpp"
 #include "pf_network/scan_results.hpp"
 #include "pf_network/state_machine.hpp"
@@ -21,16 +22,8 @@ class RuntimeCoordinator;
 
 namespace pf_network {
 
-inline constexpr std::size_t kWifiSsidCapacity = 33U;
-inline constexpr std::size_t kWifiPasswordCapacity = 65U;
 inline constexpr std::size_t kAccessPointSsidCapacity = 32U;
 inline constexpr std::size_t kAccessPointPasswordCapacity = 16U;
-
-struct NetworkCredentials {
-    bool configured = false;
-    char ssid[kWifiSsidCapacity]{};
-    char password[kWifiPasswordCapacity]{};
-};
 
 struct AccessPointInfo {
     char ssid[kAccessPointSsidCapacity]{};
@@ -63,7 +56,8 @@ class NetworkService {
 public:
     esp_err_t start(
         pf_runtime::RuntimeCoordinator& runtime,
-        const NetworkCredentials& credentials,
+        const pf_config::NetworkCredentials& credentials,
+        bool configured,
         AccessPointPresenter presenter = nullptr,
         void* presenter_context = nullptr);
 
@@ -105,7 +99,8 @@ private:
     void maybe_start_sntp();
 
     pf_runtime::RuntimeCoordinator* runtime_ = nullptr;
-    NetworkCredentials credentials_{};
+    pf_config::NetworkCredentials credentials_{};
+    bool configured_ = false;
     AccessPointInfo access_point_{};
     NetworkStateMachine state_machine_{};
     TimeSyncState time_sync_state_ = TimeSyncState::unsynced;

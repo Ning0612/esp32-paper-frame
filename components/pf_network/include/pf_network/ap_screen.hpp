@@ -6,7 +6,7 @@
 
 #include "pf_config/secure_memory.hpp"
 
-namespace pf_provisioning {
+namespace pf_network {
 
 inline constexpr std::size_t kApScreenSsidCapacity = 33U;
 inline constexpr std::size_t kApScreenPasswordCapacity = 65U;
@@ -147,4 +147,4 @@ bool render_access_point_screen(
     std::size_t length,
     const AccessPointScreenPayload& payload);
 
-}  // namespace pf_provisioning
+}  // namespace pf_network

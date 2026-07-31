@@ -1,6 +1,8 @@
 idf_component_register(
     SRCS
+        "ap_screen.cpp"
         "network_service_esp_idf.cpp"
+        "provisioning_service.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES
@@ -12,5 +14,7 @@ idf_component_register(
         freertos
         lwip
         pf_config
+        pf_display
         pf_runtime
+        qrcode
 )

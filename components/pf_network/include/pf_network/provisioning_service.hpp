@@ -8,13 +8,13 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "pf_config/network_credentials.hpp"
-#include "pf_web/provisioning_status.hpp"
+#include "pf_network/provisioning_status.hpp"
 
 namespace pf_runtime {
 class RuntimeCoordinator;
 }
 
-namespace pf_web {
+namespace pf_network {
 
 enum class ProvisioningSubmitStatus : std::uint8_t {
     accepted,
@@ -69,4 +69,4 @@ private:
 
 ProvisioningService& provisioning_service();
 
-}  // namespace pf_web
+}  // namespace pf_network

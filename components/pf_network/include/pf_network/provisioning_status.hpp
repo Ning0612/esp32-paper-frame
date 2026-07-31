@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 
-namespace pf_web {
+namespace pf_network {
 
 enum class ProvisioningOperationState : std::uint8_t {
     idle,
@@ -116,4 +116,4 @@ inline bool serialize_provisioning_status(
            static_cast<std::size_t>(written) < capacity;
 }
 
-}  // namespace pf_web
+}  // namespace pf_network

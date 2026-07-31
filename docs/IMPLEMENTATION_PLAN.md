@@ -41,7 +41,7 @@ MVP 不包含草案第十節的 P1 功能，例如多 Wi-Fi profile、批次上�
 | G3 Driver | Phase 2 | `epd7in3e` 來源、版本、授權、六色 mapping、BUSY polarity 與 timeout |
 | G4 PFR1 | Phase 4 | byte order、header 固定長度、enum/flags、CRC 涵蓋範圍與版本遷移規則 |
 | G5 Partition | Phase 1 開發版；第一個可保存圖片的 Phase 5 build 前凍結發行 layout | 雙 OTA、NVS、webfs、imagefs、coredump 的 offset/size；後續變更的資料保護與 migration |
-| G6 Security | Phase 3 | PBKDF2 參數、session token entropy/storage、首次設定與 Recovery AP 流程；密碼至少 8 字元、idle 30 分鐘、absolute 24 小時是需求固定值 |
+| G6 Security | Phase 3（PBKDF2 參數已由 `docs/adr/0007-auth-pbkdf2-iterations-and-sync-login.md` 固定，2026-08-01） | PBKDF2 參數、session token entropy/storage、首次設定與 Recovery AP 流程；密碼至少 8 字元、idle 30 分鐘、absolute 24 小時是需求固定值 |
 | G7 Weather | Phase 6（已由 `docs/adr/0005-weather-worker-and-status-bar.md` 固定，2026-07-31） | OpenWeatherMap endpoint/version、TLS trust、cache schema 與 rate limit |
 
 若缺少實體硬體，可先完成 host-tested interface 與 fake driver，但該階段不得

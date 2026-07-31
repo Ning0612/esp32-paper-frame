@@ -46,14 +46,15 @@ bool ignorable_stop_error(const esp_err_t error)
 
 esp_err_t NetworkService::start(
     pf_runtime::RuntimeCoordinator& runtime,
-    const NetworkCredentials& credentials,
+    const pf_config::NetworkCredentials& credentials,
+    const bool configured,
     const AccessPointPresenter presenter,
     void* const presenter_context)
 {
     if (task_handle_ != nullptr || event_queue_ != nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (credentials.configured &&
+    if (configured &&
         (credentials.ssid[0] == '\0' ||
          std::memchr(
              credentials.ssid,
@@ -68,11 +69,13 @@ esp_err_t NetworkService::start(
 
     runtime_ = &runtime;
     credentials_ = credentials;
+    configured_ = configured;
     presenter_ = presenter;
     presenter_context_ = presenter_context;
     if (!build_access_point_info()) {
         runtime_ = nullptr;
         credentials_ = {};
+        configured_ = false;
         return ESP_FAIL;
     }
 
@@ -84,6 +87,7 @@ esp_err_t NetworkService::start(
     if (event_queue_ == nullptr) {
         runtime_ = nullptr;
         credentials_ = {};
+        configured_ = false;
         presenter_ = nullptr;
         presenter_context_ = nullptr;
         return ESP_ERR_NO_MEM;
@@ -94,6 +98,7 @@ esp_err_t NetworkService::start(
         event_queue_ = nullptr;
         runtime_ = nullptr;
         credentials_ = {};
+        configured_ = false;
         presenter_ = nullptr;
         presenter_context_ = nullptr;
         return ESP_ERR_NO_MEM;
@@ -209,7 +214,7 @@ void NetworkService::task_main()
     }
 
     NetworkAction action =
-        state_machine_.start(credentials_.configured);
+        state_machine_.start(configured_);
     publish_state();
     perform_action_chain(action);
 

@@ -1,4 +1,4 @@
-#include "pf_web/provisioning_service.hpp"
+#include "pf_network/provisioning_service.hpp"
 
 #include "esp_log.h"
 #include "esp_system.h"
@@ -6,7 +6,7 @@
 #include "pf_config/secure_memory.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 
-namespace pf_web {
+namespace pf_network {
 namespace {
 
 constexpr char kTag[] = "pf_provisioning";
@@ -244,4 +244,4 @@ ProvisioningService& provisioning_service()
     return instance;
 }
 
-}  // namespace pf_web
+}  // namespace pf_network

@@ -1058,21 +1058,6 @@
     }
   }
 
-  async function waitForLogin(requestToken) {
-    const deadline = Date.now() + 180000;
-    while (Date.now() < deadline) {
-      const response = await fetch("/api/v1/auth/login/status", { cache: "no-store", headers: { "X-Auth-Request": requestToken } });
-      const payload = await response.json();
-      if (response.status === 202) {
-        await new Promise((resolve) => window.setTimeout(resolve, 300));
-        continue;
-      }
-      if (!response.ok || !payload.data) throw new Error(payload.error || "login_failed");
-      return payload.data;
-    }
-    throw new Error("login_timeout");
-  }
-
   authForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (authPassword.value.length < 8) {
@@ -1090,12 +1075,21 @@
         body: new URLSearchParams({ username: "admin", password: authPassword.value }).toString(),
       });
       const payload = await response.json();
-      if (response.status !== 202 || !payload.data || !payload.data.request_token) throw new Error(payload.error || "login_failed");
-      const authenticated = await waitForLogin(payload.data.request_token);
-      showAuthenticated(authenticated.csrf_token);
-    } catch {
+      if (!response.ok || !payload.data) {
+        if (response.status === 409) throw new Error("busy");
+        if (response.status === 401) throw new Error("invalid_credentials");
+        throw new Error(payload.error || "login_failed");
+      }
+      showAuthenticated(payload.data.csrf_token);
+    } catch (error) {
       authStatus.className = "save-status error";
-      authStatus.textContent = "登入失敗，請確認密碼後再試一次。";
+      if (error && error.message === "busy") {
+        authStatus.textContent = "已有另一個登入嘗試進行中，請稍候再試。";
+      } else if (error && error.message === "invalid_credentials") {
+        authStatus.textContent = "密碼錯誤，請重新輸入。";
+      } else {
+        authStatus.textContent = "登入失敗，請確認密碼後再試一次。";
+      }
     } finally {
       authButton.disabled = false;
     }

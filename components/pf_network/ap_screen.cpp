@@ -1,4 +1,4 @@
-#include "pf_provisioning/ap_screen.hpp"
+#include "pf_network/ap_screen.hpp"
 
 #include <cctype>
 #include <cstring>
@@ -6,7 +6,7 @@
 #include "pf_display/packed_framebuffer.hpp"
 #include "qrcode.h"
 
-namespace pf_provisioning {
+namespace pf_network {
 namespace {
 
 struct Glyph {
@@ -355,4 +355,4 @@ bool render_access_point_screen(
     return true;
 }
 
-}  // namespace pf_provisioning
+}  // namespace pf_network
