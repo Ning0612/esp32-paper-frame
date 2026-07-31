@@ -5,6 +5,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -33,6 +34,7 @@ namespace pf_web {
 namespace {
 
 constexpr char kFirmwareVersion[] = "phase3-dev";
+constexpr char kTag[] = "pf_web";
 
 struct StaticAsset {
     const char* path;
@@ -83,17 +85,22 @@ constexpr char kSessionCookieName[] = "pf_session";
 constexpr char kCsrfHeaderName[] = "X-CSRF-Token";
 constexpr UBaseType_t kImageDownloadTaskPriority = 3U;
 // Catalog (~6.2 KB) used to be stack-copied here directly; it now lives on
-// the heap (see StorageWorker/store_image_transactionally), so these stacks
-// no longer need to absorb a full Catalog copy. Sized with headroom over the
-// pre-heap-migration values (4096/8192), not blanket-oversized, since every
-// extra byte here is internal SRAM taken from WiFi/lwIP/HTTP server heap.
+// the heap (see StorageWorker/store_image_transactionally). Download doesn't
+// touch catalog serialization/CRC, so it keeps the smaller, since-confirmed
+// 8192-byte stack. Upload and mutation both call into
+// store_image_transactionally / persist_catalog_transactionally, which run
+// PFR1 validation and a CRC32 pass over the serialized catalog; an earlier
+// attempt to shrink those two to 8192 bytes as well hit a real on-device
+// stack-canary panic in "pf_image_up", so they stay at the known-safe 32768
+// bytes until uxTaskGetStackHighWaterMark() logging (below) gives real
+// headroom numbers to right-size them by.
 constexpr std::uint32_t kImageDownloadTaskStackWords = 8192U;
 constexpr std::size_t kImageDownloadContentDispositionCapacity =
     (pf_storage::kCatalogNameCapacity * 2U) + 32U;
 constexpr UBaseType_t kImageUploadTaskPriority = 3U;
-constexpr std::uint32_t kImageUploadTaskStackWords = 8192U;
+constexpr std::uint32_t kImageUploadTaskStackWords = 32768U;
 constexpr UBaseType_t kImageMutationTaskPriority = 3U;
-constexpr std::uint32_t kImageMutationTaskStackWords = 8192U;
+constexpr std::uint32_t kImageMutationTaskStackWords = 32768U;
 constexpr UBaseType_t kWeatherConfigTaskPriority = 3U;
 constexpr std::uint32_t kWeatherConfigTaskStackWords = 4096U;
 constexpr std::size_t kWeatherConfigBodyCapacity = 512U;
@@ -1822,6 +1829,10 @@ void image_download_task_entry(void* const)
         if (queued.request != nullptr) {
             httpd_req_async_handler_complete(queued.request);
         }
+        ESP_LOGI(
+            kTag,
+            "image_download_stack_free_bytes=%u",
+            static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
     }
 }
 
@@ -2140,6 +2151,10 @@ void image_upload_task_entry(void* const)
                 response_result,
                 close_session);
         }
+        ESP_LOGI(
+            kTag,
+            "image_upload_stack_free_bytes=%u",
+            static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
     }
 }
 
@@ -2281,6 +2296,10 @@ void image_mutation_task_entry(void* const)
                 response_result,
                 !result.ok() || response_result != ESP_OK);
         }
+        ESP_LOGI(
+            kTag,
+            "image_mutation_stack_free_bytes=%u",
+            static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
     }
 }
 
