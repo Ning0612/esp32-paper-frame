@@ -57,6 +57,12 @@ constexpr StaticAsset kFaviconAsset{
 };
 constexpr std::uint32_t kMaximumBodyReceiveMs = 15000U;
 constexpr std::uint8_t kMaximumBodyTimeouts = 3U;
+// Image upload receives ~182 KB in 1024-byte chunks, each followed by a
+// LittleFS write that can stall during garbage collection.  The small-body
+// deadline (15 s / 3 idle timeouts) is too tight for the combined network
+// transfer + flash I/O; give uploads a separate, more generous budget.
+constexpr std::uint32_t kMaximumUploadReceiveMs = 60000U;
+constexpr std::uint8_t kMaximumUploadTimeouts = 12U;
 constexpr char kSessionCookieName[] = "pf_session";
 constexpr char kCsrfHeaderName[] = "X-CSRF-Token";
 constexpr UBaseType_t kImageDownloadTaskPriority = 3U;
@@ -1934,7 +1940,7 @@ pf_storage::StorageReadResult receive_image_upload_chunk(
         if (body_receive_deadline_expired(
                 monotonic_ms(),
                 context->started_ms,
-                kMaximumBodyReceiveMs)) {
+                kMaximumUploadReceiveMs)) {
             return pf_storage::StorageReadResult::error;
         }
         const std::size_t amount =
@@ -1947,7 +1953,7 @@ pf_storage::StorageReadResult receive_image_upload_chunk(
             ++context->timeout_count;
             if (body_receive_idle_limit_reached(
                     context->timeout_count,
-                    kMaximumBodyTimeouts)) {
+                    kMaximumUploadTimeouts)) {
                 return pf_storage::StorageReadResult::error;
             }
             continue;
@@ -1963,6 +1969,44 @@ pf_storage::StorageReadResult receive_image_upload_chunk(
         bytes_read = received;
         return pf_storage::StorageReadResult::data;
     }
+}
+
+bool drain_image_upload_body(ImageUploadReceiveContext& context)
+{
+    std::uint8_t discard[512]{};
+    while (context.remaining > 0U) {
+        if (body_receive_deadline_expired(
+                monotonic_ms(),
+                context.started_ms,
+                kMaximumUploadReceiveMs)) {
+            return false;
+        }
+        const std::size_t amount = context.remaining < sizeof(discard)
+                                       ? context.remaining
+                                       : sizeof(discard);
+        const int result = httpd_req_recv(
+            context.request,
+            reinterpret_cast<char*>(discard),
+            static_cast<int>(amount));
+        if (result == HTTPD_SOCK_ERR_TIMEOUT) {
+            ++context.timeout_count;
+            if (body_receive_idle_limit_reached(
+                    context.timeout_count,
+                    kMaximumUploadTimeouts)) {
+                return false;
+            }
+            continue;
+        }
+        if (result <= 0) {
+            return false;
+        }
+        const std::size_t received = static_cast<std::size_t>(result);
+        if (received > context.remaining) {
+            return false;
+        }
+        context.remaining -= received;
+    }
+    return true;
 }
 
 const char* image_store_http_status(const pf_storage::ImageStoreError error)
@@ -2047,9 +2091,10 @@ void image_upload_task_entry(void* const)
             continue;
         }
         pf_storage::ImageStoreResult result{};
-        bool close_session = true;
+        bool close_session = false;
         if (queued.request == nullptr || queued.worker == nullptr) {
             result.error = pf_storage::ImageStoreError::invalid_argument;
+            close_session = true;
         } else {
             ImageUploadReceiveContext receive_context{
                 queued.request,
@@ -2064,7 +2109,9 @@ void image_upload_task_entry(void* const)
             result = queued.worker->store_image(
                 reader,
                 queued.content_length);
-            close_session = !result.ok() || receive_context.remaining != 0U;
+            if (receive_context.remaining != 0U) {
+                close_session = !drain_image_upload_body(receive_context);
+            }
         }
         if (queued.request != nullptr) {
             const esp_err_t response_result =
@@ -2457,6 +2504,10 @@ esp_err_t image_upload_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"upload_unavailable\"}");
         return ESP_FAIL;
     }
+    // None of these rejection paths have read any of the request body yet
+    // (that only happens later, in image_upload_task_entry). Leaving the
+    // session open here would strand an undrained body on the keep-alive
+    // socket, desyncing the next request's HTTP parse on that connection.
     const auto send_async_error = [&](
         const char* const status,
         const char* const body) {
