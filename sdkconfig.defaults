@@ -21,7 +21,9 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # bookkeeping); the 3584-byte ESP-IDF default overflowed once Phase 7
 # added a few more locals, corrupting the return address into
 # pf_storage::mount_all() (Guru Meditation InstrFetchProhibited,
-# confirmed on real hardware 2026-07-31).
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# confirmed on real hardware 2026-07-31). 8192 was still not enough:
+# the crash moved to post-WiFi init (vfs_littlefs_unlink backtrace).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
 
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

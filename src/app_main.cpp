@@ -11,6 +11,7 @@
 #include "esp_psram.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pf_auth/auth_service.hpp"
@@ -387,6 +388,7 @@ extern "C" void app_main()
             esp_err_to_name(config_result.error),
             pf_config::to_string(config_result.action));
     }
+
     pf_config::NetworkCredentialLoadResult stored_credentials =
         config_result.error == ESP_OK
             ? pf_config::load_network_credentials()

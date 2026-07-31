@@ -538,5 +538,29 @@ WebUI 環境頁。全部變更通過 `pio run`（韌體完整編譯，RAM
 - 返回後重繪與 deadline 重設：`CarouselScheduler::force_immediate` 觸發
   的下一輪 `poll()` 是否真的在返回後立即重繪目前圖片，而不是延用離席前
   殘留的 30 分鐘 deadline。
+### 2026-07-31 — Phase 7 開機不斷重複重開機：main task stack 二次調大
+
+前一版修復（`49263cc`）已將 `CONFIG_ESP_MAIN_TASK_STACK_SIZE` 從 ESP-IDF
+預設 3584 調到 8192，並在實機確認解決了 `pf_storage::mount_all()` 附近
+的 `InstrFetchProhibited` guru meditation。但實機重新開機驗證時，8192
+仍不足，改為在 STA Wi-Fi 初始化之後崩潰，backtrace 落在
+`vfs_littlefs_unlink` 附近，同樣是 main task stack overflow 的訊號
+（Phase 7 新增的 sensor task 設定路徑在 `app_main` 上又多用了一些
+stack）。本次調整：
+
+- `CONFIG_ESP_MAIN_TASK_STACK_SIZE` 8192 → 16384。
+- 新增 `CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y`，往後若再次逼近
+  stack 上限會直接以 watchpoint 觸發明確的 stack overflow panic，而不是
+  overflow 覆寫回傳位址後跳到隨機指令位置（更難判讀的
+  `InstrFetchProhibited`）。
+
+實機重新開機測試已確認：開機不再重複重開機，流程可正常跑完
+config／filesystem／runtime／netif／health server 啟動序列。
+
+未待驗證項：16384 是否對 Phase 8（OTA、diagnostics）之後可能新增的
+task 仍有餘裕；後續每次大幅擴充 `app_main` 起始序列（新增 task、大型
+stack-allocated 結構）應重新檢查 high-water mark，不要只靠「這次夠用」
+延伸判斷。
+
 - WebUI 環境頁在瀏覽器的實際顯示與表單保存流程（`environment-form`
   submit → `POST /api/v1/sensors/config` → 重新載入）。
