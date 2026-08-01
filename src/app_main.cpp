@@ -490,6 +490,23 @@ extern "C" void app_main()
                 pf_storage::to_string(storage_startup.recovery.action));
         }
     }
+    // mount_all() samples imagefs usage before storage_worker.start() runs
+    // its crash-recovery pass (rolling back an interrupted .part/.bak/
+    // marker can itself change what's on disk), so that first sample can
+    // already be stale by the time the initial snapshot is built. Boot is
+    // single-threaded up to this point (no concurrent mutation tasks are
+    // running yet), so a plain re-query -- without the generation-guarded
+    // publish path used post-boot -- is sufficient here.
+    std::uint32_t imagefs_used_bytes_at_boot =
+        static_cast<std::uint32_t>(filesystem_snapshot.imagefs.used_bytes);
+    if (storage_startup.ok()) {
+        const std::uint64_t free_bytes = storage_worker.free_bytes();
+        if (free_bytes != 0U &&
+            free_bytes <= filesystem_snapshot.imagefs.total_bytes) {
+            imagefs_used_bytes_at_boot = static_cast<std::uint32_t>(
+                filesystem_snapshot.imagefs.total_bytes - free_bytes);
+        }
+    }
     const bool wifi_password_configured =
         stored_credentials.error == ESP_OK &&
         stored_credentials.configured &&
@@ -541,8 +558,7 @@ extern "C" void app_main()
             filesystem_snapshot.webfs.used_bytes),
         .imagefs_total_bytes = static_cast<std::uint32_t>(
             filesystem_snapshot.imagefs.total_bytes),
-        .imagefs_used_bytes = static_cast<std::uint32_t>(
-            filesystem_snapshot.imagefs.used_bytes),
+        .imagefs_used_bytes = imagefs_used_bytes_at_boot,
         .carousel_refresh_minutes = config_result.record_available
                                          ? config_result.record.refresh_minutes
                                          : 0U,
