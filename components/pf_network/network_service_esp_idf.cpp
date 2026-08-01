@@ -69,6 +69,58 @@ bool ignorable_stop_error(const esp_err_t error)
     return error == ESP_OK || error == ESP_ERR_WIFI_NOT_STARTED;
 }
 
+void log_station_network_info(const ip_event_got_ip_t* const event)
+{
+    if (event == nullptr || event->esp_netif == nullptr) {
+        ESP_LOGW(kTag, "sta_got_ip_without_netif");
+        return;
+    }
+
+    char ip[IP4ADDR_STRLEN_MAX]{};
+    char netmask[IP4ADDR_STRLEN_MAX]{};
+    char gateway[IP4ADDR_STRLEN_MAX]{};
+    esp_ip4addr_ntoa(
+        &event->ip_info.ip,
+        ip,
+        sizeof(ip));
+    esp_ip4addr_ntoa(
+        &event->ip_info.netmask,
+        netmask,
+        sizeof(netmask));
+    esp_ip4addr_ntoa(
+        &event->ip_info.gw,
+        gateway,
+        sizeof(gateway));
+
+    esp_netif_dns_info_t dns{};
+    const esp_err_t dns_result =
+        esp_netif_get_dns_info(
+            event->esp_netif,
+            ESP_NETIF_DNS_MAIN,
+            &dns);
+    char dns_text[IP4ADDR_STRLEN_MAX]{};
+    if (dns_result == ESP_OK && dns.ip.type == ESP_IPADDR_TYPE_V4) {
+        esp_ip4addr_ntoa(
+            &dns.ip.u_addr.ip4,
+            dns_text,
+            sizeof(dns_text));
+    } else {
+        std::strncpy(
+            dns_text,
+            "unavailable",
+            sizeof(dns_text) - 1U);
+    }
+
+    ESP_LOGI(
+        kTag,
+        "sta_network ip=%s netmask=%s gateway=%s dns=%s dns_status=%s",
+        ip,
+        netmask,
+        gateway,
+        dns_text,
+        esp_err_to_name(dns_result));
+}
+
 }  // namespace
 
 esp_err_t NetworkService::start(
@@ -212,7 +264,7 @@ void NetworkService::event_handler(
     void* context,
     const esp_event_base_t event_base,
     const std::int32_t event_id,
-    void*)
+    void* event_data)
 {
     NetworkService& service =
         *static_cast<NetworkService*>(context);
@@ -222,6 +274,8 @@ void NetworkService::event_handler(
     } else if (
         event_base == IP_EVENT &&
         event_id == IP_EVENT_STA_GOT_IP) {
+        log_station_network_info(
+            static_cast<const ip_event_got_ip_t*>(event_data));
         service.enqueue_event(NetworkEvent::sta_got_ip);
     }
 }

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -101,8 +102,9 @@ constexpr UBaseType_t kImageDownloadTaskPriority = 3U;
 // 16384 bytes each measured upload using ~9520 bytes (6864 free, healthy
 // margin) but mutation using ~14288 bytes (only 2096 free) -- as tight as
 // the configuration that overflowed before. Keep upload at 16384 and give
-// mutation more headroom; re-measure after any further change to either
-// call path instead of assuming these numbers still hold.
+// mutation more headroom. These stacks are allocated only when their
+// corresponding request arrives, preserving internal SRAM for normal WebUI
+// loads and TLS startup.
 constexpr std::uint32_t kImageDownloadTaskStackWords = 8192U;
 constexpr std::size_t kImageDownloadContentDispositionCapacity =
     (pf_storage::kCatalogNameCapacity * 2U) + 32U;
@@ -134,8 +136,8 @@ StaticQueue_t image_download_queue_control{};
 std::uint8_t image_download_queue_storage[
     sizeof(ImageDownloadRequest)]{};
 StaticTask_t image_download_task_control{};
-StackType_t image_download_task_stack[
-    kImageDownloadTaskStackWords]{};
+TaskHandle_t image_download_task_handle = nullptr;
+StackType_t* image_download_task_stack = nullptr;
 
 struct ImageUploadRequest {
     httpd_req_t* request = nullptr;
@@ -155,8 +157,8 @@ StaticQueue_t image_upload_queue_control{};
 std::uint8_t image_upload_queue_storage[
     sizeof(ImageUploadRequest)]{};
 StaticTask_t image_upload_task_control{};
-StackType_t image_upload_task_stack[
-    kImageUploadTaskStackWords]{};
+TaskHandle_t image_upload_task_handle = nullptr;
+StackType_t* image_upload_task_stack = nullptr;
 
 enum class ImageMutationKind : std::uint8_t {
     activate = 0U,
@@ -178,8 +180,8 @@ StaticQueue_t image_mutation_queue_control{};
 std::uint8_t image_mutation_queue_storage[
     sizeof(ImageMutationRequest)]{};
 StaticTask_t image_mutation_task_control{};
-StackType_t image_mutation_task_stack[
-    kImageMutationTaskStackWords]{};
+TaskHandle_t image_mutation_task_handle = nullptr;
+StackType_t* image_mutation_task_stack = nullptr;
 
 struct WeatherConfigRequest {
     httpd_req_t* request = nullptr;
@@ -208,6 +210,50 @@ StackType_t sensor_config_task_stack[
     kSensorConfigTaskStackWords]{};
 SemaphoreHandle_t sensor_config_mutex = nullptr;
 StaticSemaphore_t sensor_config_mutex_control{};
+
+esp_err_t start_deferred_task(
+    const char* const task_name,
+    const TaskFunction_t task_entry,
+    const std::uint32_t stack_words,
+    TaskHandle_t& task_handle,
+    StackType_t*& task_stack,
+    StaticTask_t& task_control)
+{
+    if (task_handle != nullptr) {
+        return ESP_OK;
+    }
+    task_stack = static_cast<StackType_t*>(
+        heap_caps_calloc(
+            stack_words,
+            sizeof(StackType_t),
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (task_stack == nullptr) {
+        ESP_LOGE(
+            kTag,
+            "deferred_task_stack_alloc_failed task=%s bytes=%u",
+            task_name,
+            static_cast<unsigned>(stack_words * sizeof(StackType_t)));
+        return ESP_ERR_NO_MEM;
+    }
+    task_handle = xTaskCreateStatic(
+        task_entry,
+        task_name,
+        stack_words,
+        nullptr,
+        kImageUploadTaskPriority,
+        task_stack,
+        &task_control);
+    if (task_handle == nullptr) {
+        heap_caps_free(task_stack);
+        task_stack = nullptr;
+        ESP_LOGE(
+            kTag,
+            "deferred_task_start_failed task=%s",
+            task_name);
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
 
 esp_err_t set_common_headers(
     httpd_req_t* const request,
@@ -2030,29 +2076,27 @@ void image_download_task_entry(void* const)
     }
 }
 
-esp_err_t start_image_download_task()
+esp_err_t start_image_download_task(const bool start_worker)
 {
-    if (image_download_queue != nullptr) {
-        return ESP_OK;
+    if (image_download_queue == nullptr) {
+        image_download_queue = xQueueCreateStatic(
+            1U,
+            sizeof(ImageDownloadRequest),
+            image_download_queue_storage,
+            &image_download_queue_control);
+        if (image_download_queue == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
     }
-    image_download_queue = xQueueCreateStatic(
-        1U,
-        sizeof(ImageDownloadRequest),
-        image_download_queue_storage,
-        &image_download_queue_control);
-    if (image_download_queue == nullptr ||
-        xTaskCreateStatic(
-            image_download_task_entry,
-            "pf_image_dl",
-            kImageDownloadTaskStackWords,
-            nullptr,
-            kImageDownloadTaskPriority,
-            image_download_task_stack,
-            &image_download_task_control) == nullptr) {
-        image_download_queue = nullptr;
-        return ESP_ERR_NO_MEM;
-    }
-    return ESP_OK;
+    return start_worker
+               ? start_deferred_task(
+                     "pf_image_dl",
+                     image_download_task_entry,
+                     kImageDownloadTaskStackWords,
+                     image_download_task_handle,
+                     image_download_task_stack,
+                     image_download_task_control)
+               : ESP_OK;
 }
 
 esp_err_t image_download_handler(httpd_req_t* request)
@@ -2077,6 +2121,12 @@ esp_err_t image_download_handler(httpd_req_t* request)
             request,
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    if (start_image_download_task(true) != ESP_OK) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"download_unavailable\"}");
     }
     pf_storage::CatalogEntry entry{};
     if (!worker->find_catalog_entry_by_name(
@@ -2352,29 +2402,27 @@ void image_upload_task_entry(void* const)
     }
 }
 
-esp_err_t start_image_upload_task()
+esp_err_t start_image_upload_task(const bool start_worker)
 {
-    if (image_upload_queue != nullptr) {
-        return ESP_OK;
+    if (image_upload_queue == nullptr) {
+        image_upload_queue = xQueueCreateStatic(
+            1U,
+            sizeof(ImageUploadRequest),
+            image_upload_queue_storage,
+            &image_upload_queue_control);
+        if (image_upload_queue == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
     }
-    image_upload_queue = xQueueCreateStatic(
-        1U,
-        sizeof(ImageUploadRequest),
-        image_upload_queue_storage,
-        &image_upload_queue_control);
-    if (image_upload_queue == nullptr ||
-        xTaskCreateStatic(
-            image_upload_task_entry,
-            "pf_image_up",
-            kImageUploadTaskStackWords,
-            nullptr,
-            kImageUploadTaskPriority,
-            image_upload_task_stack,
-            &image_upload_task_control) == nullptr) {
-        image_upload_queue = nullptr;
-        return ESP_ERR_NO_MEM;
-    }
-    return ESP_OK;
+    return start_worker
+               ? start_deferred_task(
+                     "pf_image_up",
+                     image_upload_task_entry,
+                     kImageUploadTaskStackWords,
+                     image_upload_task_handle,
+                     image_upload_task_stack,
+                     image_upload_task_control)
+               : ESP_OK;
 }
 
 const char* image_mutation_http_status(
@@ -2505,29 +2553,27 @@ void image_mutation_task_entry(void* const)
     }
 }
 
-esp_err_t start_image_mutation_task()
+esp_err_t start_image_mutation_task(const bool start_worker)
 {
-    if (image_mutation_queue != nullptr) {
-        return ESP_OK;
+    if (image_mutation_queue == nullptr) {
+        image_mutation_queue = xQueueCreateStatic(
+            1U,
+            sizeof(ImageMutationRequest),
+            image_mutation_queue_storage,
+            &image_mutation_queue_control);
+        if (image_mutation_queue == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
     }
-    image_mutation_queue = xQueueCreateStatic(
-        1U,
-        sizeof(ImageMutationRequest),
-        image_mutation_queue_storage,
-        &image_mutation_queue_control);
-    if (image_mutation_queue == nullptr ||
-        xTaskCreateStatic(
-            image_mutation_task_entry,
-            "pf_image_mut",
-            kImageMutationTaskStackWords,
-            nullptr,
-            kImageMutationTaskPriority,
-            image_mutation_task_stack,
-            &image_mutation_task_control) == nullptr) {
-        image_mutation_queue = nullptr;
-        return ESP_ERR_NO_MEM;
-    }
-    return ESP_OK;
+    return start_worker
+               ? start_deferred_task(
+                     "pf_image_mut",
+                     image_mutation_task_entry,
+                     kImageMutationTaskStackWords,
+                     image_mutation_task_handle,
+                     image_mutation_task_stack,
+                     image_mutation_task_control)
+               : ESP_OK;
 }
 
 bool receive_image_order_body(
@@ -2645,6 +2691,11 @@ esp_err_t image_mutation_handler(
             async_request,
             response_result,
             true);
+    }
+    if (start_image_mutation_task(true) != ESP_OK) {
+        return send_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"mutation_unavailable\"}");
     }
     pf_storage::StorageWorker* const worker =
         server_access_config.storage_worker;
@@ -2766,6 +2817,11 @@ esp_err_t image_upload_handler(httpd_req_t* request)
             async_request,
             response_result,
             true);
+    }
+    if (start_image_upload_task(true) != ESP_OK) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"upload_unavailable\"}");
     }
     if (async_request->content_len <= 0 ||
         static_cast<std::size_t>(async_request->content_len) >
@@ -3056,19 +3112,19 @@ esp_err_t start_health_server(
     if (result != ESP_OK) {
         return result;
     }
-    result = start_image_download_task();
+    result = start_image_download_task(false);
     if (result != ESP_OK) {
         httpd_stop(*server);
         *server = nullptr;
         return result;
     }
-    result = start_image_upload_task();
+    result = start_image_upload_task(false);
     if (result != ESP_OK) {
         httpd_stop(*server);
         *server = nullptr;
         return result;
     }
-    result = start_image_mutation_task();
+    result = start_image_mutation_task(false);
     if (result != ESP_OK) {
         httpd_stop(*server);
         *server = nullptr;

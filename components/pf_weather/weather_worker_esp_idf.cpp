@@ -6,6 +6,7 @@
 #include <ctime>
 
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "pf_config/config_manager.hpp"
@@ -241,8 +242,17 @@ void WeatherWorker::fetch_once()
     if (perform_result != ESP_OK) {
         ESP_LOGW(
             kTag,
-            "weather_fetch_failed=%s",
-            esp_err_to_name(perform_result));
+            "weather_fetch_failed=%s internal_free=%u internal_largest=%u "
+            "dma_free=%u dma_largest=%u",
+            esp_err_to_name(perform_result),
+            static_cast<unsigned>(
+                heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(
+                heap_caps_get_largest_free_block(
+                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+            static_cast<unsigned>(
+                heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
         esp_http_client_cleanup(client);
         apply_failure(pf_weather::Failure::network);
         report_internet(false);

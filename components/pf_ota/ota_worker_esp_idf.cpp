@@ -5,6 +5,7 @@
 #include <ctime>
 
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -33,7 +34,7 @@ constexpr char kReleaseAssetName[] = "paperframe-firmware.bin";
 
 esp_err_t OtaWorker::start(pf_runtime::RuntimeCoordinator& runtime)
 {
-    if (task_handle_ != nullptr) {
+    if (runtime_ != nullptr || wake_semaphore_ != nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
     runtime_ = &runtime;
@@ -44,15 +45,9 @@ esp_err_t OtaWorker::start(pf_runtime::RuntimeCoordinator& runtime)
         return ESP_ERR_NO_MEM;
     }
 
-    task_handle_ = xTaskCreateStatic(
-        &OtaWorker::task_entry,
-        "OtaWorkerTask",
-        kTaskStackWords,
-        this,
-        kTaskPriority,
-        task_stack_,
-        &task_control_);
-    if (task_handle_ == nullptr) {
+    task_start_mutex_ = xSemaphoreCreateMutexStatic(
+        &task_start_mutex_control_);
+    if (task_start_mutex_ == nullptr) {
         wake_semaphore_ = nullptr;
         runtime_ = nullptr;
         return ESP_ERR_NO_MEM;
@@ -62,14 +57,7 @@ esp_err_t OtaWorker::start(pf_runtime::RuntimeCoordinator& runtime)
 
 bool OtaWorker::request_check_for_update()
 {
-    // If start() never succeeded (e.g. logged as
-    // "ota_worker_start_failed" in app_main.cpp and left degraded),
-    // task_handle_/wake_semaphore_ are null and nothing will ever consume
-    // pending_command_ or reset busy_ back to false -- accepting the
-    // request here would both lie to the caller (return true for
-    // something that will never run) and permanently wedge busy_ so every
-    // future request is rejected as "already in flight" forever.
-    if (task_handle_ == nullptr) {
+    if (!ensure_task_started()) {
         return false;
     }
     bool expected = false;
@@ -84,7 +72,7 @@ bool OtaWorker::request_check_for_update()
 
 bool OtaWorker::request_update_now()
 {
-    if (task_handle_ == nullptr) {
+    if (!ensure_task_started()) {
         return false;
     }
     bool expected = false;
@@ -99,6 +87,48 @@ bool OtaWorker::request_update_now()
 void OtaWorker::task_entry(void* const context)
 {
     static_cast<OtaWorker*>(context)->task_main();
+}
+
+bool OtaWorker::ensure_task_started()
+{
+    if (runtime_ == nullptr ||
+        wake_semaphore_ == nullptr ||
+        task_start_mutex_ == nullptr ||
+        xSemaphoreTake(task_start_mutex_, portMAX_DELAY) != pdTRUE) {
+        return false;
+    }
+
+    if (task_handle_ == nullptr) {
+        task_stack_ = static_cast<StackType_t*>(
+            heap_caps_calloc(
+                kTaskStackWords,
+                sizeof(StackType_t),
+                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        if (task_stack_ == nullptr) {
+            ESP_LOGE(
+                kTag,
+                "ota_task_stack_alloc_failed bytes=%u",
+                static_cast<unsigned>(
+                    kTaskStackWords * sizeof(StackType_t)));
+        } else {
+            task_handle_ = xTaskCreateStatic(
+                &OtaWorker::task_entry,
+                "OtaWorkerTask",
+                kTaskStackWords,
+                this,
+                kTaskPriority,
+                task_stack_,
+                &task_control_);
+            if (task_handle_ == nullptr) {
+                heap_caps_free(task_stack_);
+                task_stack_ = nullptr;
+                ESP_LOGE(kTag, "ota_task_start_failed");
+            }
+        }
+    }
+
+    xSemaphoreGive(task_start_mutex_);
+    return task_handle_ != nullptr;
 }
 
 std::uint64_t OtaWorker::now_ms_since_boot()

@@ -40,7 +40,11 @@ private:
         update_now,
     };
 
-    static constexpr std::uint32_t kTaskStackWords = 24576U;
+    // OTA is admin-triggered. Allocate this internal-RAM stack only when the
+    // first OTA operation is requested so normal STA/httpd/TLS startup does
+    // not reserve it permanently. The high-water mark is logged after every
+    // command.
+    static constexpr std::uint32_t kTaskStackWords = 16384U;
     static constexpr UBaseType_t kTaskPriority = 3U;
     static constexpr std::uint32_t kGithubApiTimeoutMs = 10000U;
     static constexpr std::size_t kGithubResponseBufferCapacity = 8192U;
@@ -53,6 +57,7 @@ private:
         esp_http_client_event_t* event);
 
     void task_main();
+    bool ensure_task_started();
     void check_for_update();
     void update_now();
     static std::uint64_t now_ms_since_boot();
@@ -60,9 +65,11 @@ private:
     pf_runtime::RuntimeCoordinator* runtime_ = nullptr;
     TaskHandle_t task_handle_ = nullptr;
     StaticTask_t task_control_{};
-    StackType_t task_stack_[kTaskStackWords]{};
+    StackType_t* task_stack_ = nullptr;
     SemaphoreHandle_t wake_semaphore_ = nullptr;
     StaticSemaphore_t wake_semaphore_control_{};
+    SemaphoreHandle_t task_start_mutex_ = nullptr;
+    StaticSemaphore_t task_start_mutex_control_{};
     std::atomic<Command> pending_command_{Command::none};
     // Authoritative "request already in flight" guard: task_main only ever
     // processes one command at a time, and this compare-and-swap is what
