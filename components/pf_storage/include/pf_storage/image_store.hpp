@@ -93,6 +93,20 @@ struct ImageStoreResult {
     std::size_t bytes_received = 0U;
     std::uint32_t assigned_id = 0U;
     bool catalog_committed = false;
+    // Catalog generation as of this mutation's completion (0 if the
+    // mutation never touched the catalog, e.g. an early failure). Only
+    // StorageWorker::store_image/remove_image populate this today. It is
+    // monotonically increasing and assigned while the caller's
+    // OperationGuard still serializes access, so callers can pass it
+    // through to RuntimeCoordinator::update_imagefs_used_bytes to reject a
+    // stale, out-of-order publish from a slower concurrent mutation.
+    std::uint32_t catalog_generation = 0U;
+    // Filesystem free-byte count sampled while OperationGuard was still
+    // held, i.e. after this mutation's writes landed but before any other
+    // mutation on the same StorageWorker could begin -- so it reflects
+    // exactly this mutation's effect, never a concurrent one's in-progress
+    // write. Only StorageWorker::store_image/remove_image populate this.
+    std::uint64_t imagefs_free_bytes_after = 0U;
 
     bool ok() const
     {

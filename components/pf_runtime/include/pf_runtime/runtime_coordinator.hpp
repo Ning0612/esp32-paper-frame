@@ -70,6 +70,28 @@ public:
     void update_carousel_status(
         std::uint32_t current_image_id,
         std::uint64_t next_due_ms);
+    // Re-publishes the imagefs partition's live used-byte count. Callers
+    // must recompute this from a fresh esp_littlefs_info()/free_bytes()
+    // query after a capacity-changing storage mutation (upload/remove) --
+    // the boot-time value captured in the initial snapshot is never
+    // otherwise refreshed, so it goes stale the moment the image library
+    // changes.
+    //
+    // `generation` must be the pf_storage::Catalog generation the sample
+    // was derived from (pf_storage::ImageStoreResult::catalog_generation).
+    // Publish order across independent mutation/upload tasks is not
+    // guaranteed once StorageWorker's own per-mutation serialization ends,
+    // so a slower caller's older sample could otherwise land after a
+    // faster caller's newer one and silently overwrite it. Samples with
+    // generation <= the last applied one are dropped instead of applied.
+    // Not wraparound-safe: after generation wraps past UINT32_MAX this
+    // comparison would reject all future samples. Accepted as
+    // unreachable in practice -- it needs billions of successful
+    // upload/remove calls on one device, far beyond this product's
+    // realistic image-library churn.
+    void update_imagefs_used_bytes(
+        std::uint32_t used_bytes,
+        std::uint32_t generation);
 
     bool lock_flash_display(TickType_t wait_ticks);
     void unlock_flash_display();
@@ -124,6 +146,10 @@ private:
     RuntimeSnapshot snapshot_{};
     bool snapshot_valid_ = false;
     std::uint32_t next_request_id_ = 1U;
+    // Guarded by snapshot_lock_; not part of RuntimeSnapshot since it is
+    // bookkeeping for update_imagefs_used_bytes's staleness check, not
+    // itself a value external readers need.
+    std::uint32_t imagefs_usage_generation_ = 0U;
     TerminalResultSlot terminal_results_[kTerminalResultCapacity]{};
     // Guarded by snapshot_lock_ like the rest of this coordinator's shared
     // state; not part of RuntimeSnapshot itself so it is never copied on
