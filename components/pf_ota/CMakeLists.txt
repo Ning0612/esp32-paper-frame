@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "ota_worker_esp_idf.cpp"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        app_update
+        esp-tls
+        esp_http_client
+        esp_https_ota
+        esp_timer
+        freertos
+        mbedtls
+    PRIV_REQUIRES
+        pf_runtime
+)

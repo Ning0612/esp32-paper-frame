@@ -27,3 +27,10 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
 CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
 
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Phase 8 OTA (docs/adr/0008-ota-github-releases-and-rollback.md): lets the
+# bootloader automatically revert to the previous OTA slot if the new
+# firmware crash-loops before app_main.cpp calls
+# esp_ota_mark_app_valid_cancel_rollback() (right after core services boot
+# successfully).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

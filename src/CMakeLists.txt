@@ -4,6 +4,7 @@ idf_component_register(
     INCLUDE_DIRS
         "."
     REQUIRES
+        app_update
         esp_hw_support
         esp_netif
         esp_system
@@ -14,6 +15,7 @@ idf_component_register(
         pf_display
         pf_network
         pf_image
+        pf_ota
         pf_runtime
         pf_sensors
         pf_storage
