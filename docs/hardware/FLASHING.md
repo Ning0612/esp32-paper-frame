@@ -29,6 +29,27 @@ RGB demo、native USB 被停用，或 app 已損壞到無法接受 `usb_reset`�
 此命令是 Phase 8 正式 OTA 導入前的開發流程；開始切換 active OTA slot 後，
 必須改由 OTA contract 選擇非執行中 slot，不得直接沿用固定的 `0x10000`。
 
+## 日常開發：韌體＋webfs 一起更新
+
+`data/web/*`（前端）跟著韌體改動時，用 `scripts\flash-app-and-webfs.ps1`
+一次做完「app-only upload + 重建 webfs + 只寫 `0x510000`」，不用手動兜
+下方「App-only 開發燒錄」與「WebUI-only 更新」兩節的指令：
+
+```powershell
+.\scripts\flash-app-and-webfs.ps1 -Port COMx
+```
+
+任一步失敗會直接丟出例外中止，不會留下 app／webfs 不一致的中間狀態。
+全程不觸碰 `imagefs`（`0x630000`）或 NVS，可重複執行。
+
+**絕對不要用 `pio run -t uploadfs`（任何 env）**：這個 partition table
+有兩個 `spiffs` subtype 分割區（`webfs`、`imagefs`），PlatformIO 內建
+`uploadfs` 的分割區選取邏輯（`fetch_fs_size()`，逐筆覆寫、取 CSV 裡最後
+一個符合的分割區）會選到排序在後面的 `imagefs`（`0x630000`），但內容
+來源固定是 `data/web/*`——等於每次都把 WebUI 檔案寫進使用者的圖片
+儲存區。2026-08-01 已實測確認並清空受污染的 `imagefs`，詳見
+`docs/hardware/VALIDATION.md` 對應日期記錄。
+
 ## USB 介面
 
 | 介面 | Windows hardware ID | 用途 |

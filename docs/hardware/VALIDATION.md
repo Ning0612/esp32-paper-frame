@@ -690,3 +690,100 @@ pf_display`，若強行把 `pf_carousel` 折進 `pf_display` 會形成
 `WeatherWorker` 的行為與上一輪已驗證版本相同，理論上不需要重新開機驗證；
 但尚未實際重新燒錄／開機確認 DHT22、光敏電阻、天氣抓取三個 task 在新的
 元件邊界下仍正常啟動，留待下次有硬體在手時一併確認。
+
+### 2026-08-01 — Phase 8 診斷／OTA／System 頁：僅完成 host 驗證
+
+本段（見 `docs/adr/0008-ota-github-releases-and-rollback.md`）新增
+`pf_runtime` 診斷 ring buffer（`diagnostics_event.hpp`）、reboot reason
+分類（`reboot_reason.hpp`）、韌體版本比對（`firmware_version.hpp`）、
+queue/lock 失敗計數器（與對應診斷事件在同一 critical section 內原子
+關聯）、`schedule_reboot()`（timer 於 `RuntimeCoordinator::initialize()`
+單執行緒建立，避免跨 task 首次建立的競態）；新 component `pf_ota`
+（GitHub Releases 版本檢查與 `esp_https_ota` stepwise 下載，admin
+觸發、無背景輪詢）；`pf_web` 新增 `GET /api/v1/events`、
+`POST /api/v1/system/reboot`、`POST /api/v1/system/recovery-ap`、
+`GET/POST /api/v1/system/ota/*`；`pf_network` 新增
+`request_recovery_ap()`；Dashboard `current_image`/`next_refresh_ms`
+改為真實值；WebUI 新增「系統」頁。全部變更通過 `pio run`（RAM
+232,944 / 327,680 bytes 71.1%，Flash 1,240,681 / 2,621,440 bytes
+47.3%）與 `pio test -e native`（265/265），`node --check data/web/ui.js`
+與 `test/web/test_system_ui_contract.mjs` 通過，
+`test_embedded/test_runtime_coordinator` 以 `--without-uploading
+--without-testing` 完成 build-only 驗證。經 4 輪 codex-cowork 審查
+（診斷/OTA 3 輪、Dashboard/System 頁 1 輪）收斂至阻斷性零問題。
+**本段沒有任何實機（開機、Wi-Fi、面板、真實 OTA）驗證**，以下項目仍
+完全待補：
+
+- **RAM 餘裕**：`pf_ota` 的 24576-byte task stack 與 8192-byte GitHub
+  API response buffer 是本次 RAM 用量從 61.0% 跳到 71.1% 的主因（純
+  靜態配置，不論是否觸發過 OTA 都佔用）。`OtaWorker::task_main()` 已在
+  每次命令處理完後 log `ota_worker_stack_free_bytes`，需在真機上分別
+  跑過「檢查更新」與「立即更新」兩條路徑，確認實際 high-water-mark
+  剩餘空間 ≥ 4KB（比照本專案既有的 httpd worker stack 校準基準）；若
+  不足需重新評估配置策略，不能只靠這次的靜態估算放行。
+- **GitHub 連線與版本比對**：真實 HTTPS 連線到
+  `api.github.com`／`github.com`（含 `esp_crt_bundle_attach` 憑證驗證
+  是否成功）、`tag_name` 解析與 `compare_semver` 對真實 release tag
+  的判斷結果、GitHub API rate limit（403）情境下 `ota_check_state`
+  是否正確回報 `check_failed`。
+- **真實 OTA 下載與 rollback**：完整走一次「檢查更新→立即更新→自動
+  重開機→開機後 `esp_ota_mark_app_valid_cancel_rollback()` 確認」流程；
+  刻意發布一個會在確認呼叫之前就 crash-loop 的版本，驗證
+  `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` 是否真的讓 bootloader 自動
+  切回舊分割區；OTA 寫入過程中斷電，確認開機後仍在舊版有效分割區，
+  `webfs`／`imagefs` 完全未受影響。
+- **無網路時的優雅失敗**：裝置僅有 provisioning AP、無 Internet 時按
+  「檢查更新」是否正確回報失敗而非卡住或崩潰。
+- **Reboot／Recovery AP 端到端**：`POST /api/v1/system/reboot` 是否
+  真的在收到回應後約 500ms 重開機且保留設定／圖片／順序／目前圖片；
+  `POST /api/v1/system/recovery-ap` 是否真的讓已連線 STA 的裝置切換
+  回 AP 模式，且符合 `docs/PROVISIONING.md` 既有的 auth 合約（scan 需
+  登入、config 需登入+CSRF）。
+- **併發 heap 風險**：`pf_weather`（GitHub API 之外的另一個獨立 HTTPS
+  client）與 `pf_ota` 理論上可能同時活躍；需實機刻意同時觸發天氣抓取
+  與 OTA 下載，量測 heap 低點，確認沒有因為併發 TLS session 而 OOM。
+- **`/api/v1/events` 在真實 queue 飽和下的行為**：連續觸發多次 carousel
+  refresh 讓 4-slot command queue 溢出，確認
+  `command_queue_rejected_count` 與對應診斷事件都正確出現在
+  `/api/v1/events` 回應中。
+- **System 頁瀏覽器實際行為**：四個操作按鈕（重新啟動、強制配網 AP、
+  檢查更新、立即更新）的 `window.confirm()` 二次確認、CSRF 是否正確
+  夾帶、按鈕點擊後裝置斷線期間的 UI 狀態是否合理（非誤導成「失敗」）。
+- **既有回歸（與 Phase 8 無關，附帶發現）**：
+  `test/web/test_image_download_contract.mjs` 在本分支基底 commit
+  （`b79c29b`，屬於 `fix/auth-simplify-network-merge`）就已經斷言失敗，
+  與 upload keep-alive 重構把 `close_session` 判斷式改寫成呼叫
+  `drain_image_upload_body(...)` 但測試字面比對未同步更新有關；不在
+  Phase 8 範圍內修正，留給該分支獨立處理。
+
+### 2026-08-01 — 發現 `pio run -t uploadfs` 會把 webfs 誤燒進 imagefs
+
+**根因**：`.pio/platforms/espressif32/builder/main.py` 的
+`fetch_fs_size()` 解析 `partitions/paperframe-dev.csv` 時，逐筆覆寫、
+用**最後一個** `type=data` 且 `subtype` 屬於 `spiffs/fat/littlefs` 的
+分割區當作 `uploadfs` 的寫入目標；`webfs`／`imagefs` 都是 `spiffs`
+subtype，`imagefs` 排在 CSV 後面，所以 PlatformIO 選到的目標 offset 是
+`imagefs`（`0x630000`）。但 `DataToBin` builder 的內容來源固定是
+`$PROJECT_DATA_DIR`（頂層 `data/`，這個專案裡只有 `data/web/*`）。兩者
+疊加的結果：每次跑 `pio run -t uploadfs`（任何 env）都會把 WebUI 檔案
+寫進 `imagefs` 的位置，等於用前端資產覆蓋使用者圖片儲存區。這就是先前
+「每次燒完好像都要重新傳圖片」的實際原因，不是預期行為。
+
+**處理**：
+1. 用 `littlefs_imagefs_bin`（空白 image）＋
+   `esptool ... write-flash 0x630000` 清空被誤燒污染的 `imagefs`
+   （COM10，10,289,152 bytes，寫入與 hash 驗證皆通過）。
+2. 新增 `scripts/flash-app-and-webfs.ps1`：只呼叫 `pio run -t upload`
+   （app-only，經 `tools/platformio_native_usb_upload.py` 裁剪成純
+   app 燒錄）＋ `littlefs_webfs_bin` 重建 ＋ `esptool write-flash
+   0x510000` 手燒 `webfs`，全程不呼叫 `uploadfs`，也不碰 `imagefs`。
+3. 實機驗證：COM10 上完整跑一次腳本，三步驟（app upload 14.47s、
+   webfs 重建 8 個檔案、`write-flash 0x510000` 3.0s）全部成功，
+   exit code 0；`nvs`（`0x9000`，管理密碼／Wi-Fi 憑證／sensor／weather
+   設定）不在這次任何寫入 offset 範圍內，確認未受影響。
+4. `CLAUDE.md` 已加入對應警告與腳本使用說明（本檔案未納入版控，
+   `.gitignore:29`）。
+
+**結論**：往後一律用 `scripts\flash-app-and-webfs.ps1`；`pio run -t
+uploadfs` 不得用於這個專案的任何 environment。imagefs 目前是空的，
+待重新從 WebUI 上傳圖片。
