@@ -93,6 +93,19 @@ little-endian 與 CRC32 契約；瀏覽器只會產生受尺寸與 palette 限�
 payload。跨語言 golden vector 與欄位定義見
 [`docs/formats/PFR1.md`](formats/PFR1.md)。
 
+打包完 nibble payload 後，`packPfr1()`（已改為 `async`）會嘗試用瀏覽器原生
+`CompressionStream('deflate-raw')` 壓縮：壓縮後比未壓縮小才採用（設定
+`Pfr1Flags.compressed` bit 並改存壓縮後 bytes），壓縮沒幫助、或執行環境
+沒有 `CompressionStream`（例如較舊的瀏覽器）時，直接退回今天的未壓縮輸出
+——保證新路徑不會比原本差。這個步驟刻意留在主執行緒、不搬進
+`image_quantize_worker.js`：payload 最大 182 KB，`CompressionStream` 壓縮
+是個位數 ms 等級，不值得為此擴充 worker 的訊息協定；打包（`packPfr1`）
+本身今天也是主執行緒同步呼叫，壓縮只是延續同一個階段。呼叫端如果需要
+強制輸出未壓縮版本（例如重現文件中的 golden vector），可以傳
+`{ compress: false }`。詳細的壓縮 payload 語意（`payload_length` 改為壓縮
+後 byte 數、CRC32 涵蓋範圍不變）見 [`docs/formats/PFR1.md`](formats/PFR1.md)
+的「Payload 壓縮」段落。
+
 量化測試與 worker 語法檢查：
 
 ```powershell
@@ -100,6 +113,8 @@ node test\web\test_image_quantizer.mjs
 node --check data\web\image_quantizer.js
 node --check data\web\image_quantize_worker.js
 node test\web\test_image_ui_contract.mjs
+node test\web\test_pfr1_packer.mjs
+node --check data\web\image_pfr1.js
 ```
 
 ## 視覺與主題

@@ -890,7 +890,7 @@
       if (requestId !== imageRevision) return;
       drawRaster(previewSixColor, quantized);
       drawFramePreview(previewFrame, quantized);
-      const packed = window.PaperFramePfr1.packPfr1(quantized, {
+      const packed = await window.PaperFramePfr1.packPfr1(quantized, {
         filename: imageFilename.value.trim() || imageFileName,
         orientation: imageOrientation.value,
         flags: transformFlags,
