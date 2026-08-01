@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_ota_ops.h"
 #include "esp_psram.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -25,6 +26,7 @@
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_network/ap_screen.hpp"
 #include "pf_network/provisioning_service.hpp"
+#include "pf_ota/ota_worker.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_sensors/presence.hpp"
 #include "pf_sensors/sensor_task.hpp"
@@ -544,7 +546,13 @@ extern "C" void app_main()
         .carousel_refresh_minutes = config_result.record_available
                                          ? config_result.record.refresh_minutes
                                          : 0U,
+        .reboot_reason = pf_runtime::classify_reset_reason(
+            static_cast<int>(esp_reset_reason())),
     };
+    ESP_LOGI(
+        kTag,
+        "reboot_reason=%s",
+        pf_runtime::to_string(initial_snapshot.reboot_reason));
     const esp_err_t runtime_result =
         pf_runtime::coordinator().initialize(initial_snapshot);
     bool display_started = false;
@@ -721,6 +729,30 @@ extern "C" void app_main()
     }
     pf_config::secure_zero(weather_settings_result.settings);
     pf_config::secure_zero(web_access.weather_settings);
+
+    const esp_err_t ota_worker_result =
+        runtime_result == ESP_OK
+            ? pf_ota::ota_worker().start(pf_runtime::coordinator())
+            : ESP_ERR_INVALID_STATE;
+    if (ota_worker_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "ota_worker_start_failed=%s; firmware updates unavailable",
+            esp_err_to_name(ota_worker_result));
+    }
+
+    // Every core service above has attempted to start by this point;
+    // confirm this boot as valid so the bootloader does not roll back to
+    // the previous OTA slot on the next boot attempt. If this firmware
+    // crash-loops before reaching this line, CONFIG_BOOTLOADER_APP_ROLLBACK
+    // _ENABLE (sdkconfig.defaults) reverts to the previous slot instead.
+    // See docs/adr/0008-ota-github-releases-and-rollback.md.
+    const esp_err_t rollback_confirm_result =
+        esp_ota_mark_app_valid_cancel_rollback();
+    ESP_LOGI(
+        kTag,
+        "rollback_confirmed=%s",
+        esp_err_to_name(rollback_confirm_result));
 
     const std::uint32_t refresh_minutes =
         config_result.record_available
@@ -927,6 +959,19 @@ extern "C" void app_main()
                         terminal_result.display_outcome),
                     static_cast<unsigned long long>(
                         carousel.next_due_ms()));
+                if (succeeded) {
+                    // 0 (welcome/status frame) or a real catalogued image
+                    // id, but only once the refresh actually committed --
+                    // a failed refresh must not claim the panel now shows
+                    // something it doesn't.
+                    const std::uint32_t displayed_image_id =
+                        active_carousel_decision.kind ==
+                                pf_carousel::DecisionKind::display_image
+                            ? active_carousel_decision.image_id
+                            : 0U;
+                    pf_runtime::coordinator().update_carousel_status(
+                        displayed_image_id, carousel.next_due_ms());
+                }
                 active_carousel_request_id = 0U;
             }
         }
