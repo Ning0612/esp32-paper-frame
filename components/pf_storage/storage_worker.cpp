@@ -315,6 +315,8 @@ ImageStoreResult StorageWorker::store_image(
         content_length);
     if (result.ok()) {
         catalog_ = *updated;
+        result.catalog_generation = catalog_.generation;
+        result.imagefs_free_bytes_after = filesystem_->free_bytes();
     }
     return result;
 }
@@ -423,6 +425,7 @@ ImageStoreResult StorageWorker::remove_image(const std::uint32_t id)
     }
     catalog_ = candidate;
     result.catalog_committed = true;
+    result.catalog_generation = catalog_.generation;
 
     char image_path[kRecoveryPathCapacity]{};
     const int path_length = std::snprintf(
@@ -444,6 +447,7 @@ ImageStoreResult StorageWorker::remove_image(const std::uint32_t id)
         return result;
     }
     result.assigned_id = id;
+    result.imagefs_free_bytes_after = filesystem_->free_bytes();
     return result;
 }
 

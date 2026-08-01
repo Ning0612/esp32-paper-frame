@@ -431,6 +431,21 @@ void RuntimeCoordinator::update_carousel_status(
     portEXIT_CRITICAL(&snapshot_lock_);
 }
 
+void RuntimeCoordinator::update_imagefs_used_bytes(
+    const std::uint32_t used_bytes,
+    const std::uint32_t generation)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    if (generation <= imagefs_usage_generation_) {
+        portEXIT_CRITICAL(&snapshot_lock_);
+        return;
+    }
+    snapshot_.imagefs_used_bytes = used_bytes;
+    imagefs_usage_generation_ = generation;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
 void RuntimeCoordinator::request_manual_carousel_activation(
     const std::uint32_t image_id)
 {

@@ -2351,6 +2351,44 @@ esp_err_t send_image_upload_result(
         response);
 }
 
+// The dashboard's imagefs_used_bytes is seeded once at boot (see
+// app_main.cpp) and is otherwise never refreshed, so it silently goes stale
+// the moment a capacity-changing mutation (upload/remove) changes what's on
+// disk. Republish it after every such mutation using the free-byte count
+// StorageWorker already sampled for us (ImageStoreResult::
+// imagefs_free_bytes_after) while its OperationGuard was still held --
+// i.e. after this mutation's own writes landed but before any other
+// mutation on the same worker could start, so the sample can never
+// straddle a concurrent mutation's in-progress write. `catalog_generation`
+// must likewise be the ImageStoreResult::catalog_generation from that same
+// mutation, so RuntimeCoordinator can drop a stale, out-of-order publish
+// if a slower caller's update lands after a faster one's.
+void refresh_imagefs_used_bytes(
+    const std::uint64_t free_bytes,
+    const std::uint32_t catalog_generation)
+{
+    pf_runtime::RuntimeSnapshot snapshot{};
+    if (!pf_runtime::coordinator().read_snapshot(snapshot)) {
+        return;
+    }
+    // free_bytes()==0 is also what LittleFsStorageFileSystem::free_bytes()
+    // returns when the underlying esp_littlefs_info()/statvfs() query
+    // itself fails, indistinguishable here from a genuinely full
+    // partition. Treat it as an unreliable sample and keep the last known
+    // value instead of publishing a misleading "100% full" reading.
+    if (free_bytes == 0U || free_bytes > snapshot.imagefs_total_bytes) {
+        ESP_LOGW(
+            kTag,
+            "imagefs_usage_refresh_skipped free_bytes=%llu total_bytes=%lu",
+            static_cast<unsigned long long>(free_bytes),
+            static_cast<unsigned long>(snapshot.imagefs_total_bytes));
+        return;
+    }
+    pf_runtime::coordinator().update_imagefs_used_bytes(
+        static_cast<std::uint32_t>(snapshot.imagefs_total_bytes - free_bytes),
+        catalog_generation);
+}
+
 void image_upload_task_entry(void* const)
 {
     for (;;) {
@@ -2380,6 +2418,11 @@ void image_upload_task_entry(void* const)
             result = queued.worker->store_image(
                 reader,
                 queued.content_length);
+            if (result.ok()) {
+                refresh_imagefs_used_bytes(
+                    result.imagefs_free_bytes_after,
+                    result.catalog_generation);
+            }
             if (receive_context.remaining != 0U) {
                 close_session = !drain_image_upload_body(receive_context);
             }
@@ -2526,6 +2569,11 @@ void image_mutation_task_entry(void* const)
             }
         } else if (queued.kind == ImageMutationKind::remove) {
             result = queued.worker->remove_image(queued.image_id);
+            if (result.ok()) {
+                refresh_imagefs_used_bytes(
+                    result.imagefs_free_bytes_after,
+                    result.catalog_generation);
+            }
         } else {
             if (!receive_image_order_body(
                     queued.request,
