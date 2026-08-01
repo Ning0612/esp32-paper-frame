@@ -7,8 +7,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pf_config/sensor_settings.hpp"
-#include "pf_dht22/dht22_environment_sensor.hpp"
 #include "pf_sensors/daily_stats.hpp"
+#include "pf_sensors/dht22_environment_sensor.hpp"
 #include "pf_sensors/environment_sensor.hpp"
 #include "pf_sensors/light_sensor.hpp"
 #include "pf_sensors/presence.hpp"
@@ -17,7 +17,7 @@ namespace pf_runtime {
 class RuntimeCoordinator;
 }
 
-namespace pf_sensor_task {
+namespace pf_sensors {
 
 // Owns the DHT22 (GPIO6) and photoresistor ADC (GPIO5 / ADC1_CH4) reads,
 // runs the light filter/threshold/presence debounce each tick, and
@@ -51,16 +51,15 @@ private:
     StackType_t task_stack_[kTaskStackWords]{};
 
     adc_oneshot_unit_handle_t adc_handle_ = nullptr;
-    pf_sensors::MovingAverageFilter<kLightFilterCapacity> light_filter_{};
-    pf_sensors::PresenceTracker presence_tracker_{};
+    MovingAverageFilter<kLightFilterCapacity> light_filter_{};
+    PresenceTracker presence_tracker_{};
 
-    pf_dht22::Dht22EnvironmentSensor environment_sensor_;
-    pf_sensors::EnvironmentCache environment_cache_{};
-    pf_sensors::SensorStatus environment_status_ =
-        pf_sensors::SensorStatus::disabled;
-    pf_sensors::DailyStats environment_daily_{};
+    Dht22EnvironmentSensor environment_sensor_;
+    EnvironmentCache environment_cache_{};
+    SensorStatus environment_status_ = SensorStatus::disabled;
+    DailyStats environment_daily_{};
 };
 
 SensorTask& sensor_task();
 
-}  // namespace pf_sensor_task
+}  // namespace pf_sensors

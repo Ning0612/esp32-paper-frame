@@ -1,8 +1,8 @@
-#include "pf_dht22/dht22_environment_sensor.hpp"
+#include "pf_sensors/dht22_environment_sensor.hpp"
 
 #include "dht.h"
 
-namespace pf_dht22 {
+namespace pf_sensors {
 
 Dht22EnvironmentSensor::Dht22EnvironmentSensor(const gpio_num_t pin)
     : pin_(pin)
@@ -17,7 +17,7 @@ namespace {
 // read() below still only reports success for in-range data.
 bool read_raw(
     const gpio_num_t pin,
-    pf_sensors::EnvironmentReading& output)
+    EnvironmentReading& output)
 {
     float humidity = 0.0F;
     float temperature = 0.0F;
@@ -26,28 +26,28 @@ bool read_raw(
     if (result != ESP_OK) {
         return false;
     }
-    output = pf_sensors::EnvironmentReading{temperature, humidity};
+    output = EnvironmentReading{temperature, humidity};
     return true;
 }
 
 }  // namespace
 
-pf_sensors::SensorStatus Dht22EnvironmentSensor::probe()
+SensorStatus Dht22EnvironmentSensor::probe()
 {
-    pf_sensors::EnvironmentReading reading{};
+    EnvironmentReading reading{};
     const bool ok = read_raw(pin_, reading);
-    return pf_sensors::classify_environment_read(ok, reading);
+    return classify_environment_read(ok, reading);
 }
 
-bool Dht22EnvironmentSensor::read(pf_sensors::EnvironmentReading& output)
+bool Dht22EnvironmentSensor::read(EnvironmentReading& output)
 {
-    pf_sensors::EnvironmentReading reading{};
+    EnvironmentReading reading{};
     if (!read_raw(pin_, reading) ||
-        !pf_sensors::environment_reading_in_range(reading)) {
+        !environment_reading_in_range(reading)) {
         return false;
     }
     output = reading;
     return true;
 }
 
-}  // namespace pf_dht22
+}  // namespace pf_sensors

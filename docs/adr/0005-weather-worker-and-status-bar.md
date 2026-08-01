@@ -107,3 +107,11 @@ WeatherWorker（`pf_weather_worker` component）與狀態列渲染（`pf_display
   DNS/TLS/timeout 各自診斷狀態、stale 顯示、未同步時間 fallback）。
 - `esp_crt_bundle_attach` 驗證 `api.openweathermap.org` 憑證成功，是
   WeatherWorker 第一次成功抓取的前提條件，須在實機記錄。
+
+## Update (2026-08)
+
+反過度設計整併：`pf_weather_worker` component 已併入 `pf_weather`，
+namespace 由 `pf_weather_worker` 改為 `pf_weather`（`WeatherWorker` 類別
+本體與本 ADR 記錄的所有決策不變，純粹是元件邊界調整，不是 superseding
+ADR 的範疇）。本文其餘內容提到的 `pf_weather_worker` 是撰寫當下的元件
+名稱，保留作歷史紀錄。

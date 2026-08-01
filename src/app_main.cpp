@@ -26,13 +26,13 @@
 #include "pf_network/ap_screen.hpp"
 #include "pf_network/provisioning_service.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
-#include "pf_sensor_task/sensor_task.hpp"
 #include "pf_sensors/presence.hpp"
+#include "pf_sensors/sensor_task.hpp"
 #include "pf_storage/filesystem_manager.hpp"
 #include "pf_storage/catalog.hpp"
 #include "pf_storage/littlefs_backend.hpp"
 #include "pf_storage/storage_worker.hpp"
-#include "pf_weather_worker/weather_worker.hpp"
+#include "pf_weather/weather_worker.hpp"
 #include "pf_web/health_server.hpp"
 
 namespace {
@@ -618,7 +618,7 @@ extern "C" void app_main()
 
     const esp_err_t weather_worker_result =
         network_service_result == ESP_OK && runtime_result == ESP_OK
-            ? pf_weather_worker::weather_worker().start(
+            ? pf_weather::weather_worker().start(
                   pf_runtime::coordinator(),
                   pf_network::network_service())
             : ESP_ERR_INVALID_STATE;
@@ -631,7 +631,7 @@ extern "C" void app_main()
 
     const esp_err_t sensor_task_result =
         runtime_result == ESP_OK
-            ? pf_sensor_task::sensor_task().start(pf_runtime::coordinator())
+            ? pf_sensors::sensor_task().start(pf_runtime::coordinator())
             : ESP_ERR_INVALID_STATE;
     if (sensor_task_result != ESP_OK) {
         ESP_LOGE(

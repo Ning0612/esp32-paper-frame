@@ -1,4 +1,4 @@
-#include "pf_sensor_task/sensor_task.hpp"
+#include "pf_sensors/sensor_task.hpp"
 
 #include <ctime>
 
@@ -8,10 +8,10 @@
 #include "pf_config/config_manager.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 
-namespace pf_sensor_task {
+namespace pf_sensors {
 namespace {
 
-constexpr char kTag[] = "pf_sensor_task";
+constexpr char kTag[] = "pf_sensors";
 // ADR-0003: photoresistor ADC = GPIO5 (ADC1_CH4), DHT22 data = GPIO6.
 constexpr adc_channel_t kLightAdcChannel = ADC_CHANNEL_4;
 constexpr gpio_num_t kDhtPin = GPIO_NUM_6;
@@ -205,4 +205,4 @@ SensorTask& sensor_task()
     return instance;
 }
 
-}  // namespace pf_sensor_task
+}  // namespace pf_sensors

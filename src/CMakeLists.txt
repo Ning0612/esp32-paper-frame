@@ -15,10 +15,9 @@ idf_component_register(
         pf_network
         pf_image
         pf_runtime
-        pf_sensor_task
+        pf_sensors
         pf_storage
         pf_weather
-        pf_weather_worker
         pf_web
         spi_flash
 )

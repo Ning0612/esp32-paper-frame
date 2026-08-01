@@ -1,4 +1,4 @@
-#include "pf_weather_worker/weather_worker.hpp"
+#include "pf_weather/weather_worker.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -12,10 +12,10 @@
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 
-namespace pf_weather_worker {
+namespace pf_weather {
 namespace {
 
-constexpr char kTag[] = "pf_weather_worker";
+constexpr char kTag[] = "pf_weather";
 
 void bounded_copy(
     char* const destination,
@@ -309,4 +309,4 @@ WeatherWorker& weather_worker()
     return instance;
 }
 
-}  // namespace pf_weather_worker
+}  // namespace pf_weather

@@ -12,5 +12,5 @@ idf_component_register(
         pf_network
         pf_runtime
         pf_storage
-        pf_weather_worker
+        pf_weather
 )

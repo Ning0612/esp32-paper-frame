@@ -79,7 +79,7 @@ public:
 
 // Pure translation from "did the underlying driver call succeed, and is
 // the value plausible" to the Guild.md 4.8 status model. Kept separate
-// from any concrete driver (e.g. pf_dht22::Dht22EnvironmentSensor) so the
+// from any concrete driver (e.g. pf_sensors::Dht22EnvironmentSensor) so the
 // mapping itself stays host-testable even though the actual GPIO read
 // is not.
 constexpr SensorStatus classify_environment_read(

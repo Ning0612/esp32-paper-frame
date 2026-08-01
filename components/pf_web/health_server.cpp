@@ -28,7 +28,7 @@
 #include "pf_web/provisioning_form.hpp"
 #include "pf_web/sensor_config_form.hpp"
 #include "pf_web/weather_config_form.hpp"
-#include "pf_weather_worker/weather_worker.hpp"
+#include "pf_weather/weather_worker.hpp"
 
 namespace pf_web {
 namespace {
@@ -736,7 +736,7 @@ esp_err_t process_weather_config(
     const bool api_key_set =
         server_access_config.weather_settings.api_key[0] != '\0';
     xSemaphoreGive(weather_config_mutex);
-    pf_weather_worker::weather_worker().request_immediate_refresh();
+    pf_weather::weather_worker().request_immediate_refresh();
     return send_json(
         request,
         nullptr,

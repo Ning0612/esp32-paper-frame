@@ -1,6 +1,17 @@
 idf_component_register(
     SRCS
         "weather.cpp"
+        "weather_worker_esp_idf.cpp"
     INCLUDE_DIRS
         "include"
+    REQUIRES
+        esp-tls
+        esp_http_client
+        esp_timer
+        freertos
+        mbedtls
+        pf_config
+        pf_network
+    PRIV_REQUIRES
+        pf_runtime
 )

@@ -31,28 +31,6 @@ constexpr const char* to_string(const LightSensorStatus status)
     return "disabled";
 }
 
-// probe()/readRaw() contract from Guild.md 4.9's suggested LightSensor
-// interface.
-class LightSensor {
-public:
-    virtual ~LightSensor() = default;
-    virtual LightSensorStatus probe() = 0;
-    virtual bool read_raw(std::uint16_t& output) = 0;
-};
-
-class NullLightSensor final : public LightSensor {
-public:
-    LightSensorStatus probe() override
-    {
-        return LightSensorStatus::not_detected;
-    }
-
-    bool read_raw(std::uint16_t&) override
-    {
-        return false;
-    }
-};
-
 // Fixed-size moving average over raw ADC samples (see
 // docs/adr/0006-sensor-drivers-and-presence.md for why moving average was
 // picked over a median filter). Capacity is a compile-time constant so

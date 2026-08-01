@@ -19,7 +19,7 @@ namespace pf_network {
 class NetworkService;
 }
 
-namespace pf_weather_worker {
+namespace pf_weather {
 
 // Fetches OpenWeatherMap current-weather data over HTTPS on its own task,
 // publishes the result into RuntimeCoordinator, and reports whether the
@@ -80,4 +80,4 @@ private:
 
 WeatherWorker& weather_worker();
 
-}  // namespace pf_weather_worker
+}  // namespace pf_weather

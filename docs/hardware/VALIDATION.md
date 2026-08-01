@@ -475,7 +475,8 @@ PlatformIO app upload 沒有重寫 `webfs`、`imagefs`、NVS 或 OTA metadata。
 ### 2026-07-31 — Phase 6 WeatherWorker／狀態列渲染：僅完成 host 驗證
 
 本段（見 `docs/adr/0005-weather-worker-and-status-bar.md`）新增
-NetworkServiceTask 最小 SNTP 啟動、`pf_weather_worker`
+NetworkServiceTask 最小 SNTP 啟動、`pf_weather_worker`（2026-08 已併入
+`pf_weather`，component 名稱僅為當時撰寫時的名稱）
 HTTPS fetch、`RuntimeSnapshot` 天氣欄位、Dashboard 天氣 JSON，以及
 `pf_display` 的 bitmap font／weather icon／狀態列 renderer，並接線進
 carousel 與 welcome frame。全部變更通過 `pio run`（韌體完整編譯，RAM
@@ -514,7 +515,9 @@ Wi-Fi、面板）驗證**，以下項目仍完全待補：
 `MovingAverageFilter`／`PresenceTracker`）、移植自 `UncleRus/esp-idf-lib`
 （commit `162af418d4702791fd3bf3e5d1577aea9ec5539c`，BSD-3-Clause）的
 `pf_dht22` driver、新的 `pf_sensor_task`（DHT22 讀取＋ADC 光敏取樣＋
-presence debounce）、`RuntimeSnapshot` 感測器欄位、Dashboard `sensors`
+presence debounce）——`pf_dht22`／`pf_sensor_task` 2026-08 已併入
+`pf_sensors`，component 名稱僅為當時撰寫時的名稱——、`RuntimeSnapshot`
+感測器欄位、Dashboard `sensors`
 JSON、`GET /api/v1/sensors` 與 `/api/v1/sensors/config` 路由，以及
 WebUI 環境頁。全部變更通過 `pio run`（韌體完整編譯，RAM
 167,920 / 327,680 bytes 51.2%，Flash 1,213,025 / 2,621,440 bytes
@@ -654,3 +657,36 @@ $env:IDF_PATH = "$PWD\.pio\packages\framework-espidf"
   STA reconnect 全流程；
 - 面板刷新中送出首次建密碼（應該立即收到「裝置忙碌中」503，而非成功）
   尚未在實機刻意重現驗證。
+
+### 2026-08-01 — 過度設計整併第二輪：pf_sensors／pf_weather 三合一與二合一
+
+`pf_dht22`＋`pf_sensor_task` 併入 `pf_sensors`、`pf_weather_worker` 併入
+`pf_weather`（namespace 統一、CMakeLists SRCS/REQUIRES 合併），並刪除死
+抽象層 `pf_sensors::LightSensor`／`NullLightSensor`。純重構（搬檔案＋改
+namespace＋改 CMakeLists），不改變任何執行期行為，`pio run` 與
+`pio test -e native`（226/226）全綠。
+
+過程中 codex-cowork 審查抓到一個真實問題：合併後 `pf_sensors`／
+`pf_weather` 的 `SensorTask`/`WeatherWorker` 需要 `pf_runtime::
+RuntimeCoordinator`，而 `pf_runtime` 本身又需要 `pf_sensors`／`pf_weather`
+的純邏輯型別（`RuntimeSnapshot` 欄位），形成新的循環依賴——上一輪的三
+元件切分（型別／driver／task 各自獨立）原本正是為了避免這個循環，這次
+合併時沒注意到。修法：`pf_runtime` 這個相依在 `pf_sensors`／`pf_weather`
+的 CMakeLists 改成 `PRIV_REQUIRES`（兩個元件的公開 header 都只是
+forward-declare `RuntimeCoordinator`，`.cpp` 才需要完整定義），縮小
+transitive 曝光範圍；ESP-IDF 6.0 目前仍可解析這個循環並成功建置，但屬於
+刻意接受的架構債，未來若要徹底消除需要拆出 runtime 發布用的 adapter
+介面。
+
+`pf_carousel`／`pf_image` 折疊評估後放棄（見
+`docs/IMPLEMENTATION_PLAN.md` 對應記錄）：`pf_image` 已 `REQUIRES
+pf_display`，若強行把 `pf_carousel` 折進 `pf_display` 會形成
+`pf_display → pf_image → pf_display` 的環狀依賴，解法只有連 `pf_image`
+一起吃進 `pf_display`，但 `pf_image` 同時被 `pf_storage` 大量依賴，屆時
+`pf_storage` 會被迫背上 `pf_display` 的 SPI/EPD 硬體驅動相依鏈，用元件數
+換來更糟的依賴方向，本輪維持現狀。
+
+**未執行硬體重新驗證**：本輪是純重構（無邏輯變更），`SensorTask`／
+`WeatherWorker` 的行為與上一輪已驗證版本相同，理論上不需要重新開機驗證；
+但尚未實際重新燒錄／開機確認 DHT22、光敏電阻、天氣抓取三個 task 在新的
+元件邊界下仍正常啟動，留待下次有硬體在手時一併確認。

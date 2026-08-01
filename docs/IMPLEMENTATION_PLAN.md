@@ -333,7 +333,10 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 
 交付物：
 
-- EnvironmentSensor／LightSensor interfaces 與 null drivers。
+- EnvironmentSensor interface 與 null driver（`LightSensor` 抽象介面／
+  `NullLightSensor` 已於 2026-08 移除：production 從未透過它讀值，
+  `SensorTask::sample_light()` 直接呼叫 `adc_oneshot_read()`，是零實作的
+  死抽象層；`LightSensorStatus`／`MovingAverageFilter` 不受影響，仍在用）。
 - DHT22 driver 的讀取頻率、range validation、stale cache 與 backoff。
 - ADC sampling/filter、threshold、saturated/error 判斷與可調防抖。
 - `UNKNOWN`／`PRESENT`／`AWAY` state machine。
@@ -461,7 +464,8 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - [ ] Phase 6：G7 已由 `docs/adr/0005-weather-worker-and-status-bar.md` 固定。
   程式已完成：`pf_weather` parser/cache 與設定持久化／masked config API
   （`af4a2c5`、`56d5644`、`14d787f`）；NetworkServiceTask 最小 SNTP 啟動與
-  `RuntimeSnapshot.time_sync`；`pf_weather_worker`（`esp_http_client` +
+  `RuntimeSnapshot.time_sync`；`pf_weather_worker`（2026-08 已併入
+  `pf_weather`，見下方 Phase 7 之後的過度設計整併記錄）（`esp_http_client` +
   `esp_crt_bundle_attach` 實際 HTTPS 抓取、interval-aware 排程、
   `report_internet_state` 回報）；`RuntimeSnapshot`／`RuntimeCoordinator`
   天氣欄位；Dashboard `weather` JSON 三態（available/stale/unavailable）；
@@ -481,7 +485,8 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   `RuntimeCoordinator` 感測器欄位；移植自 `UncleRus/esp-idf-lib`
   （commit `162af418d4702791fd3bf3e5d1577aea9ec5539c`，BSD-3-Clause）的
   `pf_dht22` driver；`pf_sensor_task`（DHT22 週期讀取＋ADC 光敏取樣＋
-  presence debounce，接線進 `app_main.cpp`）；`CarouselScheduler::
+  presence debounce，接線進 `app_main.cpp`）——`pf_dht22`／`pf_sensor_task`
+  皆已於 2026-08 併入 `pf_sensors`，見下方過度設計整併記錄；`CarouselScheduler::
   force_immediate` 與 `render_blank_frame`，離席時暫停輪播、返回時立即
   重繪；Dashboard `sensors` JSON 三態；`GET /api/v1/sensors`、
   `/api/v1/sensors/config` API 與 WebUI 環境頁。`pio run` 與
@@ -490,3 +495,11 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   threshold 校正、AWAY/PRESENT 實機轉換、離席全白刷新＋sleep 電流、
   返回重繪與 deadline 重設、WebUI 環境頁瀏覽器行為，全部列在
   `docs/hardware/VALIDATION.md` 2026-07-31 Phase 7 待驗證清單。
+- [x] 2026-08 過度設計整併（下一輪，網路/安全性之後）：`pf_dht22`＋
+  `pf_sensor_task` 併入 `pf_sensors`，`pf_weather_worker` 併入 `pf_weather`，
+  namespace 統一；刪除死抽象層 `pf_sensors::LightSensor`／
+  `NullLightSensor`（production 從未透過它讀值，直接呼叫
+  `adc_oneshot_read()`）。純重構，不改變執行期行為。元件數 14→11。
+  `pf_carousel`／`pf_image` 折疊評估後判定會製造循環依賴，本輪維持現狀
+  （見 `docs/hardware/VALIDATION.md` 對應記錄）。`pio run` 與
+  `pio test -e native`（226/226）全綠，codex-cowork 審查通過。

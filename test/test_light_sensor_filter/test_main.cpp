@@ -4,24 +4,12 @@
 
 #include "pf_sensors/light_sensor.hpp"
 
-using pf_sensors::LightSensorStatus;
 using pf_sensors::MovingAverageFilter;
-using pf_sensors::NullLightSensor;
 
 extern "C" void setUp() {}
 extern "C" void tearDown() {}
 
 namespace {
-
-void test_null_light_sensor_reports_not_detected()
-{
-    NullLightSensor sensor;
-    TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(LightSensorStatus::not_detected),
-        static_cast<int>(sensor.probe()));
-    std::uint16_t raw = 0U;
-    TEST_ASSERT_FALSE(sensor.read_raw(raw));
-}
 
 void test_moving_average_ramps_up_while_buffer_fills()
 {
@@ -58,7 +46,6 @@ void test_reset_clears_accumulated_samples()
 int main(int, char**)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_null_light_sensor_reports_not_detected);
     RUN_TEST(test_moving_average_ramps_up_while_buffer_fills);
     RUN_TEST(test_moving_average_drops_oldest_sample_once_full);
     RUN_TEST(test_reset_clears_accumulated_samples);

@@ -148,6 +148,20 @@ Guild.md 原文只有「感測器與讀值」一行說明，schema 需自訂：
 - `pio run` 與 `pio test -e native` 全綠是本 ADR 所涵蓋所有變更的最低
   驗證門檻；DHT22 bit-bang 時序與光敏 ADC 實際校正無法 host test，須在
   `docs/hardware/VALIDATION.md` 記錄實機驗證結果。
-- `components/pf_dht22/LICENSE` 內容須與
+- `components/pf_sensors/third_party/LICENSE-dht.txt`（2026-08 前路徑為
+  `components/pf_dht22/third_party/LICENSE-dht.txt`；本行原始撰寫時誤寫
+  為 `pf_dht22/LICENSE`，一併修正）內容須與
   `https://github.com/UncleRus/esp-idf-lib/blob/162af418d4702791fd3bf3e5d1577aea9ec5539c/components/dht/LICENSE`
   逐字一致，作為移植合規性的可重現查核點。
+
+## Update (2026-08)
+
+反過度設計整併：`pf_dht22` 與 `pf_sensor_task` 兩個 component 已併入
+`pf_sensors`，namespace 統一為 `pf_sensors`（`Dht22EnvironmentSensor`／
+`SensorTask` 類別本體與本 ADR 記錄的所有決策不變，純粹是元件邊界調整）。
+移植授權檔隨目錄搬遷到 `components/pf_sensors/third_party/`，內容與逐字
+查核要求不變。同一輪也刪除了未被 production 使用的死抽象層
+`pf_sensors::LightSensor`／`NullLightSensor`（`SensorTask::sample_light()`
+一直是直接呼叫 `adc_oneshot_read()`，從未透過這個介面）；
+`LightSensorStatus`／`MovingAverageFilter` 不受影響。本文其餘內容提到的
+`pf_dht22`／`pf_sensor_task` 是撰寫當下的元件名稱，保留作歷史紀錄。
