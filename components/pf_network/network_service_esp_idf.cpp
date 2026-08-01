@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "bootloader_random.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -18,6 +19,32 @@
 
 namespace pf_network {
 namespace {
+
+// Observed on real hardware (2026-08-01): starting the AP radio while
+// DMA-capable heap is critically low crashed inside Espressif's
+// closed-source WiFi blob (LoadProhibited inside ieee80211_hostap_attach,
+// reached via wifi_softap_start), preceded by "alloc eb len=752 type=4
+// fail" -- a failed beacon-buffer allocation the blob does not handle
+// gracefully. That path cannot be patched from application code. High-
+// confidence hypothesis, NOT a proven root cause: no allocation-failure
+// hook or heap trace has confirmed this on-device, only the backtrace/log
+// correlation.
+//
+// This refuses to call esp_wifi_start() for AP mode when the largest free
+// DMA-capable block is below a safety margin, reporting ESP_ERR_NO_MEM so
+// the existing ap_start_failed retry/backoff path (NetworkStateMachine::
+// handle, up to maximum_ap_attempts_) runs instead of crashing. This turns
+// an unrecoverable crash into a bounded, diagnosable failure -- it does
+// NOT guarantee AP mode will succeed: a 1-second retry delay only helps if
+// some other task transiently frees DMA-capable heap in that window: a
+// persistent baseline deficit (static allocations, fragmentation) will
+// exhaust all attempts and land in NetworkStateMachine's failed state.
+// Genuinely fixing that requires broader on-device RAM auditing, not this
+// guard alone. 40 KB is an unverified, conservative starting guess, not a
+// measured value -- see docs/hardware/VALIDATION.md 2026-08-01 for the
+// on-device tuning (capability free/largest/min across each AP-entry path)
+// this still needs.
+constexpr std::size_t kMinimumFreeDmaHeapForApStart = 40U * 1024U;
 
 constexpr char kTag[] = "pf_network";
 
@@ -384,6 +411,39 @@ esp_err_t NetworkService::start_access_point()
     if (!ignorable_stop_error(stop_result)) {
         return stop_result;
     }
+
+    // Checked here, before any esp_wifi_set_mode()/set_config() mutation,
+    // so a low-heap bail-out never leaves the driver in a "config changed
+    // but never started" intermediate state -- the driver is simply left
+    // stopped, which the existing ignorable_stop_error() handling for the
+    // next esp_wifi_stop() call already tolerates by design.
+    //
+    // largest_free_block, not just total free size: the real-hardware
+    // crash this guards against was a single small (752-byte) DMA-capable
+    // allocation failing, which fragmentation can cause even when total
+    // free heap looks large. MALLOC_CAP_DMA targets the same pool that
+    // allocation needed (see docs/adr/0008 / VALIDATION.md 2026-08-01).
+    const std::size_t free_dma_heap =
+        heap_caps_get_free_size(MALLOC_CAP_DMA);
+    const std::size_t largest_free_dma_block =
+        heap_caps_get_largest_free_block(MALLOC_CAP_DMA);
+    if (largest_free_dma_block < kMinimumFreeDmaHeapForApStart) {
+        ESP_LOGE(
+            kTag,
+            "ap_start_low_heap free_dma_bytes=%u largest_free_dma_block=%u "
+            "minimum_bytes=%u",
+            static_cast<unsigned>(free_dma_heap),
+            static_cast<unsigned>(largest_free_dma_block),
+            static_cast<unsigned>(kMinimumFreeDmaHeapForApStart));
+        if (runtime_ != nullptr) {
+            runtime_->record_diagnostic_event(
+                pf_runtime::DiagnosticCategory::network,
+                pf_runtime::DiagnosticSeverity::error,
+                "ap_start_low_heap");
+        }
+        return ESP_ERR_NO_MEM;
+    }
+
     if (presenter_ != nullptr && !presentation_confirmed_) {
         const esp_err_t present_result =
             presenter_(
