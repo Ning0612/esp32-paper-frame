@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <unity.h>
+#include <zlib.h>
 
 #include "pf_storage/image_store.hpp"
 #include "pf_storage/recovery.hpp"
@@ -78,6 +79,76 @@ std::vector<std::uint8_t> make_pfr1(const char* const filename)
         output,
         24U,
         pf_image::crc32(output.data() + payload_offset, payload_length));
+    write_u32(output, 28U, pf_image::crc32(output.data(), 24U));
+    return output;
+}
+
+std::vector<std::uint8_t> deflate_raw(const std::vector<std::uint8_t>& input)
+{
+    z_stream strm{};
+    TEST_ASSERT_EQUAL(
+        Z_OK,
+        deflateInit2(
+            &strm, Z_BEST_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8,
+            Z_DEFAULT_STRATEGY));
+    std::vector<std::uint8_t> output(input.size() + 64U);
+    strm.next_in = const_cast<Bytef*>(input.data());
+    strm.avail_in = static_cast<uInt>(input.size());
+    strm.next_out = output.data();
+    strm.avail_out = static_cast<uInt>(output.size());
+    TEST_ASSERT_EQUAL(Z_STREAM_END, deflate(&strm, Z_FINISH));
+    output.resize(output.size() - strm.avail_out);
+    deflateEnd(&strm);
+    return output;
+}
+
+// A compressed PFR1 file with Pfr1Flags::kCompressed (0x0008) set: the
+// payload is a raw-DEFLATE stream of a payload that packs down well (a
+// handful of repeated colors), matching what the browser packer's fallback
+// logic would actually choose to store compressed rather than raw.
+std::vector<std::uint8_t> make_compressed_pfr1(const char* const filename)
+{
+    const std::size_t filename_length = std::strlen(filename);
+    const std::uint16_t width = pf_display::kPanelWidth;
+    const std::uint16_t height = pf_display::kLandscapeImageHeight;
+    const std::uint32_t raw_payload_length =
+        pf_image::expected_payload_length(width, height);
+    std::vector<std::uint8_t> raw_payload(raw_payload_length, 0x11U);
+    const auto compressed = deflate_raw(raw_payload);
+    TEST_ASSERT_TRUE(compressed.size() < raw_payload.size());
+
+    std::vector<std::uint8_t> output(
+        pf_image::kPfr1HeaderSize + filename_length + compressed.size(), 0U);
+    output[0] = 'P';
+    output[1] = 'F';
+    output[2] = 'R';
+    output[3] = '1';
+    output[4] = 1U;
+    output[5] = static_cast<std::uint8_t>(pf_image::kPfr1HeaderSize);
+    write_u16(output, 6U, pf_image::kCompressed);
+    write_u16(output, 8U, width);
+    write_u16(output, 10U, height);
+    output[12] = static_cast<std::uint8_t>(pf_image::Orientation::landscape);
+    output[13] = pf_display::kPaletteVersion;
+    output[14] = static_cast<std::uint8_t>(pf_image::Dithering::nearest);
+    output[15] = 0U;
+    write_u32(output, 16U, static_cast<std::uint32_t>(compressed.size()));
+    write_u16(output, 20U, static_cast<std::uint16_t>(filename_length));
+    write_u16(output, 22U, 0U);
+    std::memcpy(
+        output.data() + pf_image::kPfr1HeaderSize,
+        filename,
+        filename_length);
+    const std::size_t payload_offset =
+        pf_image::kPfr1HeaderSize + filename_length;
+    std::memcpy(
+        output.data() + payload_offset,
+        compressed.data(),
+        compressed.size());
+    write_u32(
+        output,
+        24U,
+        pf_image::crc32(output.data() + payload_offset, compressed.size()));
     write_u32(output, 28U, pf_image::crc32(output.data(), 24U));
     return output;
 }
@@ -389,7 +460,8 @@ pf_storage::ImageStoreResult upload(
     pf_storage::Catalog& updated_catalog,
     const std::vector<std::uint8_t>& image,
     const std::size_t content_length,
-    const std::size_t chunk = 257U)
+    const std::size_t chunk = 257U,
+    const pf_image::Pfr1InflateBuffers* const inflate_buffers = nullptr)
 {
     VectorReader vector_reader{&image, 0U, chunk, false};
     const pf_storage::StorageStreamReader reader{
@@ -404,8 +476,24 @@ pf_storage::ImageStoreResult upload(
         catalog_buffer.data(),
         catalog_buffer.size(),
         reader,
-        content_length);
+        content_length,
+        inflate_buffers);
 }
+
+struct InflateFixture {
+    std::array<std::uint8_t, pf_image::kPfr1MaxPayloadBytes> compressed{};
+    std::array<std::uint8_t, pf_image::kPfr1MaxPayloadBytes> output{};
+
+    pf_image::Pfr1InflateBuffers buffers()
+    {
+        pf_image::Pfr1InflateBuffers result;
+        result.compressed = compressed.data();
+        result.compressed_capacity = compressed.size();
+        result.output = output.data();
+        result.output_capacity = output.size();
+        return result;
+    }
+};
 
 void seed_catalog_at(
     FakeStorageFileSystem& filesystem,
@@ -474,6 +562,103 @@ void test_valid_upload_commits_image_and_catalog()
         image.size());
     TEST_ASSERT_EQUAL_UINT16(1U, updated.count);
     TEST_ASSERT_EQUAL_STRING("new.pfr1", updated.entries[0].name);
+    assert_no_transaction_files(filesystem);
+}
+
+void test_compressed_upload_commits_smaller_stored_payload()
+{
+    FakeStorageFileSystem filesystem;
+    const std::vector<std::uint8_t> image =
+        make_compressed_pfr1("compressed.pfr1");
+    TEST_ASSERT_TRUE(image.size() < make_pfr1("compressed.pfr1").size());
+    pf_storage::Catalog current{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(current));
+    pf_storage::Catalog updated{};
+    InflateFixture fixture{};
+    const auto buffers = fixture.buffers();
+    const pf_storage::ImageStoreResult result = upload(
+        filesystem,
+        current,
+        updated,
+        image,
+        image.size(),
+        257U,
+        &buffers);
+    TEST_ASSERT_TRUE(result.ok());
+    TEST_ASSERT_TRUE(filesystem.exists("/images/compressed.pfr1"));
+    // The stored file is byte-identical to what was uploaded (still
+    // compressed), not re-expanded to the uncompressed nibble payload.
+    TEST_ASSERT_EQUAL_UINT32(
+        image.size(),
+        filesystem.files.at("/images/compressed.pfr1").size());
+    TEST_ASSERT_EQUAL_MEMORY(
+        image.data(),
+        filesystem.files.at("/images/compressed.pfr1").data(),
+        image.size());
+    TEST_ASSERT_EQUAL_UINT16(1U, updated.count);
+    const std::uint32_t uncompressed_bytes = pf_image::expected_payload_length(
+        pf_display::kPanelWidth, pf_display::kLandscapeImageHeight);
+    TEST_ASSERT_TRUE(updated.entries[0].payload_bytes < uncompressed_bytes);
+    assert_no_transaction_files(filesystem);
+}
+
+void test_compressed_upload_without_inflate_buffers_is_rejected()
+{
+    FakeStorageFileSystem filesystem;
+    const std::vector<std::uint8_t> image =
+        make_compressed_pfr1("compressed.pfr1");
+    pf_storage::Catalog current{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(current));
+    pf_storage::Catalog updated{};
+    const pf_storage::ImageStoreResult result =
+        upload(filesystem, current, updated, image, image.size());
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(pf_storage::ImageStoreError::invalid_image),
+        static_cast<int>(result.error));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(pf_image::ValidationError::unsupported_compression),
+        static_cast<int>(result.validation_error));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/compressed.pfr1"));
+    assert_no_transaction_files(filesystem);
+}
+
+void test_compressed_upload_with_corrupt_stream_leaves_no_image()
+{
+    FakeStorageFileSystem filesystem;
+    auto image = make_compressed_pfr1("compressed.pfr1");
+    const std::size_t filename_length = std::strlen("compressed.pfr1");
+    const std::size_t payload_offset =
+        pf_image::kPfr1HeaderSize + filename_length;
+    image[payload_offset + 2U] ^= 0xFFU;
+    write_u32(
+        image,
+        24U,
+        pf_image::crc32(
+            image.data() + payload_offset, image.size() - payload_offset));
+    write_u32(image, 28U, pf_image::crc32(image.data(), 24U));
+
+    pf_storage::Catalog current{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(current));
+    pf_storage::Catalog updated{};
+    InflateFixture fixture{};
+    const auto buffers = fixture.buffers();
+    const pf_storage::ImageStoreResult result = upload(
+        filesystem,
+        current,
+        updated,
+        image,
+        image.size(),
+        257U,
+        &buffers);
+    TEST_ASSERT_FALSE(result.ok());
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(pf_storage::ImageStoreError::invalid_image),
+        static_cast<int>(result.error));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(pf_image::ValidationError::payload_inflate_failed),
+        static_cast<int>(result.validation_error));
+    TEST_ASSERT_FALSE(filesystem.exists("/images/compressed.pfr1"));
     assert_no_transaction_files(filesystem);
 }
 
@@ -668,6 +853,50 @@ void test_recovery_promotes_complete_catalog_and_image_parts()
     TEST_ASSERT_TRUE(result.has_catalog);
     TEST_ASSERT_EQUAL_UINT16(1U, workspace.recovered.count);
     TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1"));
+    assert_no_transaction_files(filesystem);
+    TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1.part"));
+}
+
+void test_recovery_promotes_compressed_candidate_image()
+{
+    FakeStorageFileSystem filesystem;
+    pf_storage::Catalog empty{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(empty));
+    seed_catalog_file(filesystem, empty);
+
+    const std::vector<std::uint8_t> compressed_image =
+        make_compressed_pfr1("next.pfr1");
+    const std::size_t payload_offset =
+        pf_image::kPfr1HeaderSize + std::strlen("next.pfr1");
+    pf_storage::Catalog candidate = empty;
+    pf_storage::CatalogEntry entry{};
+    entry.width = pf_display::kPanelWidth;
+    entry.height = pf_display::kLandscapeImageHeight;
+    entry.payload_bytes = static_cast<std::uint32_t>(
+        compressed_image.size() - payload_offset);
+    entry.file_bytes = static_cast<std::uint32_t>(compressed_image.size());
+    entry.name_length = static_cast<std::uint16_t>(std::strlen("next.pfr1"));
+    std::memcpy(entry.name, "next.pfr1", entry.name_length);
+    std::uint32_t id = 0U;
+    pf_storage::CatalogError error = pf_storage::CatalogError::none;
+    TEST_ASSERT_TRUE(
+        pf_storage::add_catalog_entry(candidate, entry, id, error));
+    seed_catalog_at(filesystem, "/images/.catalog.pfc1.part", candidate);
+    filesystem.files["/images/next.pfr1.part"] = compressed_image;
+
+    InflateFixture fixture{};
+    pf_storage::RecoveryWorkspace workspace{};
+    workspace.inflate_buffers = fixture.buffers();
+    const pf_storage::RecoveryResult result =
+        pf_storage::recover_image_transactions(filesystem, workspace);
+    TEST_ASSERT_TRUE(result.ok());
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::RecoveryAction::promoted_candidate),
+        static_cast<int>(result.action));
+    TEST_ASSERT_TRUE(filesystem.exists("/images/next.pfr1"));
+    TEST_ASSERT_EQUAL_UINT32(
+        compressed_image.size(),
+        filesystem.files.at("/images/next.pfr1").size());
     assert_no_transaction_files(filesystem);
     TEST_ASSERT_FALSE(filesystem.exists("/images/next.pfr1.part"));
 }
@@ -921,6 +1150,9 @@ int main(int, char**)
 {
     UNITY_BEGIN();
     RUN_TEST(test_valid_upload_commits_image_and_catalog);
+    RUN_TEST(test_compressed_upload_commits_smaller_stored_payload);
+    RUN_TEST(test_compressed_upload_without_inflate_buffers_is_rejected);
+    RUN_TEST(test_compressed_upload_with_corrupt_stream_leaves_no_image);
     RUN_TEST(test_upload_preflights_space_before_reading);
     RUN_TEST(test_invalid_or_incomplete_upload_leaves_no_image);
     RUN_TEST(test_duplicate_name_is_rejected_without_replacing_existing_catalog);
@@ -929,6 +1161,7 @@ int main(int, char**)
     RUN_TEST(test_catalog_output_alias_is_rejected);
     RUN_TEST(test_catalog_close_failure_has_a_distinct_error);
     RUN_TEST(test_recovery_promotes_complete_catalog_and_image_parts);
+    RUN_TEST(test_recovery_promotes_compressed_candidate_image);
     RUN_TEST(test_recovery_finishes_after_image_rename_and_backup_creation);
     RUN_TEST(test_recovery_restores_backup_when_candidate_is_corrupt);
     RUN_TEST(test_recovery_keeps_canonical_and_cleans_stale_backup_parts);

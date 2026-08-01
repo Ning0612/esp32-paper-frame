@@ -206,7 +206,8 @@ ImageStoreResult store_image_transactionally(
     std::uint8_t* const catalog_buffer,
     const std::size_t catalog_capacity,
     const StorageStreamReader& reader,
-    const std::size_t content_length)
+    const std::size_t content_length,
+    const pf_image::Pfr1InflateBuffers* const inflate_buffers)
 {
     ImageStoreResult result{};
     if (&current_catalog == &updated_catalog || reader.read == nullptr ||
@@ -232,7 +233,7 @@ ImageStoreResult store_image_transactionally(
     if (!filesystem.open_write(kUploadPartPath, handle)) {
         return failure(ImageStoreError::write_failed);
     }
-    pf_image::Pfr1Validator validator{};
+    pf_image::Pfr1Validator validator(nullptr, nullptr, inflate_buffers);
     std::uint8_t buffer[kImageStoreChunkBytes]{};
     std::size_t received = 0U;
     while (true) {
@@ -336,6 +337,9 @@ ImageStoreResult store_image_transactionally(
     CatalogEntry entry{};
     entry.created_at_epoch_s = 0U;
     entry.file_bytes = static_cast<std::uint32_t>(content_length);
+    // As-stored length: header.payload_length is the compressed byte count
+    // when Pfr1Flags::kCompressed is set, matching PFC1's now-bounded (not
+    // exact-equality) payload_bytes contract (see validate_catalog_entry).
     entry.payload_bytes = header.payload_length;
     entry.width = header.width;
     entry.height = header.height;

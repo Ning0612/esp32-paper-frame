@@ -38,6 +38,11 @@ struct RecoveryWorkspace {
     std::uint8_t catalog_buffer[kCatalogMaxBytes]{};
     char image_part_paths[kRecoveryMaxImageParts][kRecoveryPathCapacity]{};
     std::size_t image_part_count = 0U;
+    // Caller-owned scratch for re-validating a compressed PFR1 candidate
+    // during recovery (see Pfr1InflateBuffers); left default-constructed
+    // (nullptr buffers) a compressed candidate image fails closed with
+    // pf_image::ValidationError::unsupported_compression, same as ingest.
+    pf_image::Pfr1InflateBuffers inflate_buffers{};
 };
 
 struct RecoveryResult {

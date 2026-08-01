@@ -122,6 +122,10 @@ const char* to_string(ImageStoreError error);
 // because it is also used as read-back scratch.
 // The catalog_buffer is caller-owned scratch storage of at least kCatalogMaxBytes
 // and the operation is single-owner rather than re-entrant.
+// inflate_buffers is required only to accept an upload whose PFR1 header sets
+// Pfr1Flags::kCompressed; passing nullptr rejects such uploads with
+// pf_image::ValidationError::unsupported_compression (uncompressed uploads
+// are unaffected either way).
 ImageStoreResult store_image_transactionally(
     StorageFileSystem& filesystem,
     const Catalog& current_catalog,
@@ -129,7 +133,8 @@ ImageStoreResult store_image_transactionally(
     std::uint8_t* catalog_buffer,
     std::size_t catalog_capacity,
     const StorageStreamReader& reader,
-    std::size_t content_length);
+    std::size_t content_length,
+    const pf_image::Pfr1InflateBuffers* inflate_buffers = nullptr);
 
 // Publishes a validated catalog-only mutation using the same .part/.bak
 // transaction as image uploads. No image file is touched.

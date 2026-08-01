@@ -488,6 +488,13 @@ extern "C" void app_main()
                 "storage_worker_ready recovery=%s action=%s",
                 pf_storage::to_string(storage_startup.recovery.error),
                 pf_storage::to_string(storage_startup.recovery.action));
+            if (!storage_worker.compression_supported()) {
+                ESP_LOGW(
+                    kTag,
+                    "storage_worker_compression_unavailable; compressed "
+                    "PFR1 uploads will be rejected, uncompressed uploads "
+                    "unaffected");
+            }
         }
     }
     // mount_all() samples imagefs usage before storage_worker.start() runs

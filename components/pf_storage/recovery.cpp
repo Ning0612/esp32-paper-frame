@@ -143,7 +143,8 @@ ImageReadStatus read_image(
     StorageFileSystem& filesystem,
     const char* const path,
     ImageInfo& image,
-    pf_image::ValidationError& error)
+    pf_image::ValidationError& error,
+    const pf_image::Pfr1InflateBuffers* const inflate_buffers)
 {
     error = pf_image::ValidationError::none;
     if (!filesystem.exists(path)) {
@@ -153,7 +154,7 @@ ImageReadStatus read_image(
     if (!filesystem.open_read(path, handle)) {
         return ImageReadStatus::read_failed;
     }
-    pf_image::Pfr1Validator validator{};
+    pf_image::Pfr1Validator validator(nullptr, nullptr, inflate_buffers);
     std::uint8_t buffer[kImageChunkBytes]{};
     std::size_t total = 0U;
     bool read_ok = true;
@@ -400,7 +401,8 @@ RecoveryResult promote_candidate(PromotionContext& context)
             filesystem,
             image_path,
             image,
-            image_error);
+            image_error,
+            &workspace.inflate_buffers);
         if (status == ImageReadStatus::read_failed) {
             result.error = RecoveryError::read_failed;
             return result;
@@ -428,7 +430,8 @@ RecoveryResult promote_candidate(PromotionContext& context)
             filesystem,
             image_part_path,
             image,
-            image_error);
+            image_error,
+            &workspace.inflate_buffers);
         if (status == ImageReadStatus::read_failed) {
             result.error = RecoveryError::read_failed;
             return result;

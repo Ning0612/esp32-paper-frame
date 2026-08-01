@@ -75,6 +75,10 @@ public:
     {
     }
 
+    ~StorageWorker();
+    StorageWorker(const StorageWorker&) = delete;
+    StorageWorker& operator=(const StorageWorker&) = delete;
+
     StorageWorkerResult start();
 
     bool started() const
@@ -127,6 +131,17 @@ public:
         return operation_busy_.load(std::memory_order_acquire);
     }
 
+    // False when both PSRAM and internal-RAM allocation of the compressed-
+    // payload scratch buffers failed at start() (or start() hasn't run
+    // yet): compressed PFR1 uploads are then rejected with
+    // pf_image::ValidationError::unsupported_compression while uncompressed
+    // uploads remain unaffected. Callers may want to log this once at boot.
+    bool compression_supported() const
+    {
+        return inflate_compressed_scratch_ != nullptr &&
+               inflate_output_scratch_ != nullptr;
+    }
+
     const StorageWorkerResult& last_result() const
     {
         return last_result_;
@@ -141,6 +156,20 @@ private:
     mutable std::atomic<bool> operation_busy_{false};
     bool catalog_available_ = false;
     bool started_ = false;
+
+    // Scratch for validating a compressed PFR1 payload (Pfr1Flags::
+    // kCompressed): allocated once in start(), shared between ingest
+    // (store_image) and boot-time recovery since the two never overlap
+    // (recovery finishes before HTTP routes -- and therefore uploads --
+    // become reachable). Allocation failure degrades gracefully: with
+    // nullptr buffers, Pfr1Validator rejects compressed uploads with
+    // unsupported_compression while uncompressed uploads are unaffected.
+    std::uint8_t* inflate_compressed_scratch_ = nullptr;
+    std::uint8_t* inflate_output_scratch_ = nullptr;
+    pf_image::Pfr1InflateBuffers inflate_buffers_{};
+
+    void allocate_inflate_scratch();
+    void release_inflate_scratch();
 };
 
 }  // namespace pf_storage

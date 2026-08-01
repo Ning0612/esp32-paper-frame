@@ -6,9 +6,42 @@
 #include <memory>
 #include <new>
 
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#endif
+
 namespace pf_storage {
 
 namespace {
+
+// PSRAM on ESP-IDF (with an internal-RAM fallback so a low-PSRAM/degraded
+// device still gets compressed-payload support, matching the existing
+// carousel_payload allocation pattern in app_main.cpp); plain heap on the
+// native host test build, which has neither concept.
+std::uint8_t* allocate_scratch_bytes(const std::size_t bytes)
+{
+#if defined(ESP_PLATFORM)
+    void* const psram = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (psram != nullptr) {
+        return static_cast<std::uint8_t*>(psram);
+    }
+    return static_cast<std::uint8_t*>(heap_caps_malloc(bytes, MALLOC_CAP_8BIT));
+#else
+    return new (std::nothrow) std::uint8_t[bytes];
+#endif
+}
+
+void free_scratch_bytes(std::uint8_t* const scratch)
+{
+    if (scratch == nullptr) {
+        return;
+    }
+#if defined(ESP_PLATFORM)
+    heap_caps_free(scratch);
+#else
+    delete[] scratch;
+#endif
+}
 
 class OperationGuard final {
 public:
@@ -86,6 +119,37 @@ const char* to_string(const ImageStreamError error)
     return "invalid_argument";
 }
 
+StorageWorker::~StorageWorker()
+{
+    release_inflate_scratch();
+}
+
+void StorageWorker::allocate_inflate_scratch()
+{
+    inflate_compressed_scratch_ =
+        allocate_scratch_bytes(pf_image::kPfr1MaxPayloadBytes);
+    inflate_output_scratch_ =
+        allocate_scratch_bytes(pf_image::kPfr1MaxPayloadBytes);
+    if (inflate_compressed_scratch_ == nullptr ||
+        inflate_output_scratch_ == nullptr) {
+        release_inflate_scratch();
+        return;
+    }
+    inflate_buffers_.compressed = inflate_compressed_scratch_;
+    inflate_buffers_.compressed_capacity = pf_image::kPfr1MaxPayloadBytes;
+    inflate_buffers_.output = inflate_output_scratch_;
+    inflate_buffers_.output_capacity = pf_image::kPfr1MaxPayloadBytes;
+}
+
+void StorageWorker::release_inflate_scratch()
+{
+    free_scratch_bytes(inflate_compressed_scratch_);
+    free_scratch_bytes(inflate_output_scratch_);
+    inflate_compressed_scratch_ = nullptr;
+    inflate_output_scratch_ = nullptr;
+    inflate_buffers_ = pf_image::Pfr1InflateBuffers{};
+}
+
 StorageWorkerResult StorageWorker::start()
 {
     if (started_) {
@@ -101,6 +165,8 @@ StorageWorkerResult StorageWorker::start()
         return last_result_;
     }
 
+    allocate_inflate_scratch();
+    workspace_.inflate_buffers = inflate_buffers_;
     last_result_.recovery = recover_image_transactions(
         *filesystem_,
         workspace_);
@@ -312,7 +378,8 @@ ImageStoreResult StorageWorker::store_image(
         catalog_buffer_,
         sizeof(catalog_buffer_),
         reader,
-        content_length);
+        content_length,
+        &inflate_buffers_);
     if (result.ok()) {
         catalog_ = *updated;
         result.catalog_generation = catalog_.generation;
