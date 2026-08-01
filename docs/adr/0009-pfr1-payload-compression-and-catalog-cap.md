@@ -91,9 +91,18 @@ entry 驗證邊界）決策需要先開 ADR。以下範圍決策已與使用者�
 
 ### `kCatalogMaxEntries`：48 → 96
 
-- `kCatalogMaxBytes` 從 6,176 bytes 變成 12,320 bytes；BSS 成長集中在
-  `RecoveryWorkspace`（含 4 份 `Catalog` 副本），約 32 KB → 64 KB，在
-  8 MB PSRAM 的 ESP32-S3-N16R8 上可忽略。
+- `kCatalogMaxBytes` 從 6,176 bytes 變成 12,320 bytes；`pio run` 實測
+  internal DRAM/BSS 使用率從 48.6%（159,376 bytes）漲到 62.6%
+  （205,264 bytes），成長約 45,888 bytes——這些 `Catalog`/`catalog_buffer`
+  是一般 static/member 陣列，不是 PSRAM 配置，所以吃的是 internal RAM
+  預算，不是 PSRAM；成長來源：`RecoveryWorkspace` 的 4 份 `Catalog` 副本
+  （每份隨 entry 數增加約 6.5 KB，共約 26 KB）、`StorageWorker::catalog_`
+  自己的 1 份（約 6.5 KB）、`StorageWorker`/`RecoveryWorkspace` 各自的
+  `catalog_buffer`（各 +6,144 bytes）、`app_main.cpp` 的
+  `carousel_shown`/`carousel_items` 陣列。剩餘 122,416 bytes（37%）
+  internal RAM 仍有餘裕，可接受，但已經比原先估計的「約 32 KB」明顯更多，
+  值得在往後繼續加大 `kCatalogMaxEntries` 前重新量測，不能延用這次的
+  數字外推。
 - 真正防止 `imagefs` 塞爆的是 `store_image_transactionally` 既有的
   runtime free-space precheck（用實際 `content_length` 而非固定假設
   的 per-image 大小），拉高筆數上限不會繞過這個安全網——即使某使用者的

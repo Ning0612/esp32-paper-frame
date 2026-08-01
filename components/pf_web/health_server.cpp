@@ -112,6 +112,17 @@ constexpr UBaseType_t kImageUploadTaskPriority = 3U;
 constexpr std::uint32_t kImageUploadTaskStackWords = 16384U;
 constexpr UBaseType_t kImageMutationTaskPriority = 3U;
 constexpr std::uint32_t kImageMutationTaskStackWords = 24576U;
+// "[" + kCatalogMaxEntries decimal uint32 IDs (<=10 digits) each followed
+// by a separator; must be derived from kCatalogMaxEntries rather than a
+// bare literal, or a full catalog silently can't be reordered once the
+// entry cap is raised. Assumes the compact JSON the browser actually sends
+// (no inter-token whitespace, e.g. JSON.stringify(ids) without an indent
+// argument) -- receive_image_order_body's hand-written parser does skip
+// whitespace between tokens, so a request padded with enough of it could
+// still exceed this bound and be rejected, but that only fails a
+// pathological/malformed request closed, not a real client.
+constexpr std::size_t kImageOrderBodyCapacity =
+    2U + (pf_storage::kCatalogMaxEntries * 11U);
 constexpr UBaseType_t kWeatherConfigTaskPriority = 3U;
 constexpr std::uint32_t kWeatherConfigTaskStackWords = 4096U;
 constexpr std::size_t kWeatherConfigBodyCapacity = 512U;
@@ -2631,10 +2642,10 @@ bool receive_image_order_body(
 {
     count = 0U;
     if (request == nullptr || request->content_len <= 0 ||
-        request->content_len >= 512) {
+        request->content_len >= kImageOrderBodyCapacity) {
         return false;
     }
-    char body[512]{};
+    char body[kImageOrderBodyCapacity]{};
     std::size_t received = 0U;
     std::uint8_t timeout_count = 0U;
     const std::uint64_t started_ms = monotonic_ms();
@@ -2768,7 +2779,7 @@ esp_err_t image_mutation_handler(
     }
     if (kind == ImageMutationKind::reorder &&
         (async_request->content_len <= 0 ||
-         async_request->content_len >= 512)) {
+         async_request->content_len >= kImageOrderBodyCapacity)) {
         return send_error(
             "400 Bad Request",
             "{\"ok\":false,\"error\":\"invalid_order\"}");
