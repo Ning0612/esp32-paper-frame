@@ -10,6 +10,7 @@ idf_component_register(
         pf_auth
         pf_config
         pf_network
+        pf_ota
         pf_runtime
         pf_storage
         pf_weather

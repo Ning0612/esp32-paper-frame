@@ -16,6 +16,9 @@
 #include "pf_config/secure_memory.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_network/provisioning_service.hpp"
+#include "pf_ota/ota_worker.hpp"
+#include "pf_runtime/diagnostics_event.hpp"
+#include "pf_runtime/firmware_version.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 #include "pf_storage/storage_worker.hpp"
 #include "pf_web/access_policy.hpp"
@@ -33,7 +36,6 @@
 namespace pf_web {
 namespace {
 
-constexpr char kFirmwareVersion[] = "phase3-dev";
 constexpr char kTag[] = "pf_web";
 
 struct StaticAsset {
@@ -454,7 +456,7 @@ esp_err_t device_handler(httpd_req_t* request)
     const DeviceInfo device{
         .product = "PaperFrame",
         .model = "ESP32-S3-N16R8",
-        .firmware = kFirmwareVersion,
+        .firmware = pf_runtime::kFirmwareVersion,
     };
     char response[768]{};
     const SerializeResult serialized = serialize_device(
@@ -523,6 +525,191 @@ esp_err_t sensors_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"sensors_serialization\"}");
     }
     return send_json(request, nullptr, response);
+}
+
+// Parses "?since=<decimal>" for GET /api/v1/events. A missing query means
+// "since=0" (return everything currently in the ring). Returns false when a
+// since value was present but not a valid, in-range (<= UINT32_MAX)
+// non-negative decimal -- including a query string too long to plausibly
+// hold anything else, which is treated as suspicious rather than guessed
+// at, not silently defaulted to "no since given".
+bool query_since_sequence_id(
+    httpd_req_t* const request,
+    std::uint32_t& since_id)
+{
+    since_id = 0U;
+    const std::size_t query_length = httpd_req_get_url_query_len(request);
+    if (query_length == 0U) {
+        return true;
+    }
+    if (query_length >= 48U) {
+        return false;
+    }
+    char query[48]{};
+    char value[16]{};
+    if (httpd_req_get_url_query_str(request, query, sizeof(query)) !=
+        ESP_OK) {
+        return false;
+    }
+    const esp_err_t key_value_result =
+        httpd_query_key_value(query, "since", value, sizeof(value));
+    if (key_value_result == ESP_ERR_NOT_FOUND) {
+        // "since" key simply absent from an otherwise-present query string
+        // (e.g. "?foo=bar") is not an error -- default to 0.
+        return true;
+    }
+    if (key_value_result != ESP_OK) {
+        // ESP_ERR_HTTPD_RESULT_TRUNC (value too long for `value[16]`) or
+        // ESP_ERR_INVALID_ARG both mean "since was present but we could not
+        // safely read it" -- must not be silently treated as "no since
+        // given", or an oversized/truncated value would return the whole
+        // ring instead of failing closed with 400.
+        return false;
+    }
+    if (value[0] == '\0') {
+        return false;
+    }
+    std::uint64_t parsed = 0U;
+    for (std::size_t index = 0U; value[index] != '\0'; ++index) {
+        if (value[index] < '0' || value[index] > '9') {
+            return false;
+        }
+        parsed = (parsed * 10U) +
+                 static_cast<std::uint64_t>(value[index] - '0');
+        if (parsed > 0xFFFFFFFFULL) {
+            return false;
+        }
+    }
+    since_id = static_cast<std::uint32_t>(parsed);
+    return true;
+}
+
+esp_err_t events_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!access.authenticated) {
+        return reject_management_request(request, access, false);
+    }
+
+    std::uint32_t since_id = 0U;
+    if (!query_since_sequence_id(request, since_id)) {
+        return send_json(
+            request,
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"invalid_since\"}");
+    }
+
+    pf_runtime::DiagnosticEvent
+        events[pf_runtime::kDiagnosticsRingCapacity]{};
+    pf_runtime::DiagnosticsReadResult read_result{};
+    pf_runtime::coordinator().read_diagnostics_since(
+        since_id,
+        events,
+        pf_runtime::kDiagnosticsRingCapacity,
+        read_result);
+
+    // Worst case: kDiagnosticsRingCapacity (32) events, each near the
+    // kDiagnosticMessageCapacity (64 byte) message limit plus JSON
+    // scaffolding (~178 bytes/event observed), is ~5.8 KiB; sized with
+    // headroom above that rather than exactly so a full ring never fails
+    // to serialize and force a client into pagination it shouldn't need.
+    char response[8192]{};
+    const SerializeResult serialized = serialize_events(
+        events,
+        read_result.count,
+        read_result.highest_sequence_id,
+        read_result.more_available,
+        response,
+        sizeof(response));
+    if (!serialized.ok) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"events_serialization\"}");
+    }
+    return send_json(request, nullptr, response);
+}
+
+esp_err_t reboot_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!reboot_allowed(access)) {
+        return reject_management_request(request, access, true);
+    }
+
+    // Arm the reboot (fires ~500ms later via a one-shot esp_timer, see
+    // pf_runtime::schedule_reboot) BEFORE sending the response, so the
+    // response actually reflects whether the device will reboot -- arming
+    // first and replying second still leaves ample time for this handler
+    // to finish sending before the timer fires.
+    if (!pf_runtime::schedule_reboot("admin_reboot_requested")) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"reboot_unavailable\"}");
+    }
+    return send_json(
+        request, nullptr, "{\"ok\":true,\"data\":{\"rebooting\":true}}");
+}
+
+esp_err_t ota_status_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!ota_check_allowed(access)) {
+        return reject_management_request(request, access, false);
+    }
+
+    pf_runtime::RuntimeSnapshot snapshot{};
+    const bool snapshot_valid =
+        pf_runtime::coordinator().read_snapshot(snapshot);
+    char response[512]{};
+    const SerializeResult serialized =
+        serialize_ota_status(snapshot, snapshot_valid, response, sizeof(response));
+    if (!serialized.ok) {
+        return send_json(
+            request,
+            "500 Internal Server Error",
+            "{\"ok\":false,\"error\":\"ota_status_serialization\"}");
+    }
+    return send_json(request, nullptr, response);
+}
+
+esp_err_t ota_check_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!ota_check_allowed(access)) {
+        return reject_management_request(request, access, false);
+    }
+
+    if (!pf_ota::ota_worker().request_check_for_update()) {
+        return send_json(
+            request,
+            "409 Conflict",
+            "{\"ok\":false,\"error\":\"ota_busy\"}");
+    }
+    return send_json(
+        request,
+        "202 Accepted",
+        "{\"ok\":true,\"data\":{\"state\":\"checking\"}}");
+}
+
+esp_err_t ota_update_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!ota_update_allowed(access)) {
+        return reject_management_request(request, access, true);
+    }
+
+    if (!pf_ota::ota_worker().request_update_now()) {
+        return send_json(
+            request,
+            "409 Conflict",
+            "{\"ok\":false,\"error\":\"ota_busy\"}");
+    }
+    return send_json(
+        request,
+        "202 Accepted",
+        "{\"ok\":true,\"data\":{\"state\":\"downloading\"}}");
 }
 
 esp_err_t config_handler(httpd_req_t* request)
@@ -2637,6 +2824,36 @@ const httpd_uri_t kConfigRoute{
     .handler = config_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kEventsRoute{
+    .uri = "/api/v1/events",
+    .method = HTTP_GET,
+    .handler = events_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kRebootRoute{
+    .uri = "/api/v1/system/reboot",
+    .method = HTTP_POST,
+    .handler = reboot_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kOtaStatusRoute{
+    .uri = "/api/v1/system/ota/status",
+    .method = HTTP_GET,
+    .handler = ota_status_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kOtaCheckRoute{
+    .uri = "/api/v1/system/ota/check",
+    .method = HTTP_POST,
+    .handler = ota_check_handler,
+    .user_ctx = nullptr,
+};
+const httpd_uri_t kOtaUpdateRoute{
+    .uri = "/api/v1/system/ota/update",
+    .method = HTTP_POST,
+    .handler = ota_update_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kWeatherConfigRoute{
     .uri = "/api/v1/weather/config",
     .method = HTTP_POST,
@@ -2799,7 +3016,10 @@ esp_err_t start_health_server(
     }
 
     httpd_config_t configuration = HTTPD_DEFAULT_CONFIG();
-    configuration.max_uri_handlers = 32;
+    // Bumped from 32 (Phase 8 milestones add reboot/events/OTA routes on
+    // top of the existing 29); sized with headroom rather than exactly to
+    // avoid a second bump later.
+    configuration.max_uri_handlers = 40;
     configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
     // The browser loads WebUI resources on keep-alive connections.
@@ -2872,6 +3092,11 @@ esp_err_t start_health_server(
         &kDeviceRoute,
         &kStatusRoute,
         &kConfigRoute,
+        &kEventsRoute,
+        &kRebootRoute,
+        &kOtaStatusRoute,
+        &kOtaCheckRoute,
+        &kOtaUpdateRoute,
         &kWeatherConfigRoute,
         &kWeatherConfigGetRoute,
         &kSensorConfigRoute,

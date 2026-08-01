@@ -6,6 +6,7 @@
 
 #include "pf_config/schema.hpp"
 #include "pf_config/weather_settings.hpp"
+#include "pf_runtime/diagnostics_event.hpp"
 #include "pf_sensors/environment_sensor.hpp"
 #include "pf_sensors/light_sensor.hpp"
 #include "pf_sensors/presence.hpp"
@@ -314,6 +315,30 @@ inline SerializeResult serialize_status(
         std::snprintf(refresh_minutes, sizeof(refresh_minutes), "null");
     }
 
+    char current_image[16]{};
+    if (snapshot_valid && snapshot.current_image_id != 0U) {
+        std::snprintf(
+            current_image,
+            sizeof(current_image),
+            "%lu",
+            static_cast<unsigned long>(snapshot.current_image_id));
+    } else {
+        std::snprintf(current_image, sizeof(current_image), "null");
+    }
+    char next_refresh_ms[24]{};
+    if (snapshot_valid && snapshot.next_carousel_due_ms != 0U) {
+        std::snprintf(
+            next_refresh_ms,
+            sizeof(next_refresh_ms),
+            "%llu",
+            static_cast<unsigned long long>(
+                snapshot.next_carousel_due_ms > uptime_ms
+                    ? snapshot.next_carousel_due_ms - uptime_ms
+                    : 0U));
+    } else {
+        std::snprintf(next_refresh_ms, sizeof(next_refresh_ms), "null");
+    }
+
     /*
      * Keep the status JSON bounded and deterministic. The six capacity
      * strings above are either decimal numbers or the JSON literal null.
@@ -336,7 +361,7 @@ inline SerializeResult serialize_status(
         "\"last_request_id\":%lu,\"last_outcome\":\"%s\","
         "\"last_stage\":%u},\"carousel\":{"
         "\"state\":\"%s\",\"refresh_minutes\":%s,"
-        "\"current_image\":null,\"next_refresh_ms\":null},"
+        "\"current_image\":%s,\"next_refresh_ms\":%s},"
         "\"weather\":{\"state\":\"%s\",\"temperature\":%s,"
         "\"units\":\"%s\",\"icon\":\"%s\",\"description\":\"%s\","
         "\"humidity_percent\":%s,\"observed_at_epoch_s\":%s,"
@@ -344,7 +369,12 @@ inline SerializeResult serialize_status(
         "\"sensors\":{\"environment_status\":\"%s\","
         "\"temperature_c\":%s,\"humidity_percent\":%s,"
         "\"light_status\":\"%s\",\"light_adc\":%s,"
-        "\"presence\":\"%s\"}}}",
+        "\"presence\":\"%s\"},"
+        "\"diagnostics\":{\"reboot_reason\":\"%s\","
+        "\"latest_sequence_id\":%lu,"
+        "\"command_queue_rejected_count\":%lu,"
+        "\"terminal_result_exhausted_count\":%lu,"
+        "\"flash_display_lock_timeout_count\":%lu}}}",
         static_cast<unsigned long>(
             snapshot_valid ? snapshot.sequence : 0U),
         static_cast<unsigned long long>(snapshot_valid ? uptime_ms : 0U),
@@ -378,6 +408,8 @@ inline SerializeResult serialize_status(
             ? "ready"
             : "unavailable",
         refresh_minutes,
+        current_image,
+        next_refresh_ms,
         weather_state,
         weather_temperature,
         weather_units,
@@ -391,13 +423,164 @@ inline SerializeResult serialize_status(
         environment_humidity,
         light_status,
         light_adc,
-        presence);
+        presence,
+        snapshot_valid ? pf_runtime::to_string(snapshot.reboot_reason)
+                       : "unknown",
+        static_cast<unsigned long>(
+            snapshot_valid ? snapshot.diagnostics_latest_sequence_id : 0U),
+        static_cast<unsigned long>(
+            snapshot_valid ? snapshot.command_queue_rejected_count : 0U),
+        static_cast<unsigned long>(
+            snapshot_valid ? snapshot.terminal_result_exhausted_count : 0U),
+        static_cast<unsigned long>(
+            snapshot_valid ? snapshot.flash_display_lock_timeout_count
+                           : 0U));
 
     if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
         output[0] = '\0';
         return {false, 0U};
     }
     return {true, static_cast<std::size_t>(written)};
+}
+
+// GET /api/v1/system/ota/status. ota_latest_version originates from a
+// GitHub Release tag_name (external data); ota_last_error is always one of
+// our own fixed literal strings. Both are still defensively validated
+// before interpolation, same as the weather text fields above, rather than
+// assumed safe just because the extractor is well-behaved today.
+inline SerializeResult serialize_ota_status(
+    const pf_runtime::RuntimeSnapshot& snapshot,
+    const bool snapshot_valid,
+    char* const output,
+    const std::size_t output_size)
+{
+    if (output == nullptr || output_size == 0U) {
+        return {false, 0U};
+    }
+
+    const auto safe_ota_text = [](
+        const char* const value,
+        const std::size_t capacity) {
+        if (value == nullptr || capacity == 0U) {
+            return false;
+        }
+        const std::size_t length =
+            pf_config::bounded_text_length(value, capacity);
+        if (length >= capacity) {
+            return false;
+        }
+        for (std::size_t index = 0U; index < length; ++index) {
+            const unsigned char byte =
+                static_cast<unsigned char>(value[index]);
+            if (byte < 0x20U || byte == '"' || byte == '\\') {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const bool has_valid_version =
+        snapshot_valid &&
+        safe_ota_text(snapshot.ota_latest_version, pf_runtime::kOtaVersionCapacity) &&
+        snapshot.ota_latest_version[0] != '\0';
+    const char* const latest_version =
+        has_valid_version ? snapshot.ota_latest_version : "unknown";
+    const bool has_valid_error =
+        snapshot_valid &&
+        safe_ota_text(snapshot.ota_last_error, pf_runtime::kOtaErrorCapacity);
+    const char* const last_error =
+        has_valid_error ? snapshot.ota_last_error : "";
+
+    const int written = std::snprintf(
+        output,
+        output_size,
+        "{\"ok\":true,\"data\":{"
+        "\"check_state\":\"%s\","
+        "\"latest_version\":\"%s\","
+        "\"last_check_epoch_s\":%llu,"
+        "\"update_state\":\"%s\","
+        "\"progress_percent\":%u,"
+        "\"last_error\":\"%s\"}}",
+        snapshot_valid ? pf_runtime::to_string(snapshot.ota_check_state)
+                       : "unknown",
+        latest_version,
+        static_cast<unsigned long long>(
+            snapshot_valid ? snapshot.ota_last_check_epoch_s : 0U),
+        snapshot_valid ? pf_runtime::to_string(snapshot.ota_update_state)
+                       : "idle",
+        static_cast<unsigned>(
+            snapshot_valid ? snapshot.ota_update_progress_percent : 0U),
+        last_error);
+
+    if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
+        output[0] = '\0';
+        return {false, 0U};
+    }
+    return {true, static_cast<std::size_t>(written)};
+}
+
+// GET /api/v1/events?since=<sequence_id>. events/count come from
+// RuntimeCoordinator::read_diagnostics_since. Event messages are always
+// short caller-built ASCII (see DiagnosticEvent), so unlike the free-text
+// fields elsewhere in this file they are interpolated without escaping.
+inline SerializeResult serialize_events(
+    const pf_runtime::DiagnosticEvent* const events,
+    const std::size_t count,
+    const std::uint32_t highest_sequence_id,
+    const bool more_available,
+    char* const output,
+    const std::size_t output_size)
+{
+    if (output == nullptr || output_size == 0U ||
+        (events == nullptr && count != 0U)) {
+        return {false, 0U};
+    }
+
+    std::size_t offset = 0U;
+    int written = std::snprintf(
+        output + offset,
+        output_size - offset,
+        "{\"ok\":true,\"data\":{\"highest_sequence_id\":%lu,"
+        "\"more_available\":%s,\"events\":[",
+        static_cast<unsigned long>(highest_sequence_id),
+        more_available ? "true" : "false");
+    if (written < 0 ||
+        static_cast<std::size_t>(written) >= output_size - offset) {
+        output[0] = '\0';
+        return {false, 0U};
+    }
+    offset += static_cast<std::size_t>(written);
+
+    for (std::size_t index = 0U; index < count; ++index) {
+        const pf_runtime::DiagnosticEvent& event = events[index];
+        written = std::snprintf(
+            output + offset,
+            output_size - offset,
+            "%s{\"sequence_id\":%lu,\"uptime_ms\":%llu,"
+            "\"category\":\"%s\",\"severity\":\"%s\",\"message\":\"%s\"}",
+            index == 0U ? "" : ",",
+            static_cast<unsigned long>(event.sequence_id),
+            static_cast<unsigned long long>(event.uptime_ms),
+            pf_runtime::to_string(event.category),
+            pf_runtime::to_string(event.severity),
+            event.message);
+        if (written < 0 ||
+            static_cast<std::size_t>(written) >= output_size - offset) {
+            output[0] = '\0';
+            return {false, 0U};
+        }
+        offset += static_cast<std::size_t>(written);
+    }
+
+    written = std::snprintf(output + offset, output_size - offset, "]}}");
+    if (written < 0 ||
+        static_cast<std::size_t>(written) >= output_size - offset) {
+        output[0] = '\0';
+        return {false, 0U};
+    }
+    offset += static_cast<std::size_t>(written);
+
+    return {true, offset};
 }
 
 // GET /api/v1/sensors readings (distinct from serialize_masked_config's

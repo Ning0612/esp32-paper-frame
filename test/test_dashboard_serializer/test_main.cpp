@@ -2,6 +2,7 @@
 
 #include <unity.h>
 
+#include "pf_runtime/diagnostics_event.hpp"
 #include "pf_runtime/runtime_snapshot.hpp"
 #include "pf_weather/weather.hpp"
 #include "pf_web/dashboard_serializer.hpp"
@@ -39,7 +40,7 @@ pf_runtime::RuntimeSnapshot snapshot()
     };
 }
 
-void test_status_contains_runtime_and_null_future_modules()
+void test_status_contains_runtime_fields_and_null_carousel_when_unset()
 {
     char output[2048]{};
     const pf_web::SerializeResult result = pf_web::serialize_status(
@@ -55,14 +56,51 @@ void test_status_contains_runtime_and_null_future_modules()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"wifi\":\"connected\""));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"flash_bytes\":16777216"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"webfs_used_bytes\":4096"));
+    // Null-safety regression: snapshot() leaves current_image_id/
+    // next_carousel_due_ms at their default 0 ("never set yet" / welcome
+    // frame), which must render as null, not a fabricated 0.
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"current_image\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"next_refresh_ms\":null"));
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"temperature_c\":null"));
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"last_outcome\":\"refreshed_and_slept\""));
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"weather\":{\"state\":\"unavailable\""));
+}
+
+void test_status_reports_current_image_and_next_refresh_when_set()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.current_image_id = 7U;
+    data.next_carousel_due_ms = 200000U;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data, true, 123456U, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"current_image\":7"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"next_refresh_ms\":76544"));
+}
+
+void test_status_clamps_overdue_next_refresh_to_zero_not_negative()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.current_image_id = 3U;
+    // due in the past relative to uptime_ms -- must clamp to 0 ("due now"),
+    // never wrap into a huge unsigned value from an unsigned subtraction.
+    data.next_carousel_due_ms = 100U;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data, true, 999999U, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"next_refresh_ms\":0"));
 }
 
 void test_weather_reports_available_when_fresh()
@@ -434,12 +472,130 @@ void test_masked_config_bounds_unterminated_text()
         std::strstr(output, "\"timezone\":\"unknown\""));
 }
 
+void test_status_exposes_reboot_reason_and_queue_lock_counters()
+{
+    // Regression: these RuntimeSnapshot fields exist purely to be
+    // observable through the API; a coordinator that tracks them but never
+    // serializes them defeats the entire point of Milestone 1.
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.reboot_reason = pf_runtime::RebootReason::panic_or_watchdog;
+    data.diagnostics_latest_sequence_id = 42U;
+    data.command_queue_rejected_count = 3U;
+    data.terminal_result_exhausted_count = 1U;
+    data.flash_display_lock_timeout_count = 2U;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data, true, 123456, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"reboot_reason\":\"panic_or_watchdog\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"latest_sequence_id\":42"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"command_queue_rejected_count\":3"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"terminal_result_exhausted_count\":1"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"flash_display_lock_timeout_count\":2"));
+}
+
+void test_serialize_ota_status_reports_check_and_update_state()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.ota_check_state = pf_runtime::OtaCheckState::update_available;
+    std::strncpy(
+        data.ota_latest_version, "v0.9.0",
+        sizeof(data.ota_latest_version) - 1U);
+    data.ota_last_check_epoch_s = 1700000000U;
+    data.ota_update_state = pf_runtime::OtaUpdateState::writing;
+    data.ota_update_progress_percent = 42U;
+
+    char output[512]{};
+    const pf_web::SerializeResult result =
+        pf_web::serialize_ota_status(data, true, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"check_state\":\"update_available\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"latest_version\":\"v0.9.0\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"update_state\":\"writing\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"progress_percent\":42"));
+}
+
+void test_serialize_ota_status_reports_unknown_when_never_checked()
+{
+    char output[512]{};
+    const pf_web::SerializeResult result = pf_web::serialize_ota_status(
+        pf_runtime::RuntimeSnapshot{}, false, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"check_state\":\"unknown\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"latest_version\":\"unknown\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"update_state\":\"idle\""));
+}
+
+void test_serialize_events_reports_empty_array_when_none()
+{
+    char output[256]{};
+    const pf_web::SerializeResult result =
+        pf_web::serialize_events(nullptr, 0U, 0U, false, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"events\":[]"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"highest_sequence_id\":0"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"more_available\":false"));
+}
+
+void test_serialize_events_reports_events_oldest_first()
+{
+    pf_runtime::DiagnosticEvent events[2]{};
+    events[0].sequence_id = 3U;
+    events[0].uptime_ms = 111U;
+    events[0].category = pf_runtime::DiagnosticCategory::queue;
+    events[0].severity = pf_runtime::DiagnosticSeverity::warning;
+    std::strncpy(
+        events[0].message, "command_queue_full",
+        sizeof(events[0].message) - 1U);
+    events[1].sequence_id = 4U;
+    events[1].uptime_ms = 222U;
+    events[1].category = pf_runtime::DiagnosticCategory::lock;
+    events[1].severity = pf_runtime::DiagnosticSeverity::error;
+    std::strncpy(
+        events[1].message, "flash_display_lock_timeout",
+        sizeof(events[1].message) - 1U);
+
+    char output[512]{};
+    const pf_web::SerializeResult result = pf_web::serialize_events(
+        events, 2U, 4U, true, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"highest_sequence_id\":4"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"more_available\":true"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"sequence_id\":3,\"uptime_ms\":111,\"category\":\"queue\","
+        "\"severity\":\"warning\",\"message\":\"command_queue_full\"}"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"sequence_id\":4,\"uptime_ms\":222,\"category\":\"lock\","
+        "\"severity\":\"error\",\"message\":\"flash_display_lock_timeout\"}"));
+    // Oldest-first ordering: sequence_id 3 must appear before 4.
+    TEST_ASSERT_TRUE(
+        std::strstr(output, "\"sequence_id\":3") <
+        std::strstr(output, "\"sequence_id\":4"));
+}
+
 }  // namespace
 
 int main(int, char**)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_status_contains_runtime_and_null_future_modules);
+    RUN_TEST(test_status_contains_runtime_fields_and_null_carousel_when_unset);
+    RUN_TEST(test_status_reports_current_image_and_next_refresh_when_set);
+    RUN_TEST(test_status_clamps_overdue_next_refresh_to_zero_not_negative);
     RUN_TEST(test_weather_reports_available_when_fresh);
     RUN_TEST(test_weather_reports_stale_past_max_age);
     RUN_TEST(test_weather_reports_last_failure_reason_when_unavailable);
@@ -453,5 +609,10 @@ int main(int, char**)
     RUN_TEST(test_unknown_snapshot_has_null_capacities);
     RUN_TEST(test_unavailable_config_uses_null_for_unknown_refresh);
     RUN_TEST(test_masked_config_bounds_unterminated_text);
+    RUN_TEST(test_status_exposes_reboot_reason_and_queue_lock_counters);
+    RUN_TEST(test_serialize_ota_status_reports_check_and_update_state);
+    RUN_TEST(test_serialize_ota_status_reports_unknown_when_never_checked);
+    RUN_TEST(test_serialize_events_reports_empty_array_when_none);
+    RUN_TEST(test_serialize_events_reports_events_oldest_first);
     return UNITY_END();
 }
