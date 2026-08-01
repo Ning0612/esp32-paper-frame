@@ -376,6 +376,18 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - watchdog、queue saturation、lock timeout 與 reboot reason 可觀測性。
 - 完整 MVP test matrix、實機 soak/power-loss 測試與 release checklist。
 
+**範圍調整（2026-08-01，實機測試後）**：原規劃的「Recovery AP」管理員
+手動觸發端點（`POST /api/v1/system/recovery-ap`，讓已連線 STA 的裝置
+手動切回 provisioning AP）已**完整移除**，不在 Phase 8 交付範圍內。
+原因：實機測試時，在 STA 已連線狀態下觸發這個路徑會讓 ESP-IDF 的
+AP+STA combo 模式啟動流程崩潰（DMA-capable heap 實測僅剩數 KB，遠低於
+安全水位，詳見 `docs/hardware/VALIDATION.md` 2026-08-01 段落）；即使
+加上 heap 安全檢查把崩潰改成優雅失敗，這個功能在目前硬體的實際記憶體
+餘裕下仍然無法真正成功執行。與使用者確認後，這個手動端點並不對應
+真正的使用情境——WiFi 連不上時，Phase 3 既有的自動 fallback AP
+已經涵蓋「重新配置 Wi-Fi」這個需求，不需要額外的手動路徑。`/api/v1/
+status`、events、reboot 三項交付物維持不變。
+
 驗收：
 
 - 診斷資料不含 secrets、session token、Wi-Fi password 或完整 API key。
@@ -411,6 +423,10 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 | 未登入／缺少 CSRF | 3 | HTTP integration tests |
 | 刷新後 sleep | 2 | driver trace + power/current observation |
 | reboot persistence | 1、5、8 | repeated on-device reboot test |
+| 診斷資料不含 secrets／session token／Wi-Fi 密碼／完整 API key | 8 | 程式檢視（所有 `record_diagnostic_event` 呼叫端皆固定字面值，無插值）+ host test |
+| OTA A/B 可回滾且不改寫 `imagefs` | 8 | host test（`compare_semver`／`extract_tag_name`）+ on-device 真實下載、刻意燒毀版本驗證 bootloader rollback |
+| 面板 timeout／weather／sensor 失敗不阻塞 HTTP 管理介面 | 1、2、6、7、8 | 結構性保證（async worker task + non-blocking `lock_flash_display`）+ on-device |
+| Dashboard 每個欄位來自同一 runtime snapshot | 8 | host test（`serialize_status` 欄位含 null-safety 回歸） |
 
 ## 6. 里程碑與停止條件
 
@@ -503,3 +519,62 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
   `pf_carousel`／`pf_image` 折疊評估後判定會製造循環依賴，本輪維持現狀
   （見 `docs/hardware/VALIDATION.md` 對應記錄）。`pio run` 與
   `pio test -e native`（226/226）全綠，codex-cowork 審查通過。
+- [ ] Phase 8：OTA 韌體來源（裝置直連 GitHub Releases）、TLS 信任重用、
+  版本比對唯一來源、rollback 確認時機（開機自動）與 release 檔名慣例已由
+  `docs/adr/0008-ota-github-releases-and-rollback.md` 固定。
+  程式已完成：`pf_runtime` 新增 `diagnostics_event.hpp`（32 筆 ring
+  buffer）、`reboot_reason.hpp`（`esp_reset_reason_t` 分類）、
+  `firmware_version.hpp`（SemVer 風格版本比對，含 overflow 防呆與
+  pre-release precedence，非完整 SemVer 2.0.0 parser——已於程式註解記錄
+  簡化範圍）；`RuntimeCoordinator` 新增 queue/lock 計數器（與對應診斷事件
+  在同一 critical section 內原子關聯）、OTA check/update 狀態欄位、
+  carousel 目前圖片／下次刷新欄位、`schedule_reboot()`（timer 於
+  `initialize()` 單執行緒建立，杜絕跨 task 首次建立競態；
+  `ESP_ERR_INVALID_STATE`＝已被排程視為成功而非失敗）；新 component
+  `pf_ota`（GitHub tag_name 解析、`esp_https_ota` stepwise 下載、
+  admin-triggered、`busy_` atomic 防重疊請求，`task_handle_ == nullptr`
+  防呆避免 worker 未啟動時請求永久卡死）；`pf_web` 新增
+  `GET /api/v1/events`、`POST /api/v1/system/reboot`、
+  `GET/POST /api/v1/system/ota/*` 路由與對應 access policy；Dashboard
+  `current_image`/`next_refresh_ms` 由 hardcode null 改為真實值；WebUI
+  新增「系統」頁（面板/網路/容量/版本/OTA/重開機/最近事件，兩個 CSRF
+  保護的操作按鈕：重新啟動、立即更新）。經 7 輪 codex-cowork 審查
+  （Milestone 1-3 診斷/OTA 變更 3 輪、Milestone 4 Dashboard/System 頁
+  1 輪、實機崩潰修正 3 輪）修正阻斷性問題後收斂。`pio run -e
+  paperframe-s3` 成功（RAM 71.1%／232,944 bytes——`pf_ota` 的
+  24576-byte task stack 是主要增量，尚未經實機 high-water-mark 量測）、
+  `pio test -e native`（265/265）全綠、`node --check data/web/ui.js`
+  與 `test/web/test_system_ui_contract.mjs` 通過、
+  `test_embedded/test_runtime_coordinator` 以 `--without-uploading
+  --without-testing` 完成 build-only 驗證。
+
+  **實機測試發現並修復真實崩潰**（2026-08-01，詳見
+  `docs/hardware/VALIDATION.md` 對應段落）：原本規劃的「Recovery AP」
+  手動端點在 STA 已連線時觸發 AP+STA combo 模式，讓 Espressif 閉源
+  WiFi blob 在 beacon buffer 配置失敗時崩潰重開機。已加上
+  `heap_caps_get_largest_free_block(MALLOC_CAP_DMA)` 安全檢查（保護
+  `start_access_point()` 的全部呼叫端，不只這個手動端點），並在複測時
+  確認不再崩潰、優雅進入 failed 狀態；但同時測出實際 largest free DMA
+  block 只有 1728 bytes（遠低於安全水位），確認這個手動端點在目前硬體
+  記憶體餘裕下無法真正成功執行，且與使用者確認後，它並不對應真正的
+  使用情境（WiFi 不通時 Phase 3 既有的自動 fallback AP 已經涵蓋這個
+  需求）——**已完整移除** `POST /api/v1/system/recovery-ap`
+  route/handler、`pf_web::recovery_ap_allowed`、
+  `pf_network::request_recovery_ap()`、WebUI 對應按鈕與測試斷言；heap
+  安全檢查本身保留（仍保護 blank-NVS 首次開機與 STA 重試耗盡 fallback
+  這兩個既有路徑）。過程中順帶修正一個獨立真實 bug：`OtaWorker::
+  request_check_for_update()`／`request_update_now()` 若在 worker
+  未成功啟動時被呼叫，會誤報成功並讓 `busy_` 永久卡死。
+
+  **尚未做任何實機驗證**：真實 GitHub 下載與 rollback、真實 panic 後
+  reboot_reason、OTA worker 實機 stack high-water-mark、weather+OTA
+  併發 heap 量測、System 頁瀏覽器實際行為、`start_access_point()`
+  heap guard 對 blank-NVS／STA-retry-fallback 這兩個既有路徑的實際影響
+  （尚未觸發過這兩條路徑做複測），全部列在 `docs/hardware/
+  VALIDATION.md` 2026-08-01 Phase 8 待驗證清單。附帶發現一個與本階段
+  無關的既有回歸：`test/web/test_image_download_contract.mjs` 在本分支
+  所依據的 `fix/auth-simplify-network-merge` 基底 commit（`b79c29b`）
+  就已經斷言失敗（該分支的 upload keep-alive 重構把
+  `close_session = !result.ok() || ...` 改寫成
+  `close_session = !drain_image_upload_body(...)`，測試字面比對沒有同步
+  更新），需在該分支獨立修正，不屬於 Phase 8 範圍。

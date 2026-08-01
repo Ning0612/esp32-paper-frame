@@ -1,10 +1,26 @@
 # 管理 WebUI 與 Dashboard
 
-Phase 3–4 的管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript 與 favicon
-都寫入 `webfs`，不依賴外部 CDN。登入後提供共用的 responsive 導覽殼層，
-目前開放上方導覽的「總覽」、「Wi‑Fi」、「天氣」與圖片處理／圖片庫 view；環境與系統 view 會在
-對應 phase 完成後啟用。圖片在瀏覽器本機處理成 PFR1 後，可由登入且帶 CSRF
+管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript 與 favicon都寫入
+`webfs`，不依賴外部 CDN。登入後提供共用的 responsive 導覽殼層，開放上方
+導覽的「總覽」、「Wi‑Fi」、「天氣」、圖片處理／圖片庫、「環境」與
+「系統」view。圖片在瀏覽器本機處理成 PFR1 後，可由登入且帶 CSRF
 的請求非同步上傳到裝置 imagefs。
+
+「系統」view（Phase 8）顯示面板/網路/reboot reason/容量/版本/uptime/OTA
+狀態，並提供三個需要登入 + CSRF 的操作：重新啟動裝置、檢查 GitHub
+Releases 更新、立即下載並安裝更新；後兩者皆有 `window.confirm()`
+二次確認（唯讀的「檢查更新」除外）。OTA 只更新 app 韌體
+（`ota_0`/`ota_1`），webfs 更新仍是獨立的手動流程，見本檔「更新
+方式」一節；OTA 決策見
+[`docs/adr/0008-ota-github-releases-and-rollback.md`](adr/0008-ota-github-releases-and-rollback.md)。
+
+**已移除**：原本規劃「強制進入配網 AP」（管理員在 STA 已連線時手動切回
+provisioning AP）於 2026-08-01 實機測試時發現會在 AP+STA combo 模式
+啟動瞬間讓 Espressif 閉源 WiFi blob 崩潰（DMA-capable heap 實測只剩
+數 KB，遠低於安全水位），且並未對應真正的使用情境——WiFi 連不上時
+既有的自動 fallback AP（Phase 3）已經涵蓋這個需求。已完整移除對應
+API route、handler、access policy 與 WebUI 按鈕，細節見
+`docs/hardware/VALIDATION.md` 2026-08-01 段落。
 
 ## API 路由
 
@@ -28,15 +44,22 @@ Phase 3–4 的管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript �
 | `DELETE /api/v1/images/{name}` | 已登入 + CSRF | 非同步刪除圖片並選擇下一張有效圖片 |
 | `PUT /api/v1/images/order` | 已登入 + CSRF | 非同步保存 `{ "ids": [ ... ] }` 輪播順序 |
 | `GET /api/v1/images/{name}/download` | 已登入 | 下載已驗證的 PFR1 |
+| `GET /api/v1/events` | 已登入 | 讀取 diagnostics ring buffer（`?since=<sequence_id>` 分頁；`since` 存在但無效回 400） |
+| `POST /api/v1/system/reboot` | 已登入 + CSRF | 排程約 500ms 後重開機（`schedule_reboot()`），成功才回 `{"ok":true}` |
+| `GET /api/v1/system/ota/status` | 已登入 | 讀取 OTA 檢查／更新狀態、進度、最後錯誤 |
+| `POST /api/v1/system/ota/check` | 已登入 | 觸發 GitHub Releases 版本檢查（唯讀，不寫 flash） |
+| `POST /api/v1/system/ota/update` | 已登入 + CSRF | 觸發下載並寫入韌體；已在進行中回 `409 Conflict` |
 
 所有 JSON 使用 `{ "ok": true, "data": ... }` 或 `{ "ok": false,
 "error": ... }`，並設定 `Cache-Control: no-store`、`nosniff` 與同源 CSP。
 `/api/v1/status` 的檔案容量與服務狀態來自同一份 RuntimeCoordinator
 snapshot；handler 不等待顯示器、網路、NVS 或 filesystem。
 
-尚未接入的輪播控制、天氣 HTTPS worker、SNTP 與感測器欄位以 `null` 或明確的
-`unavailable`／`unknown` 表示，不填入零值或歷史資料。光敏電阻與溫溼度
-感測器未安裝時，Dashboard 維持「未安裝／未知」狀態。
+缺少的可選資料一律以 `null` 或明確的 `unavailable`／`unknown` 表示，不填入
+零值或歷史資料：光敏電阻與溫溼度感測器未安裝時 Dashboard 維持「未安裝／
+未知」狀態；`current_image`/`next_refresh_ms` 在裝置從未成功輪播過（開機
+後尚未完成任何一次刷新）時回 `null`，成功輪播後才是真實圖片 id 與距下次
+刷新的毫秒數。
 
 ## Phase 4 圖片處理管線
 

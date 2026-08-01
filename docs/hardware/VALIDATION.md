@@ -787,3 +787,109 @@ subtype，`imagefs` 排在 CSV 後面，所以 PlatformIO 選到的目標 offset
 **結論**：往後一律用 `scripts\flash-app-and-webfs.ps1`；`pio run -t
 uploadfs` 不得用於這個專案的任何 environment。imagefs 目前是空的，
 待重新從 WebUI 上傳圖片。
+
+### 2026-08-01 — Phase 8 實機首測：觸發「強制進入配網 AP」導致 Guru Meditation 崩潰迴圈
+
+上述 webfs/imagefs 問題排除後，使用者以本次 Phase 8 build 實機測試，
+連上既有 STA 後觸發新的「強制進入配網 AP」功能（WebUI 系統頁按鈕，
+對應 `POST /api/v1/system/recovery-ap` →
+`NetworkEvent::enter_recovery_ap`）。這是 `NetworkAction::start_ap`
+第一次在 STA 已連線狀態下被呼叫——先前僅有的兩個呼叫端（blank-NVS
+首次開機、STA 重試耗盡後 fallback）都是從「STA 未連線」狀態進入，
+從未在有作用中連線時測過。
+
+**症狀**：console log 顯示 `provisioning_screen_ready request=2` 後，
+WiFi 切換到 `sta + softAP` combo 模式，接著兩次
+`wifi:alloc eb len=752 type=4 fail`（752-byte DMA-capable buffer 配置
+失敗），緊接 `Guru Meditation Error: Core 0 panic'ed (LoadProhibited)`，
+`EXCVADDR: 0x0000002c`，之後持續重複重開機。
+
+**根因分析**：用本機 `xtensa-esp32s3-elf-addr2line`
+（`.pio/packages/toolchain-xtensa-esp-elf/bin/`）對照 SHA256 完全吻合
+崩潰韌體的 `.pio/build/paperframe-s3/firmware.elf`，backtrace 解出：
+
+```text
+ieee80211_hostap_attach ← wifi_softap_start ← _do_wifi_start
+  ← wifi_start_process ← ieee80211_ioctl_process ← ppTask
+```
+
+全部落在 Espressif 閉源 WiFi blob 內，無法從應用層修補。
+`EXCVADDR=0x2c`（極低位址，典型 null pointer + 小 offset）搭配前一行
+的配置失敗 log，指向「752-byte DMA buffer 配置失敗時，blob 內部沒有
+正確處理失敗、繼續解參考一個 null 指標」。**這是高可信度假說，非已
+證實根因**——沒有 allocation-failure hook 或 heap trace的實測資料能
+直接證明，只有 backtrace 與 log 時序上的相關性。Phase 8 新增的靜態
+配置（尤其 `pf_ota` 的 24576-byte task stack）把可用 internal DMA
+heap 從原本的餘裕壓縮到臨界值，很可能是促成這次崩潰的因素之一，但
+也可能這條路徑本來就從未在任何 heap 水位下測過。
+
+**修正**（經 3 輪 codex-cowork 審查收斂）：
+
+1. `NetworkService::start_access_point()` 在**函式最開頭、
+   `esp_wifi_stop()` 成功之後、觸碰任何 `esp_wifi_set_mode`／
+   `esp_wifi_set_config` 之前**，新增
+   `heap_caps_get_largest_free_block(MALLOC_CAP_DMA)` 檢查（門檻暫定
+   40KB，**未經實機校準的保守猜測值**）。低於門檻時記錄診斷事件
+   （`ap_start_low_heap`）並回傳 `ESP_ERR_NO_MEM`，driver 保持單純
+   stopped 狀態（不會有「設定已改但沒 start」的中間態疑慮）。這個失敗
+   會經由既有的 `perform_action_chain()` → `ap_start_failed` →
+   `NetworkStateMachine::handle()` 走進本來就存在的重試（最多 3 次，
+   每次間隔 1 秒）／降級邏輯，不是新的錯誤處理路徑，同時也保護了另外
+   兩個既有呼叫 `start_ap` 的路徑。**誠實聲明這個修正的邊界**：只把
+   「不可恢復的崩潰」換成「有界的優雅失敗」，不保證 AP 一定能成功
+   啟動——1 秒重試只有在其他 task 剛好釋放 DMA heap 時才可能有幫助，
+   持續性的靜態記憶體壓力不會在重試後自行消失。
+2. 曾嘗試把 `pf_ota::OtaWorker::github_response_buffer_`（8192 bytes）
+   從靜態 internal-DRAM array 改成 PSRAM 配置以騰出 heap 空間，但
+   codex-cowork 審查指出：同一個 task 也執行 `esp_https_ota` flash
+   寫入，PSRAM 在 flash cache-disable 期間的存取安全性未經驗證，屬於
+   本專案過去吃過虧的同一類「未充分推導記憶體/時序交互作用」風險。
+   **已完全撤回這項變更**，`github_response_buffer_` 改回原本的
+   static internal-DRAM array；RAM 使用率因此維持在 71.1%
+   （232,944 bytes）而非降到 68.6%——刻意的取捨，不用未經驗證的風險
+   換 8KB。
+3. 審查過程中另外發現一個獨立的真實 bug：`OtaWorker::
+   request_check_for_update()`／`request_update_now()` 若在
+   `OtaWorker::start()` 從未成功（`task_handle_` 為 null）時被呼叫，
+   會回傳 `true`（誤導呼叫端）且把 `busy_` 永久卡在 `true`（沒有 task
+   會把它重置），導致之後所有請求永久被拒。已在兩個函式開頭加上
+   `task_handle_ == nullptr` 檢查修正。
+
+`pio run`（RAM 回到 71.1%／232,944 bytes，Flash 47.3%）與
+`pio test -e native`（265/265）皆已通過；
+`test_embedded/test_runtime_coordinator` 以 `--without-uploading
+--without-testing` 完成 build-only 驗證。
+
+**2026-08-01 實機複測結果（修正確認）**：重新燒錄後在已連線 STA 狀態下
+重新觸發「強制進入配網 AP」，console log：
+
+```text
+E (45861) pf_network: ap_start_low_heap free_dma_bytes=2671 largest_free_dma_block=1728 minimum_bytes=40960
+E (45861) pf_network: network_action_failed action=3 error=ESP_ERR_NO_MEM
+```
+
+連續 3 次（每次間隔 1 秒，符合 `kActionRetryDelayTicks`／
+`maximum_ap_attempts_=3`），之後進入 `NetworkStateMachine` 的
+`enter_failed()`。**確認結果**：
+
+- (a) **不再崩潰、不再重開機迴圈**——heap guard 生效，修正核心目標達成。
+- (b) 40KB 門檻遠高於實際：real largest free DMA block 只有
+  **1728 bytes**、total free DMA heap 只有 **2671 bytes**，比 40KB
+  低了一個數量級以上。這代表「已連線 STA 時強制進入配網 AP」這個功能
+  **目前實質不可用**——不是門檻設定過嚴的問題，是系統整體在這個時間點
+  （開機約 45 秒、STA 已連線）DMA-capable heap 餘裕已經被壓縮到極度
+  危險的水位，就算把門檻降到遠低於 40KB，esp_wifi_start() 實際需要的
+  總配置量（beacon buffer 之外還有 AP 介面的 RX/TX buffer、netif
+  結構等）很可能還是拿不到足夠連續空間。
+- (c) 優雅失敗路徑確認正確：`network_action_failed action=3
+  error=ESP_ERR_NO_MEM` 三次後靜止（進入 `failed` 狀態），沒有再次崩潰
+  或無限重試。
+
+**後續影響評估**：這次 heap guard 修正的直接目標（防止崩潰）已達成並
+實機驗證；但揭露了一個範圍更大的既有問題——本裝置在正常執行時（開機
+45 秒、STA 已連線）的 DMA-capable heap 餘裕遠低於「安全啟動 AP+STA
+combo 模式」所需，這不是 Phase 8 單獨造成的（Phase 7 baseline 在這個
+分支本來就已經有相當高的靜態 RAM 使用率），但 Phase 8 的新增配置
+可能讓餘裕更緊繃。要讓「強制進入配網 AP」在已連線 STA 狀態下真正可用
+（而不只是安全地拒絕），需要全系統範圍的 RAM 稽核與縮減，不是調整
+單一門檻數字可以解決，列為後續獨立工作項目。

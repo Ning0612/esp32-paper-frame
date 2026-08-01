@@ -1,0 +1,67 @@
+# Release Checklist
+
+發布新版本（打 git tag、推送 GitHub Release）前必須依序完成以下項目。
+本清單是 Phase 8 OTA（見
+[`docs/adr/0008-ota-github-releases-and-rollback.md`](adr/0008-ota-github-releases-and-rollback.md)）
+的直接前提：漏掉任一硬性規定會讓裝置端「檢查更新」／「立即更新」失效或
+誤判，且錯誤只會在使用者實際嘗試更新時才暴露。
+
+## 1. Release 資產硬性規定（OTA 依賴，不可省略）
+
+- [ ] 建置好的韌體 app image（例如 `.pio/build/paperframe-s3/firmware.bin`）
+  以**檔名完全是 `paperframe-firmware.bin`** 的形式附加到 GitHub
+  Release 的 assets。裝置的 `pf_ota::OtaWorker` 透過
+  `https://github.com/<owner>/<repo>/releases/latest/download/paperframe-firmware.bin`
+  固定檔名 redirect 抓取，檔名錯誤或漏傳都會讓「立即更新」得到 404
+  （分類為 `download_failed`，不會崩潰，但功能上等於該版本無法透過
+  OTA 取得）。
+- [ ] 推送的 git tag 格式為 `vMAJOR.MINOR.PATCH` 或
+  `vMAJOR.MINOR.PATCH-prerelease`（`pf_runtime::compare_semver` 的容忍
+  格式；純數字或缺 `v` 前綴也能解析，但團隊慣例統一用 `v` 前綴）。
+- [ ] `components/pf_runtime/include/pf_runtime/firmware_version.hpp` 的
+  `kFirmwareVersion` 已更新為與這次推送的 tag 相同版本號，並已重新
+  `pio run` 確認編譯進最終 image——這是唯一的版本字串來源，同時決定
+  `/api/v1/device` 顯示的版本與「檢查更新」的比對基準；沒同步會讓裝置
+  誤判自己「已是最新」或錯誤判斷新舊。
+
+## 2. 建置與測試（發布前必過）
+
+- [ ] `.venv/Scripts/pio.exe run` 成功（韌體完整編譯，記錄 RAM/Flash
+  使用率；若較上次 release 有明顯跳動，需在 release note 或
+  `docs/hardware/VALIDATION.md` 記錄原因）。
+- [ ] `.venv/Scripts/pio.exe test -e native` 全綠。
+- [ ] `.venv/Scripts/pio.exe test --project-conf platformio-embedded.ini
+  -e paperframe-s3-embedded-test --without-uploading --without-testing`
+  （以及其他 embedded test environment）至少完成 build-only 驗證；有
+  硬體時應盡量跑實際測試。
+- [ ] `node --check data/web/ui.js`（以及其他 `data/web/*.js`）。
+- [ ] `for f in test/web/*.mjs; do node "$f"; done` 全部通過——**已知
+  例外**：`test_image_download_contract.mjs` 目前在
+  `fix/auth-simplify-network-merge` 分支上斷言失敗（與 Phase 8 無關的
+  既有回歸，見該分支或 `docs/hardware/VALIDATION.md` 2026-08-01
+  Phase 8 段落），修好前不得算作「全部通過」被略過，必須明確記錄原因。
+
+## 3. 手動 on-device 檢查清單
+
+對照 `docs/hardware/VALIDATION.md` 最新一段列出的「尚未做任何實機驗證」
+項目逐一確認，至少涵蓋：
+
+- [ ] 全新開機（reboot persistence：設定、圖片、順序、目前圖片都保留）。
+- [ ] OTA 全流程：檢查更新 → 立即更新 → 自動重開機 → 開機後
+  `rollback_confirmed=ESP_OK` 出現在 console log。
+- [ ] `webfs` 更新（若本次 release 含 WebUI 變更）仍走獨立的手動
+  `cmake --target littlefs_webfs_bin` + `esptool` 流程，**不**與 OTA
+  混用；release note 需分別註明「app 韌體版本」與「WebUI 版本」（若
+  WebUI 這次未變更則不需重燒）。
+- [ ] System 頁四個操作按鈕（重新啟動、強制配網 AP、檢查更新、立即
+  更新）在真實瀏覽器中可正常觸發且回應符合預期。
+
+## 4. Release note 內容
+
+- [ ] 列出本次 app 韌體版本（`kFirmwareVersion`）與對應 git tag。
+- [ ] 若本次同時更新 `data/web/`，明確註明 WebUI 版本需要另外用
+  esptool 手動燒錄，OTA 不會更新它。
+- [ ] 若本次變更了 partition layout（理論上不應該——見 ADR-0004），
+  必須有新的 superseding ADR 並在 release note 高亮警告。
+- [ ] 附上 `docs/hardware/VALIDATION.md` 對應段落的連結或摘要，讓使用
+  這個 release 的人知道哪些情境還沒經過實機驗證。
