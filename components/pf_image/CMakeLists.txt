@@ -5,4 +5,5 @@ idf_component_register(
         "include"
     REQUIRES
         pf_display
+        esp_rom
 )

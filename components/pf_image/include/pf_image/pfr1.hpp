@@ -5,6 +5,21 @@
 
 #include "pf_display/packed_framebuffer.hpp"
 
+// PFR1's optional compressed-payload flag (Pfr1Flags::kCompressed) carries a
+// raw DEFLATE stream (no zlib/gzip wrapper), matching the browser packer's
+// `CompressionStream('deflate-raw')` output. On-device this is inflated with
+// the ESP32-S3 mask ROM's miniz (`tinfl_decompress_mem_to_mem`, zero extra
+// flash/library cost); `pio test -e native` has no ESP-IDF component graph
+// to link the ROM symbols against, so host builds use system zlib's raw
+// (negative-windowBits) inflate mode instead. Both produce byte-identical
+// output for a given raw-DEFLATE stream, so this only changes which backend
+// performs the inflate, never PFR1's on-disk semantics.
+#if defined(ESP_PLATFORM)
+#include "miniz.h"
+#else
+#include <zlib.h>
+#endif
+
 namespace pf_image {
 
 inline constexpr std::size_t kPfr1HeaderSize = 32U;
@@ -30,7 +45,74 @@ enum Pfr1Flags : std::uint16_t {
     kMirrorX = 0x0001U,
     kMirrorY = 0x0002U,
     kRotate90Cw = 0x0004U,
+    // Payload is a raw-DEFLATE stream (no zlib/gzip wrapper) that decodes to
+    // exactly expected_payload_length(width, height) bytes; payload_length
+    // holds the compressed byte count, which must be strictly smaller than
+    // the uncompressed size (a browser that can't shrink a payload falls
+    // back to storing it uncompressed with this bit clear).
+    kCompressed = 0x0008U,
 };
+
+// Both buffers must be at least kPfr1MaxPayloadBytes: `compressed` stages
+// the raw incoming payload bytes while they stream in via feed(), and
+// `output` receives the one-shot-decompressed result at finish(). Required
+// only when a file's header sets Pfr1Flags::kCompressed; validators that
+// only ever see uncompressed files can omit this (default constructor).
+struct Pfr1InflateBuffers {
+    std::uint8_t* compressed = nullptr;
+    std::size_t compressed_capacity = 0U;
+    std::uint8_t* output = nullptr;
+    std::size_t output_capacity = 0U;
+};
+
+inline constexpr std::size_t kPfr1InflateFailed =
+    static_cast<std::size_t>(-1);
+
+// Decompresses a raw DEFLATE stream (no zlib/gzip framing) in one shot.
+// Returns the number of bytes written to `dst`, or kPfr1InflateFailed.
+#if defined(ESP_PLATFORM)
+// NOTE: tinfl_decompress_mem_to_mem() has no "bytes of src actually
+// consumed" output, so unlike the host backend below it cannot verify that
+// `src_len` was fully consumed by the deflate stream. A payload with extra
+// bytes appended after a complete, valid deflate stream (but still within
+// the header's declared payload_length, so still CRC-covered) would be
+// accepted here. This is a known asymmetry, not a safety issue: decoded
+// pixel content and stored file size are unaffected either way — accepted
+// trailing bytes are inert, never interpreted as anything.
+inline std::size_t inflate_raw_deflate(
+    const std::uint8_t* const src,
+    const std::size_t src_len,
+    std::uint8_t* const dst,
+    const std::size_t dst_capacity)
+{
+    return tinfl_decompress_mem_to_mem(dst, dst_capacity, src, src_len, 0);
+}
+#else
+inline std::size_t inflate_raw_deflate(
+    const std::uint8_t* const src,
+    const std::size_t src_len,
+    std::uint8_t* const dst,
+    const std::size_t dst_capacity)
+{
+    z_stream strm{};
+    if (inflateInit2(&strm, -MAX_WBITS) != Z_OK) {
+        return kPfr1InflateFailed;
+    }
+    strm.next_in = const_cast<Bytef*>(src);
+    strm.avail_in = static_cast<uInt>(src_len);
+    strm.next_out = dst;
+    strm.avail_out = static_cast<uInt>(dst_capacity);
+    const int result = inflate(&strm, Z_FINISH);
+    const std::size_t produced = dst_capacity - strm.avail_out;
+    inflateEnd(&strm);
+    // Require the whole compressed payload to belong to the deflate stream:
+    // Z_STREAM_END alone doesn't guarantee src_len was fully consumed, so a
+    // valid stream with trailing garbage bytes would otherwise pass.
+    return (result == Z_STREAM_END && strm.avail_in == 0U)
+               ? produced
+               : kPfr1InflateFailed;
+}
+#endif
 
 enum class ValidationError : std::uint8_t {
     none = 0U,
@@ -53,6 +135,8 @@ enum class ValidationError : std::uint8_t {
     trailing_data,
     sink_rejected,
     already_failed,
+    unsupported_compression,
+    payload_inflate_failed,
 };
 
 struct Pfr1Header {
@@ -209,8 +293,11 @@ class Pfr1Validator {
 public:
     explicit Pfr1Validator(
         const PayloadSink sink = nullptr,
-        void* const sink_context = nullptr)
-        : sink_(sink), sink_context_(sink_context)
+        void* const sink_context = nullptr,
+        const Pfr1InflateBuffers* const inflate_buffers = nullptr)
+        : sink_(sink),
+          sink_context_(sink_context),
+          inflate_buffers_(inflate_buffers)
     {
     }
 
@@ -268,24 +355,34 @@ public:
                         ? (static_cast<std::size_t>(header_.payload_length) -
                            payload_bytes_)
                         : (length - consumed);
-                if (!valid_payload(data + consumed, amount)) {
-                    error_ = ValidationError::invalid_payload_palette;
-                    return false;
+                if (is_compressed()) {
+                    // Compressed bytes aren't nibble-coded pixels and can't
+                    // be forwarded to the sink until the whole stream is
+                    // inflated (finish()); stage them for the one-shot
+                    // inflate instead.
+                    for (std::size_t index = 0U; index < amount; ++index) {
+                        inflate_buffers_->compressed[payload_bytes_ + index] =
+                            data[consumed + index];
+                    }
+                } else {
+                    if (!valid_payload(data + consumed, amount)) {
+                        error_ = ValidationError::invalid_payload_palette;
+                        return false;
+                    }
+                    if (sink_ != nullptr &&
+                        !sink_(
+                            sink_context_,
+                            payload_bytes_,
+                            data + consumed,
+                            amount)) {
+                        error_ = ValidationError::sink_rejected;
+                        return false;
+                    }
                 }
-                const std::uint32_t next_crc = crc32_update(
+                payload_crc_ = crc32_update(
                     payload_crc_,
                     data + consumed,
                     amount);
-                if (sink_ != nullptr &&
-                    !sink_(
-                        sink_context_,
-                        payload_bytes_,
-                        data + consumed,
-                        amount)) {
-                    error_ = ValidationError::sink_rejected;
-                    return false;
-                }
-                payload_crc_ = next_crc;
                 payload_bytes_ += static_cast<std::uint32_t>(amount);
                 consumed += amount;
                 continue;
@@ -312,6 +409,29 @@ public:
             error_ = ValidationError::payload_crc_mismatch;
             return false;
         }
+        if (is_compressed()) {
+            const std::uint32_t expected =
+                expected_payload_length(header_.width, header_.height);
+            const std::size_t produced = inflate_raw_deflate(
+                inflate_buffers_->compressed,
+                header_.payload_length,
+                inflate_buffers_->output,
+                inflate_buffers_->output_capacity);
+            if (produced == kPfr1InflateFailed ||
+                produced != static_cast<std::size_t>(expected)) {
+                error_ = ValidationError::payload_inflate_failed;
+                return false;
+            }
+            if (!valid_payload(inflate_buffers_->output, produced)) {
+                error_ = ValidationError::invalid_payload_palette;
+                return false;
+            }
+            if (sink_ != nullptr &&
+                !sink_(sink_context_, 0U, inflate_buffers_->output, produced)) {
+                error_ = ValidationError::sink_rejected;
+                return false;
+            }
+        }
         finalized_ = true;
         return true;
     }
@@ -337,6 +457,11 @@ public:
     }
 
 private:
+    bool is_compressed() const
+    {
+        return (header_.flags & static_cast<std::uint16_t>(kCompressed)) != 0U;
+    }
+
     bool parse_header()
     {
         if (raw_header_[0] != static_cast<std::uint8_t>('P') ||
@@ -356,8 +481,8 @@ private:
         }
         header_.flags = read_u16(raw_header_ + 6U);
         if ((header_.flags &
-             static_cast<std::uint16_t>(~(kMirrorX | kMirrorY | kRotate90Cw))) !=
-            0U) {
+             static_cast<std::uint16_t>(
+                 ~(kMirrorX | kMirrorY | kRotate90Cw | kCompressed))) != 0U) {
             error_ = ValidationError::invalid_flags;
             return false;
         }
@@ -388,9 +513,32 @@ private:
             return false;
         }
         header_.payload_length = read_u32(raw_header_ + 16U);
-        if (header_.payload_length !=
-                expected_payload_length(header_.width, header_.height) ||
-            header_.payload_length > kPfr1MaxPayloadBytes) {
+        const std::uint32_t max_payload =
+            expected_payload_length(header_.width, header_.height);
+        if (is_compressed()) {
+            // Defense in depth: max_payload is only ever one of the two
+            // fixed profile sizes today (both <= kPfr1MaxPayloadBytes)
+            // because valid_dimensions() already rejected anything else
+            // above, but the compressed staging buffer's guaranteed
+            // capacity is kPfr1MaxPayloadBytes specifically — check that
+            // bound directly instead of only relying on the profile
+            // invariant holding.
+            if (header_.payload_length == 0U ||
+                header_.payload_length > max_payload ||
+                header_.payload_length > kPfr1MaxPayloadBytes) {
+                error_ = ValidationError::invalid_payload_length;
+                return false;
+            }
+            if (inflate_buffers_ == nullptr ||
+                inflate_buffers_->compressed == nullptr ||
+                inflate_buffers_->compressed_capacity < kPfr1MaxPayloadBytes ||
+                inflate_buffers_->output == nullptr ||
+                inflate_buffers_->output_capacity < kPfr1MaxPayloadBytes) {
+                error_ = ValidationError::unsupported_compression;
+                return false;
+            }
+        } else if (header_.payload_length != max_payload ||
+                   header_.payload_length > kPfr1MaxPayloadBytes) {
             error_ = ValidationError::invalid_payload_length;
             return false;
         }
@@ -431,6 +579,7 @@ private:
 
     PayloadSink sink_ = nullptr;
     void* sink_context_ = nullptr;
+    const Pfr1InflateBuffers* inflate_buffers_ = nullptr;
     std::uint8_t raw_header_[kPfr1HeaderSize]{};
     std::uint8_t filename_[kPfr1MaxFilenameBytes]{};
     std::size_t header_bytes_ = 0U;

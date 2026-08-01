@@ -132,15 +132,20 @@ entry 驗證邊界）決策需要先開 ADR。以下範圍決策已與使用者�
   壓縮後長度，這裡若不改就會用錯誤長度組框——這是本 ADR 觸發下必須修正
   的既有 bug，非本 ADR 引入的新問題。
 - 上傳／recovery 路徑（`image_store.cpp`、`recovery.cpp`）為了維持「壞
-  資料絕不寫入正式 image path」的既有保證，需要各自新增一份 32 KB
-  static（BSS，非 stack）inflate scratch buffer 做完整 inflate+nibble
-  驗證，不能只驗 CRC 就信任壓縮內容。
-- 三個新增的 32 KB scratch buffer（ingest、recovery、display 各一份）+
-  拉高目錄上限後的 BSS 成長，都必須在 `pio run` 後檢查沒有把 app image
-  推過 `ota_0`/`ota_1` 的 `0x280000` 分割區預算，且需要在實機驗證
-  stack high-water-mark（呼應 `docs/hardware/VALIDATION.md` 記錄過的
-  `CONFIG_ESP_MAIN_TASK_STACK_SIZE` 與 httpd worker stack overflow
-  教訓——所有新 buffer 一律 static/heap/PSRAM 配置，不上 stack）。
+  資料絕不寫入正式 image path」的既有保證，需要各自新增兩份
+  static（BSS，非 stack）scratch buffer 做完整 inflate+nibble 驗證，不能
+  只驗 CRC 就信任壓縮內容：一份暫存 feed() 時逐步收到的壓縮 bytes，一份接
+  收 finish() 時一次性解壓縮的輸出——兩者都必須至少
+  `kPfr1MaxPayloadBytes`（182,400 bytes），因為 `Pfr1Validator` 是把整段
+  壓縮 payload 收完後才呼叫一次 `tinfl_decompress_mem_to_mem`／zlib 對應
+  API 一次性解壓縮，不是用 32 KB 滑動窗口做逐段解壓縮。
+- 新增的 scratch buffer（ingest、recovery、display 各兩份，每份
+  182,400 bytes）+ 拉高目錄上限後的 BSS 成長，都必須在 `pio run` 後檢查
+  沒有把 app image 推過 `ota_0`/`ota_1` 的 `0x280000` 分割區預算，且需要
+  在實機驗證 stack high-water-mark（呼應 `docs/hardware/VALIDATION.md`
+  記錄過的 `CONFIG_ESP_MAIN_TASK_STACK_SIZE` 與 httpd worker stack
+  overflow 教訓——所有新 buffer 一律 static/heap/PSRAM 配置，不上
+  stack）。
 - 未來若要改變壓縮演算法、framing 或再次調整 `kCatalogMaxEntries`，
   需要新的 superseding ADR。
 

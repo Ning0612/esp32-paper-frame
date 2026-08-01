@@ -53,12 +53,41 @@ header_size + filename_length + payload_length
 | `0x0001` | `mirror_x` | 水平鏡像已套用 |
 | `0x0002` | `mirror_y` | 垂直鏡像已套用 |
 | `0x0004` | `rotate_90_cw` | 順時針旋轉 90° 已套用 |
+| `0x0008` | `compressed` | payload 是 raw DEFLATE stream，見下方「Payload 壓縮」 |
 
 Browser 會先正規化 EXIF 方向，再依管理介面按鈕的點擊順序把水平鏡像、垂直
 鏡像或順時針旋轉 90° 套用到目前的工作影像；每次點擊只套用一次，之後才進行
-裁切或 fit、縮放、六色量化與 dithering。`flags` 只記錄該類操作是否曾經套用，
-不編碼點擊次數或順序，也不要求韌體再次套用幾何操作；它們只是已輸出 raster
-的診斷 metadata。旋轉後的最終尺寸必須仍符合 orientation profile。
+裁切或 fit、縮放、六色量化與 dithering。`mirror_x`/`mirror_y`/`rotate_90_cw`
+只記錄該類幾何操作是否曾經套用，不編碼點擊次數或順序，也不要求韌體再次
+套用幾何操作；它們只是已輸出 raster 的診斷 metadata。旋轉後的最終尺寸必須
+仍符合 orientation profile。`compressed` 則會改變 payload 的實際內容與
+`payload_length` 語意，見下方說明。
+
+## Payload 壓縮
+
+`compressed`（`0x0008`）未設時，`payload_length` 必須精確等於該 orientation
+profile 的 packed payload 大小（見下方尺寸表），payload 是未壓縮的 packed
+nibble bytes——這是 v1 原本、也是目前唯一被廣泛部署的行為，此 bit 未設時
+解析與驗證邏輯完全不變。
+
+`compressed` 設定時：
+
+- Payload 是一段 **raw DEFLATE stream**（RFC 1951，不含 zlib 2-byte
+  header／Adler32 trailer，也不含 gzip wrapper），解壓縮後必須精確等於該
+  orientation profile 的未壓縮 packed payload。
+- `payload_length` 改為「壓縮後實際 byte 數」，限制為
+  `0 < payload_length ≤` 該 profile 的未壓縮大小；等於未壓縮大小在格式上
+  合法（解壓縮器仍可正確處理），但瀏覽器 packer 應該在壓縮沒有縮小 payload
+  時改用未壓縮格式（清除此 bit），因為壓縮版本此時除了多一次解壓縮成本外
+  沒有任何好處。
+- `payload_crc32` 語意不變：永遠是「檔案裡實際儲存的 payload bytes」的
+  CRC32——`compressed` 設定時就是壓縮後 bytes 的 CRC，未設時是原始 nibble
+  bytes 的 CRC。不會因為壓縮而新增第二個 CRC 欄位。
+- 未壓縮情況下才驗證的「每個 payload byte 的兩個 nibble 都是合法 palette
+  code」規則，在壓縮情況下改為「解壓縮後的 bytes」才驗證；壓縮後的 bytes
+  本身不是 nibble-coded pixel，不適用這條規則。
+- 只有瀏覽器端會產生壓縮 payload；韌體只做解壓縮，不做壓縮。壓縮／回退成
+  未壓縮的判斷（比較壓縮前後大小，取較小者）完全由瀏覽器 packer 負責。
 
 ## 尺寸、palette 與 payload
 
@@ -135,3 +164,30 @@ PFR1 `Uint8Array`，不接受任意尺寸或未量化 RGB。host 驗證命令：
 node test\web\test_pfr1_packer.mjs
 node --check data\web\image_pfr1.js
 ```
+
+## Cross-language golden vector（compressed）
+
+壓縮 payload 的 bytes 本身是每個 raw-DEFLATE encoder 的實作細節（不同
+encoder 對同一份輸入可能產生不同、但同樣合法的 bit-exact 輸出），因此不像
+未壓縮 golden vector 那樣要求瀏覽器 packer 重現逐 byte 相同的壓縮結果。這裡
+固定的是一組**已知合法**的壓縮 bytes，用來驗證「decoder 端」（C++
+`Pfr1Validator`、JS `zlib.inflateRawSync`）能正確還原成同一份未壓縮
+payload，藉此交叉驗證雙方對 raw DEFLATE framing 的理解一致：
+
+- profile：landscape `800×440`，`orientation=0`。
+- filename：ASCII `golden-compressed.pfr1`（22 bytes）。
+- flags：`compressed`（`0x0008`）。
+- dithering：`nearest`（`0`）。
+- 來源（解壓縮後）payload：176,000 bytes，全為 `0x11`（兩個 white native
+  code）——與未壓縮 golden vector 使用同一份參考內容。
+- 壓縮方式：raw DEFLATE（`zlib.deflateRawSync`，level 9，無 zlib/gzip
+  wrapper）。
+- 壓縮後 payload：188 bytes。
+- 完整檔案長度：242 bytes。
+- payload CRC32（壓縮後 bytes 的 CRC）：`0xBFA93827`。
+- header CRC32：`0xBD56BA9A`。
+
+C++ 端於 `test/test_pfr1_validator/test_main.cpp` 的
+`test_cross_language_golden_compressed_vector_matches_documented_crcs`
+驗證這組固定壓縮 bytes 能被 `Pfr1Validator` 正確解壓、CRC 相符、且還原出
+176,000 bytes 全為 `0x11` 的 payload。
