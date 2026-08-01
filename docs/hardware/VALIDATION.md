@@ -936,3 +936,63 @@ combo 模式」所需，這不是 Phase 8 單獨造成的（Phase 7 baseline 在
    張圖的未壓縮版本比較，確認 inflate 沒有造成有感延遲。
 4. 長時間跑 carousel（多次換圖，含壓縮與未壓縮混合），觀察 PSRAM 餘裕
    曲線，確認沒有洩漏或碎片化問題。
+
+## 2026-08-02 — PFR1 壓縮＋目錄容量上限：完整功能驗證狀態彙整
+
+`docs/adr/0009-pfr1-payload-compression-and-catalog-cap.md` 的 6 個實作
+commit（pf_image 壓縮 payload 驗證、PFC1 驗證放寬、ingest/recovery 接入、
+display path 接入＋既有 bug 修正、目錄上限 48→96、瀏覽器端壓縮）已全部
+完成並各自通過 codex-cowork 審查（阻斷性零問題）。彙整目前驗證狀態，收斂
+本次功能的 VALIDATION.md 紀錄。
+
+### 已驗證（自動化）
+
+- **Host test**：`pio test -e native` 全數通過（含本次新增／擴充的
+  `test_pfr1_validator`、`test_catalog`、`test_image_store`、
+  `test_storage_worker`、`test_image_frame`，以及回歸確認過的其餘既有
+  套件）。
+- **Embedded 編譯**：`pio run -e paperframe-s3` 每個 commit 落地前都跑過
+  一次，確認連結到真實 ESP32-S3 ROM miniz 符號成功；最終 flash 使用率
+  47.4%（含全部本次異動），internal DRAM/BSS 使用率因目錄上限拉高從
+  48.6% 漲到 62.6%（見 2026-08-02 較早的那筆紀錄，含詳細成長來源拆解），
+  仍有 37% 餘裕。
+- **瀏覽器端（Node 模擬）**：`node test/web/test_pfr1_packer.mjs`（7 個
+  測試，含壓縮生效、壓縮環境不可用時退回未壓縮、拒絕呼叫端主張壓縮
+  flag、cross-language golden compressed vector）與既有
+  `test_image_pipeline.mjs`／`test_image_quantizer.mjs`／
+  `test_image_ui_contract.mjs` 皆通過、無回歸；`node --check` 對全部有
+  異動的 `data/web/*.js` 檔案通過。
+- **Cross-language 一致性**：C++（`test_pfr1_validator`）與 JS
+  （`test_pfr1_packer.mjs`）各自用同一組 `zlib.deflateRawSync`
+  construction 產生的固定 188-byte 壓縮 golden vector，獨立確認能正確
+  解壓縮回 176,000 bytes 全白 payload 且 CRC32 相符——證明韌體端（ROM
+  miniz／host zlib）與瀏覽器端假設的 raw DEFLATE framing 一致。
+
+### 尚未驗證（需要實機，明確列為風險，不得視為已完成）
+
+以下項目在拿到硬體前都無法用 host test 或 `pio run` 涵蓋，任何一項在
+交付前都不能被略過：
+
+1. **真實瀏覽器 `CompressionStream('deflate-raw')` 與韌體端解壓縮的真正
+   互通性**：目前只驗證了 Node 模擬（`test_pfr1_packer.mjs`）與
+   host zlib／ROM miniz 各自的 raw-deflate 相容性，兩者從未在同一次
+   端對端流程中實際串接過——沒有一次「真實瀏覽器壓縮 → 真實裝置上傳
+   → 真實裝置解壓縮顯示」的完整驗證。
+2. **真機開機 stack high-water-mark**：新增的 PSRAM scratch buffer（
+   ingest／recovery 共用一對、display 另一對，各 182,400 bytes）與拉高
+   目錄上限後的 BSS 成長，都需要在真機上確認 `app_main` 啟動、
+   `esp_http_server` worker、`image_mutation_task_entry` 的 stack 餘裕
+   仍然健康，不能只看 `pio run` 的靜態百分比。
+3. **真機面板顯示與延遲**：上傳一張真實 `floyd-steinberg`/`atkinson`
+   壓縮圖片，確認 carousel 在真實 e-Paper 面板上正確顯示、視覺內容與
+   未壓縮版本一致，且 inflate 沒有造成有感刷新延遲（見前一筆紀錄的待補
+   清單）。
+4. **接近 96 筆容量時的行為**：上傳到接近（不用剛好打到）96 筆，確認
+   reorder／activate／delete 正常運作，且 free-space precheck 在接近
+   容量時仍正確擋下超量上傳。
+5. **斷電／recovery 對壓縮圖片的處理**：模擬交易中斷電，確認壓縮圖片的
+   candidate 能在重開機後正確驗證並復原（host test 已用 fake filesystem
+   驗證邏輯正確，但真實 LittleFS 斷電行為需要真機確認）。
+
+以上 5 項若在下一輪有硬體時仍未執行，必須繼續留在本檔案的待驗證清單，
+不得從交付說明中省略。
