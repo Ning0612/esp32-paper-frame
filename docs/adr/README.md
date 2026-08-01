@@ -34,3 +34,8 @@ NNNN-short-imperative-title.md
 - [ADR-0002：固定 ESP32-S3-N16R8 開發 profile](0002-esp32-s3-n16r8-profile.md)
 - [ADR-0003：固定 Phase 2 顯示器接線與 driver contract](0003-fix-phase2-display-integration.md)
 - [ADR-0004：凍結 imagefs-preserving partition layout](0004-freeze-image-preserving-partitions.md)
+- [ADR-0005：WeatherWorker HTTPS 契約與狀態列渲染基線](0005-weather-worker-and-status-bar.md)
+- [ADR-0006：感測器 driver 來源與在場/離席判定機制](0006-sensor-drivers-and-presence.md)
+- [ADR-0007：PBKDF2 迭代次數與同步登入決策（G6 收斂）](0007-auth-pbkdf2-iterations-and-sync-login.md)
+- [ADR-0008：OTA 韌體來源、TLS 信任、Rollback 確認時機與 Release 慣例](0008-ota-github-releases-and-rollback.md)
+- [ADR-0009：PFR1 Payload 壓縮與 PFC1 目錄容量上限](0009-pfr1-payload-compression-and-catalog-cap.md)
