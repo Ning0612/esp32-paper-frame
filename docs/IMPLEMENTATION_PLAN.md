@@ -572,9 +572,9 @@ status`、events、reboot 三項交付物維持不變。
   heap guard 對 blank-NVS／STA-retry-fallback 這兩個既有路徑的實際影響
   （尚未觸發過這兩條路徑做複測），全部列在 `docs/hardware/
   VALIDATION.md` 2026-08-01 Phase 8 待驗證清單。附帶發現一個與本階段
-  無關的既有回歸：`test/web/test_image_download_contract.mjs` 在本分支
+  無關的既有回歸：`test/web/test_image_download_contract.mjs` 曾在本分支
   所依據的 `fix/auth-simplify-network-merge` 基底 commit（`b79c29b`）
-  就已經斷言失敗（該分支的 upload keep-alive 重構把
+  斷言失敗；該分支的 upload keep-alive 重構把
   `close_session = !result.ok() || ...` 改寫成
   `close_session = !drain_image_upload_body(...)`，測試字面比對沒有同步
-  更新），需在該分支獨立修正，不屬於 Phase 8 範圍。
+  更新。此 contract 已在 GitHub CI/release automation 變更中同步修正。

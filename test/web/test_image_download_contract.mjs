@@ -33,7 +33,7 @@ assert.ok(server.includes("201 Created"));
 assert.ok(server.includes("507 Insufficient Storage"));
 assert.ok(server.includes("finish_async_upload_request"));
 assert.ok(server.includes("close_request_session"));
-assert.ok(server.includes("close_session = !result.ok()"));
+assert.ok(server.includes("drain_image_upload_body(receive_context)"));
 assert.ok(server.includes("httpd_sess_trigger_close"));
 assert.ok(server.includes("image_activate_handler"));
 assert.ok(server.includes("image_remove_handler"));

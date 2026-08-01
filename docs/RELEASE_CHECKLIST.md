@@ -6,6 +6,19 @@
 的直接前提：漏掉任一硬性規定會讓裝置端「檢查更新」／「立即更新」失效或
 誤判，且錯誤只會在使用者實際嘗試更新時才暴露。
 
+## 0. GitHub automation
+
+- `.github/workflows/ci.yml` runs on pull requests targeting `main` and pushes
+  to `main`. It runs the native tests, the ESP32-S3 embedded build-only gate,
+  all WebUI contract tests, JavaScript syntax checks, and the firmware build.
+- `.github/workflows/release.yml` runs only for pushed `v*` tags. It requires
+  the tag to match `kFirmwareVersion` and point to a commit reachable from
+  `main` before publishing a release.
+- The release workflow publishes `paperframe-firmware.bin` for device OTA,
+  `paperframe-webfs.bin` for the separate manual WebFS flash, the partition
+  CSV, and `SHA256SUMS`. It does not replace the manual hardware validation
+  below.
+
 ## 1. Release 資產硬性規定（OTA 依賴，不可省略）
 
 - [ ] 建置好的韌體 app image（例如 `.pio/build/paperframe-s3/firmware.bin`）
@@ -35,11 +48,8 @@
   （以及其他 embedded test environment）至少完成 build-only 驗證；有
   硬體時應盡量跑實際測試。
 - [ ] `node --check data/web/ui.js`（以及其他 `data/web/*.js`）。
-- [ ] `for f in test/web/*.mjs; do node "$f"; done` 全部通過——**已知
-  例外**：`test_image_download_contract.mjs` 目前在
-  `fix/auth-simplify-network-merge` 分支上斷言失敗（與 Phase 8 無關的
-  既有回歸，見該分支或 `docs/hardware/VALIDATION.md` 2026-08-01
-  Phase 8 段落），修好前不得算作「全部通過」被略過，必須明確記錄原因。
+- [ ] `for f in test/web/*.mjs; do node "$f"; done` 全部通過；此項由
+  `.github/workflows/ci.yml` 與 `release.yml` 自動執行。
 
 ## 3. 手動 on-device 檢查清單
 

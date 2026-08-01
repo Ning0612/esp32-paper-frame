@@ -749,12 +749,12 @@ queue/lock 失敗計數器（與對應診斷事件在同一 critical section 內
 - **System 頁瀏覽器實際行為**：四個操作按鈕（重新啟動、強制配網 AP、
   檢查更新、立即更新）的 `window.confirm()` 二次確認、CSRF 是否正確
   夾帶、按鈕點擊後裝置斷線期間的 UI 狀態是否合理（非誤導成「失敗」）。
-- **既有回歸（與 Phase 8 無關，附帶發現）**：
-  `test/web/test_image_download_contract.mjs` 在本分支基底 commit
-  （`b79c29b`，屬於 `fix/auth-simplify-network-merge`）就已經斷言失敗，
+- **既有回歸（與 Phase 8 無關，附帶發現，已修正）**：
+  `test/web/test_image_download_contract.mjs` 曾在本分支基底 commit
+  （`b79c29b`，屬於 `fix/auth-simplify-network-merge`）斷言失敗，
   與 upload keep-alive 重構把 `close_session` 判斷式改寫成呼叫
-  `drain_image_upload_body(...)` 但測試字面比對未同步更新有關；不在
-  Phase 8 範圍內修正，留給該分支獨立處理。
+  `drain_image_upload_body(...)` 但測試字面比對未同步更新有關；現行
+  contract 已改為檢查 drain 行為，並由 GitHub CI/release workflow 執行。
 
 ### 2026-08-01 — 發現 `pio run -t uploadfs` 會把 webfs 誤燒進 imagefs
 
