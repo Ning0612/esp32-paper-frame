@@ -152,6 +152,8 @@ void test_runtime_queues_and_snapshot()
         .kind = pf_runtime::CommandKind::refresh_display,
         .frame = pf_runtime::FrameToken{0, 5},
     };
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    const std::uint32_t sequence_before_queue_full = observed.sequence;
     TEST_ASSERT_FALSE(runtime.try_submit_command(overflow_command));
     TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
     TEST_ASSERT_EQUAL_INT(
@@ -159,6 +161,12 @@ void test_runtime_queues_and_snapshot()
         static_cast<int>(observed.display));
     TEST_ASSERT_EQUAL_UINT32(0, observed.active_display_request_id);
     TEST_ASSERT_EQUAL_UINT8(4, observed.queued_display_count);
+    TEST_ASSERT_EQUAL_UINT32(1U, observed.command_queue_rejected_count);
+    // The counter increment and its diagnostic event are published as one
+    // atomic snapshot change (see record_diagnostic_event_locked): exactly
+    // one sequence bump for this whole failure, not two.
+    TEST_ASSERT_EQUAL_UINT32(
+        sequence_before_queue_full + 1U, observed.sequence);
 
     for (std::uint32_t index = 0; index < 4; ++index) {
         pf_runtime::RuntimeCommand command{};
@@ -200,6 +208,15 @@ void test_runtime_queues_and_snapshot()
 
     TEST_ASSERT_TRUE(runtime.lock_flash_display(0));
     TEST_ASSERT_FALSE(runtime.lock_flash_display(0));
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    // A zero-wait probe failing is routine HTTP-handler backoff and must
+    // not be counted as lock contention.
+    TEST_ASSERT_EQUAL_UINT32(0U, observed.flash_display_lock_timeout_count);
+    // A genuine timed wait that still fails (lock already held by this
+    // same task, so it cannot be released mid-wait) must be counted.
+    TEST_ASSERT_FALSE(runtime.lock_flash_display(pdMS_TO_TICKS(10)));
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_EQUAL_UINT32(1U, observed.flash_display_lock_timeout_count);
     runtime.unlock_flash_display();
     TEST_ASSERT_TRUE(runtime.lock_flash_display(0));
     runtime.unlock_flash_display();
@@ -369,6 +386,8 @@ void test_runtime_queues_and_snapshot()
         .frame = pf_runtime::FrameToken{0, 1},
     };
     TEST_ASSERT_FALSE(runtime.try_submit_command(no_terminal_slot));
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_EQUAL_UINT32(1U, observed.terminal_result_exhausted_count);
 
     for (const std::uint32_t request_id : reserved_ids) {
         const pf_runtime::RuntimeResult completed{
@@ -406,6 +425,27 @@ void test_runtime_queues_and_snapshot()
         runtime.try_take_terminal_result(
             no_terminal_slot.request_id,
             terminal));
+
+    // Round-trip real diagnostic events recorded above (command queue full,
+    // flash/display lock timeout, terminal result exhausted) through the
+    // real coordinator, not just the pure ring-buffer logic covered by the
+    // host test.
+    TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(
+        3U, observed.diagnostics_latest_sequence_id);
+    pf_runtime::DiagnosticEvent events[pf_runtime::kDiagnosticsRingCapacity]{};
+    pf_runtime::DiagnosticsReadResult read_result{};
+    runtime.read_diagnostics_since(
+        0U, events, pf_runtime::kDiagnosticsRingCapacity, read_result);
+    TEST_ASSERT_EQUAL_UINT32(
+        observed.diagnostics_latest_sequence_id,
+        read_result.highest_sequence_id);
+    TEST_ASSERT_GREATER_OR_EQUAL_size_t(3U, read_result.count);
+    for (std::size_t index = 1U; index < read_result.count; ++index) {
+        // Oldest-first: sequence ids must be strictly increasing.
+        TEST_ASSERT_TRUE(
+            events[index].sequence_id > events[index - 1U].sequence_id);
+    }
 }
 
 }  // namespace

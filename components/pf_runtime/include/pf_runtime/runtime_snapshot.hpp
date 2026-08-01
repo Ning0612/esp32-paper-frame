@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
+#include "pf_runtime/reboot_reason.hpp"
 #include "pf_runtime/runtime_messages.hpp"
 #include "pf_sensors/daily_stats.hpp"
 #include "pf_sensors/environment_sensor.hpp"
@@ -65,6 +67,71 @@ enum class TimeSyncState : std::uint8_t {
     synced,
 };
 
+// Phase 8 OTA (docs/adr/0008-ota-github-releases-and-rollback.md). Firmware
+// image updates only; webfs continues to use the separate manual esptool
+// flow documented in CLAUDE.md.
+enum class OtaCheckState : std::uint8_t {
+    unknown,
+    checking,
+    up_to_date,
+    update_available,
+    check_failed,
+};
+
+enum class OtaUpdateState : std::uint8_t {
+    idle,
+    downloading,
+    writing,
+    // The image was downloaded, verified, and the boot partition switched
+    // (esp_https_ota_finish() succeeded) -- this IS the success state.
+    // ota_last_error may still be non-empty here, specifically
+    // "manual_reboot_required" when the automatic post-update reboot
+    // failed to arm: that is an actionable warning meaning "succeeded, new
+    // firmware will run on whatever the next reboot is, but the automatic
+    // one didn't fire" -- NOT an update failure. UI/API consumers must not
+    // render ready_pending_reboot + non-empty ota_last_error as "OTA
+    // failed".
+    ready_pending_reboot,
+    failed,
+};
+
+constexpr const char* to_string(const OtaCheckState state)
+{
+    switch (state) {
+        case OtaCheckState::unknown:
+            return "unknown";
+        case OtaCheckState::checking:
+            return "checking";
+        case OtaCheckState::up_to_date:
+            return "up_to_date";
+        case OtaCheckState::update_available:
+            return "update_available";
+        case OtaCheckState::check_failed:
+            return "check_failed";
+    }
+    return "unknown";
+}
+
+constexpr const char* to_string(const OtaUpdateState state)
+{
+    switch (state) {
+        case OtaUpdateState::idle:
+            return "idle";
+        case OtaUpdateState::downloading:
+            return "downloading";
+        case OtaUpdateState::writing:
+            return "writing";
+        case OtaUpdateState::ready_pending_reboot:
+            return "ready_pending_reboot";
+        case OtaUpdateState::failed:
+            return "failed";
+    }
+    return "idle";
+}
+
+inline constexpr std::size_t kOtaVersionCapacity = 24U;
+inline constexpr std::size_t kOtaErrorCapacity = 32U;
+
 struct RuntimeSnapshot {
     std::uint32_t sequence;
     ServiceState flash;
@@ -115,6 +182,28 @@ struct RuntimeSnapshot {
     // presence-transition detection pattern above. 0 means "none yet".
     std::uint32_t manual_activate_request_id = 0U;
     std::uint32_t manual_activate_image_id = 0U;
+    // Phase 8 diagnostics/observability (docs/IMPLEMENTATION_PLAN.md Phase 8).
+    // reboot_reason is captured once at boot from esp_reset_reason() and
+    // never changes for the lifetime of the process.
+    RebootReason reboot_reason = RebootReason::unknown;
+    std::uint32_t diagnostics_latest_sequence_id = 0U;
+    std::uint32_t command_queue_rejected_count = 0U;
+    std::uint32_t terminal_result_exhausted_count = 0U;
+    std::uint32_t flash_display_lock_timeout_count = 0U;
+    // Phase 8 OTA (docs/adr/0008-ota-github-releases-and-rollback.md).
+    OtaCheckState ota_check_state = OtaCheckState::unknown;
+    char ota_latest_version[kOtaVersionCapacity]{};
+    std::uint64_t ota_last_check_epoch_s = 0U;
+    OtaUpdateState ota_update_state = OtaUpdateState::idle;
+    std::uint8_t ota_update_progress_percent = 0U;
+    char ota_last_error[kOtaErrorCapacity]{};
+    // Phase 8 Dashboard completion. current_image_id is 0 when the
+    // carousel is showing the built-in welcome/status frame rather than a
+    // catalogued image. next_carousel_due_ms is a monotonic ms-since-boot
+    // timestamp (comparable against uptime_ms from the same snapshot
+    // read), 0 meaning "not yet known".
+    std::uint32_t current_image_id = 0U;
+    std::uint64_t next_carousel_due_ms = 0U;
 };
 
 constexpr const char* to_string(const WifiState state)

@@ -5,6 +5,7 @@ idf_component_register(
         "include"
     REQUIRES
         esp_system
+        esp_timer
         freertos
         pf_sensors
         pf_weather
