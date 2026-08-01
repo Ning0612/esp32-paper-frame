@@ -249,7 +249,8 @@ bool render_carousel_image(
     std::uint8_t* const payload,
     std::uint8_t* const status,
     std::uint8_t* const frame,
-    const std::size_t frame_length)
+    const std::size_t frame_length,
+    const pf_image::Pfr1InflateBuffers* const inflate_buffers)
 {
     if (payload == nullptr || status == nullptr || frame == nullptr ||
         entry.name_length == 0U ||
@@ -257,7 +258,8 @@ bool render_carousel_image(
         return false;
     }
 
-    pf_carousel::Pfr1FrameDecoder decoder(payload, kCarouselPayloadBytes);
+    pf_carousel::Pfr1FrameDecoder decoder(
+        payload, kCarouselPayloadBytes, inflate_buffers);
     const pf_storage::ImageStreamResult stream = storage_worker.stream_image(
         entry.name,
         entry.name_length,
@@ -818,6 +820,52 @@ extern "C" void app_main()
             static_cast<unsigned>(kCarouselPayloadBytes));
     }
 
+    // Scratch for decoding a compressed PFR1 payload (Pfr1Flags::
+    // kCompressed) on the carousel display path; see StorageWorker's
+    // matching allocation for the ingest/recovery side. A failure here only
+    // means compressed images can't be displayed (falls back to whatever
+    // Pfr1FrameDecoder does without inflate_buffers -- fails closed with
+    // unsupported_compression for that one image), not that carousel
+    // display stops working for uncompressed images.
+    pf_image::Pfr1InflateBuffers carousel_inflate_buffers{};
+    std::uint8_t* carousel_inflate_compressed = static_cast<std::uint8_t*>(
+        heap_caps_malloc(
+            pf_image::kPfr1MaxPayloadBytes,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (carousel_inflate_compressed == nullptr) {
+        carousel_inflate_compressed = static_cast<std::uint8_t*>(
+            heap_caps_malloc(pf_image::kPfr1MaxPayloadBytes, MALLOC_CAP_8BIT));
+    }
+    std::uint8_t* carousel_inflate_output = static_cast<std::uint8_t*>(
+        heap_caps_malloc(
+            pf_image::kPfr1MaxPayloadBytes,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (carousel_inflate_output == nullptr) {
+        carousel_inflate_output = static_cast<std::uint8_t*>(
+            heap_caps_malloc(pf_image::kPfr1MaxPayloadBytes, MALLOC_CAP_8BIT));
+    }
+    if (carousel_inflate_compressed == nullptr ||
+        carousel_inflate_output == nullptr) {
+        // Don't leak the other buffer if only one of the two allocations
+        // failed -- there's no partial-scratch use case, so free whichever
+        // one succeeded rather than holding it for the rest of the program.
+        heap_caps_free(carousel_inflate_compressed);
+        heap_caps_free(carousel_inflate_output);
+        carousel_inflate_compressed = nullptr;
+        carousel_inflate_output = nullptr;
+        ESP_LOGW(
+            kTag,
+            "carousel_inflate_scratch_alloc_failed; compressed PFR1 images "
+            "will not display, uncompressed images unaffected");
+    } else {
+        carousel_inflate_buffers.compressed = carousel_inflate_compressed;
+        carousel_inflate_buffers.compressed_capacity =
+            pf_image::kPfr1MaxPayloadBytes;
+        carousel_inflate_buffers.output = carousel_inflate_output;
+        carousel_inflate_buffers.output_capacity =
+            pf_image::kPfr1MaxPayloadBytes;
+    }
+
     // Guild.md 4.9: a single all-white refresh while away, then panel
     // sleep (refresh already sleeps afterward). This bypasses the
     // carousel scheduler entirely -- it is not tracked as an
@@ -1135,7 +1183,8 @@ extern "C" void app_main()
                     carousel_payload,
                     carousel_status,
                     frame.data(),
-                    frame.size())) {
+                    frame.size(),
+                    &carousel_inflate_buffers)) {
                 const std::uint32_t request_id =
                     pf_runtime::coordinator().allocate_request_id();
                 const pf_display::SubmitStatus submit =

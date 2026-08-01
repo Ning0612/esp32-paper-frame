@@ -18,10 +18,11 @@ class Pfr1FrameDecoder final {
 public:
     Pfr1FrameDecoder(
         std::uint8_t* const payload,
-        const std::size_t payload_capacity)
+        const std::size_t payload_capacity,
+        const pf_image::Pfr1InflateBuffers* const inflate_buffers = nullptr)
         : payload_(payload),
           payload_capacity_(payload_capacity),
-          validator_(copy_payload, this)
+          validator_(copy_payload, this, inflate_buffers)
     {
     }
 
@@ -49,6 +50,14 @@ public:
         }
 
         const pf_image::Pfr1Header& header = validator_.header();
+        // payload_ always holds the decoded (decompressed, if the source
+        // file was compressed) nibble payload once finish() succeeds --
+        // header.payload_length is the as-stored length instead (the
+        // compressed byte count when Pfr1Flags::kCompressed is set), so the
+        // view passed to compose_*() must use the fixed profile size, not
+        // the header field.
+        const std::uint32_t decoded_payload_length =
+            pf_image::expected_payload_length(header.width, header.height);
         if (header.orientation == pf_image::Orientation::landscape) {
             pf_display::PackedFramebufferView status_view(
                 status,
@@ -68,7 +77,7 @@ public:
                     },
                     {
                         payload_,
-                        header.payload_length,
+                        decoded_payload_length,
                         pf_display::kPanelWidth,
                         pf_display::kLandscapeImageHeight,
                     },
@@ -95,7 +104,7 @@ public:
             },
             {
                 payload_,
-                header.payload_length,
+                decoded_payload_length,
                 pf_display::kPortraitImageWidth,
                 pf_display::kPortraitImageHeight,
             },

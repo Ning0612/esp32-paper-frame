@@ -893,3 +893,46 @@ combo 模式」所需，這不是 Phase 8 單獨造成的（Phase 7 baseline 在
 可能讓餘裕更緊繃。要讓「強制進入配網 AP」在已連線 STA 狀態下真正可用
 （而不只是安全地拒絕），需要全系統範圍的 RAM 稽核與縮減，不是調整
 單一門檻數字可以解決，列為後續獨立工作項目。
+
+## 2026-08-02 — PFR1 壓縮 payload 顯示路徑：尚未實機驗證
+
+`docs/adr/0009-pfr1-payload-compression-and-catalog-cap.md` 引入的 PFR1
+`compressed` flag（raw DEFLATE payload，ESP32-S3 ROM miniz
+`tinfl_decompress_mem_to_mem` 解壓縮）已接到 carousel 顯示路徑
+（`Pfr1FrameDecoder`／`render_carousel_image`，`src/app_main.cpp` 新增
+`carousel_inflate_buffers` 這對 PSRAM scratch buffer）。目前狀態：
+
+- **Host 測試已覆蓋**：`test/test_image_frame` 新增
+  `test_compressed_file_decodes_and_composes_same_as_uncompressed`
+  （壓縮與未壓縮輸入組出逐 byte 相同的 framebuffer）、
+  `test_compressed_file_without_inflate_buffers_fails_closed`、
+  `test_corrupt_compressed_stream_fails_closed_without_partial_frame`
+  （損毀壓縮流不會寫出半殘 framebuffer），三個都通過；`pio run
+  -e paperframe-s3` 也確認連結到真實 ROM miniz 符號成功。
+- **沒有 `test_embedded`（真機）覆蓋**：`test_embedded/` 目前只有
+  `test_display_task`、`test_epd7in3e_driver`、`test_runtime_coordinator`
+  三個套件，皆不涉及 PFR1 解碼——這條「壓縮 PFR1 檔案→inflate→組框
+  →SPI 刷新」的路徑完全沒有 on-device 驗證。
+- **真機面板顯示尚未驗證**：上傳一張真的壓縮 PFR1（目前只能用測試腳本手
+  動產生，因為瀏覽器端壓縮要到 commit 7 才實作）、確認 carousel 正確在
+  真實 e-Paper 面板上刷新、且視覺內容與同一來源圖片的未壓縮版本一致。
+- **inflate 對刷新延遲的影響尚未量測**：`tinfl_decompress_mem_to_mem`
+  在真實 ESP32-S3 時脈下對一張最大 182,400 bytes 的 payload 解壓縮要花
+  多少時間、是否會讓 carousel 換圖出現可感知的延遲，目前只有 host（PC
+  CPU）上跑測試的間接印象，沒有真機量測數字。
+- **`carousel_inflate_compressed`/`carousel_inflate_output` 這兩份新增
+  PSRAM buffer（各 182,400 bytes）與 `StorageWorker` 那兩份加總後對
+  PSRAM 總占用的影響**：`pio run` 的 RAM/Flash 百分比不含 PSRAM heap
+  配置，需要實機用 `heap_caps_get_free_size(MALLOC_CAP_SPIRAM)` 之類的
+  API 確認開機後與長時間執行後的 PSRAM 餘裕仍然健康。
+
+待補測項目（有硬體時執行）：
+1. 燒錄含本 ADR 全部 commit 的韌體，確認開機 log 沒有
+   `carousel_inflate_scratch_alloc_failed`（PSRAM 配置成功）。
+2. 用測試腳本產生一個壓縮 PFR1，透過既有的圖片上傳流程（或直接寫入
+   `imagefs`）讓它進入 catalog，觸發 carousel 顯示，肉眼比對面板畫面與
+   同一來源圖片的未壓縮版本是否一致。
+3. 量測該張圖從「carousel 決定要換圖」到「面板刷新完成」的耗時，與同一
+   張圖的未壓縮版本比較，確認 inflate 沒有造成有感延遲。
+4. 長時間跑 carousel（多次換圖，含壓縮與未壓縮混合），觀察 PSRAM 餘裕
+   曲線，確認沒有洩漏或碎片化問題。
