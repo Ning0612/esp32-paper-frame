@@ -44,7 +44,7 @@ Header CRC 的輸入包含 `payload_length`，但不包含兩個 CRC 欄位。pa
 | 0 | 4 | `id` | 非零且在 `next_id` 之前已配置 |
 | 4 | 8 | `created_at_epoch_s` | Unix seconds；`0` 表示 unknown |
 | 12 | 4 | `file_bytes` | `32 + filename_length + payload_bytes` |
-| 16 | 4 | `payload_bytes` | 必須符合 PFR1 尺寸 profile |
+| 16 | 4 | `payload_bytes` | `0 <` `payload_bytes` `≤` 該尺寸 profile 的未壓縮 packed payload 大小；壓縮 PFR1（見 [PFR1](PFR1.md) `compressed` flag）的實際儲存大小可以小於該上限 |
 | 20 | 2 | `width` | PFR1 landscape `800` 或 portrait `480` |
 | 22 | 2 | `height` | PFR1 landscape `440` 或 portrait `760` |
 | 24 | 1 | `orientation` | `0=landscape`、`1=portrait` |

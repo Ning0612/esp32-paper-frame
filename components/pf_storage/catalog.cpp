@@ -136,7 +136,8 @@ bool validate_catalog_entry(
             entry.width,
             entry.height,
             static_cast<std::uint8_t>(entry.orientation)) ||
-        entry.payload_bytes !=
+        entry.payload_bytes == 0U ||
+        entry.payload_bytes >
             pf_image::expected_payload_length(entry.width, entry.height) ||
         entry.file_bytes !=
             pf_image::kPfr1HeaderSize + entry.name_length +

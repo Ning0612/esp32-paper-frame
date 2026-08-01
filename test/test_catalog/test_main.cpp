@@ -322,6 +322,55 @@ void test_catalog_id_exhaustion_is_explicit_and_safe()
         static_cast<int>(error));
 }
 
+void test_catalog_accepts_smaller_payload_bytes_but_rejects_zero_or_oversized()
+{
+    // A compressed PFR1 payload is smaller than the profile's uncompressed
+    // size; the catalog entry's payload_bytes/file_bytes reflect the
+    // as-stored (compressed) size, not the fixed profile size.
+    pf_storage::Catalog catalog{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(catalog));
+    pf_storage::CatalogError error = pf_storage::CatalogError::none;
+
+    pf_storage::CatalogEntry compressed = make_entry("compressed.pfr1");
+    const std::uint32_t uncompressed_bytes = compressed.payload_bytes;
+    compressed.payload_bytes = uncompressed_bytes - 1U;
+    compressed.file_bytes = static_cast<std::uint32_t>(
+        pf_image::kPfr1HeaderSize + compressed.name_length +
+        compressed.payload_bytes);
+    std::uint32_t assigned_id = 0U;
+    TEST_ASSERT_TRUE(pf_storage::add_catalog_entry(
+        catalog, compressed, assigned_id, error));
+
+    // Upper bound is inclusive: an entry whose payload_bytes equals the
+    // profile's uncompressed size (i.e. compression didn't shrink it) is
+    // still valid.
+    pf_storage::CatalogEntry uncompressed = make_entry("uncompressed.pfr1");
+    TEST_ASSERT_EQUAL_UINT32(uncompressed_bytes, uncompressed.payload_bytes);
+    TEST_ASSERT_TRUE(pf_storage::add_catalog_entry(
+        catalog, uncompressed, assigned_id, error));
+
+    pf_storage::CatalogEntry zero_payload = make_entry("zero.pfr1");
+    zero_payload.payload_bytes = 0U;
+    zero_payload.file_bytes = static_cast<std::uint32_t>(
+        pf_image::kPfr1HeaderSize + zero_payload.name_length);
+    TEST_ASSERT_FALSE(pf_storage::add_catalog_entry(
+        catalog, zero_payload, assigned_id, error));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::CatalogError::invalid_entry),
+        static_cast<int>(error));
+
+    pf_storage::CatalogEntry oversized = make_entry("oversized.pfr1");
+    oversized.payload_bytes = uncompressed_bytes + 1U;
+    oversized.file_bytes = static_cast<std::uint32_t>(
+        pf_image::kPfr1HeaderSize + oversized.name_length +
+        oversized.payload_bytes);
+    TEST_ASSERT_FALSE(pf_storage::add_catalog_entry(
+        catalog, oversized, assigned_id, error));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::CatalogError::invalid_entry),
+        static_cast<int>(error));
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -332,5 +381,6 @@ int main(int, char**)
     RUN_TEST(test_catalog_detects_header_payload_and_trailing_corruption);
     RUN_TEST(test_catalog_reorder_and_remove_keep_invariants);
     RUN_TEST(test_catalog_id_exhaustion_is_explicit_and_safe);
+    RUN_TEST(test_catalog_accepts_smaller_payload_bytes_but_rejects_zero_or_oversized);
     return UNITY_END();
 }
