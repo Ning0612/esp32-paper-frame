@@ -45,6 +45,14 @@
   const weatherSave = $("#weather-save");
   const weatherStatus = $("#weather-status");
   const environmentView = $("#environment-view");
+  const systemView = $("#system-view");
+  const systemRefresh = $("#system-refresh");
+  const systemReboot = $("#system-reboot");
+  const systemRebootStatus = $("#system-reboot-status");
+  const systemOtaCheck = $("#system-ota-check");
+  const systemOtaUpdate = $("#system-ota-update");
+  const systemOtaStatus = $("#system-ota-status");
+  const systemEventsList = $("#system-events-list");
   const environmentForm = $("#environment-form");
   const environmentEnabled = $("#environment-enabled");
   const lightEnabled = $("#light-enabled");
@@ -98,6 +106,8 @@
   let imageSelectionRevision = 0;
   let activeQuantizeWorker = null;
   let imageLibraryRevision = 0;
+  let systemOtaPollTimer = null;
+  let systemOtaPollAttemptsRemaining = 0;
   let imageLibraryImages = [];
   const maxSourceBytes = 32 * 1024 * 1024;
   const maxSourcePixels = 16 * 1024 * 1024;
@@ -272,8 +282,17 @@
     $("#imagefs-capacity").textContent = storage.imagefs_total_bytes == null ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
     const serviceValues = Object.values(services).map(labelState);
     $("#service-state").textContent = serviceValues.length ? serviceValues.join(" · ") : "未知";
-    $("#weather-state").textContent = (data.weather || {}).state === "unavailable" ? "尚未提供" : "未知";
-    $("#sensor-state").textContent = data.sensors && data.sensors.temperature_c != null ? "已讀取" : "未安裝／未知";
+    const weatherLabels = { available: "可用", stale: "過期快取", unavailable: "尚未提供" };
+    $("#weather-state").textContent = weatherLabels[(data.weather || {}).state] || "未知";
+    $("#sensor-state").textContent = data.sensors && data.sensors.temperature_c != null
+      ? `${data.sensors.temperature_c} °C`
+      : labelSensorStatus((data.sensors || {}).environment_status);
+    $("#dashboard-current-image").textContent = carousel.current_image == null
+      ? "尚未輪播"
+      : `圖片 #${carousel.current_image}`;
+    $("#dashboard-next-refresh").textContent = carousel.next_refresh_ms == null
+      ? "未知"
+      : `${formatUptime(carousel.next_refresh_ms)} 後`;
   }
 
   async function loadDashboard() {
@@ -1007,6 +1026,221 @@
     }
   }
 
+  function renderSystemEvents(events) {
+    systemEventsList.replaceChildren();
+    if (!events || events.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "image-library-empty";
+      empty.textContent = "尚無診斷事件。";
+      systemEventsList.append(empty);
+      return;
+    }
+    events.slice().reverse().forEach((event) => {
+      const row = document.createElement("article");
+      row.className = "image-library-row";
+      const copy = document.createElement("div");
+      copy.className = "image-library-copy";
+      const name = document.createElement("strong");
+      name.className = "image-library-name";
+      name.textContent = event.message || "事件";
+      const meta = document.createElement("small");
+      meta.className = "image-library-meta";
+      meta.textContent = `#${event.sequence_id} · ${event.category} / ${event.severity} · ${formatUptime(event.uptime_ms)}`;
+      copy.append(name, meta);
+      row.append(copy);
+      systemEventsList.append(row);
+    });
+  }
+
+  async function loadSystemStatus() {
+    systemOtaStatus.textContent = "";
+    try {
+      const [deviceResponse, statusResponse, otaResponse, eventsResponse] = await Promise.all([
+        fetch("/api/v1/device", { cache: "no-store" }),
+        fetch("/api/v1/status", { cache: "no-store" }),
+        fetch("/api/v1/system/ota/status", { cache: "no-store" }),
+        fetch("/api/v1/events", { cache: "no-store" }),
+      ]);
+      if (statusResponse.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+
+      const devicePayload = await deviceResponse.json();
+      if (deviceResponse.ok && devicePayload.data) {
+        $("#system-firmware-version").textContent = devicePayload.data.firmware || "未知";
+      }
+
+      const statusPayload = await statusResponse.json();
+      if (statusResponse.ok && statusPayload.data) {
+        const data = statusPayload.data;
+        const display = data.display || {};
+        const network = data.network || {};
+        const diagnostics = data.diagnostics || {};
+        const storage = data.storage || {};
+        $("#system-display-state").textContent = labelState(display.state);
+        $("#system-display-outcome").textContent = display.last_outcome ? labelState(display.last_outcome) : "尚未刷新";
+        $("#system-reboot-reason").textContent = diagnostics.reboot_reason || "未知";
+        $("#system-wifi-state").textContent = labelState(network.wifi);
+        $("#system-internet-state").textContent = labelState(network.internet);
+        $("#system-sntp-state").textContent = labelState(network.sntp);
+        $("#system-uptime").textContent = formatUptime(data.uptime_ms);
+        $("#system-flash-capacity").textContent = formatBytes(storage.flash_bytes);
+        $("#system-psram-capacity").textContent = formatBytes(storage.psram_bytes);
+        $("#system-webfs-capacity").textContent = storage.webfs_total_bytes == null
+          ? "未知" : `${formatBytes(storage.webfs_used_bytes)} / ${formatBytes(storage.webfs_total_bytes)}`;
+        $("#system-imagefs-capacity").textContent = storage.imagefs_total_bytes == null
+          ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
+      }
+
+      const otaPayload = await otaResponse.json();
+      if (otaResponse.ok && otaPayload.data) {
+        const ota = otaPayload.data;
+        const checkLabels = { unknown: "未知", checking: "檢查中", up_to_date: "已是最新", update_available: "有新版本", check_failed: "檢查失敗" };
+        const updateLabels = { idle: "閒置", downloading: "下載中", writing: "寫入中", ready_pending_reboot: "已完成，待重啟", failed: "失敗" };
+        $("#system-ota-check-state").textContent = checkLabels[ota.check_state] || "未知";
+        $("#system-ota-latest-version").textContent = ota.latest_version || "未知";
+        $("#system-ota-update-state").textContent = updateLabels[ota.update_state] || "未知";
+        $("#system-ota-progress").textContent = (ota.update_state === "downloading" || ota.update_state === "writing")
+          ? `${ota.progress_percent}%` : "—";
+        // ready_pending_reboot + non-empty last_error means "succeeded but
+        // automatic reboot didn't fire, manual reboot needed" -- NOT a
+        // failure; only "failed" state is an actual OTA failure.
+        $("#system-ota-error").textContent = ota.last_error || "—";
+        systemOtaUpdate.disabled = ota.check_state !== "update_available";
+        // Stop polling once the update reaches a terminal state: idle
+        // means nothing was ever started, ready_pending_reboot means the
+        // device is about to disconnect on its own, failed is a real
+        // stop. Only downloading/writing keep polling alive.
+        if (ota.update_state !== "downloading" && ota.update_state !== "writing") {
+          stopSystemOtaPoll();
+        }
+      }
+
+      const eventsPayload = await eventsResponse.json();
+      if (eventsResponse.ok && eventsPayload.data) {
+        renderSystemEvents(eventsPayload.data.events);
+      }
+    } catch (error) {
+      systemOtaStatus.className = "save-status error";
+      systemOtaStatus.textContent = "無法讀取系統狀態；請確認仍連著 PaperFrame。";
+    }
+  }
+
+  function stopSystemOtaPoll() {
+    if (systemOtaPollTimer) {
+      clearInterval(systemOtaPollTimer);
+      systemOtaPollTimer = null;
+    }
+  }
+
+  function startSystemOtaPoll() {
+    stopSystemOtaPoll();
+    // Bounded: an OTA download/write is expected to finish well within a
+    // few minutes (see OtaWorker::kUpdateOverallDeadlineMs); this stops
+    // polling on its own after ~10 minutes even if something wedges,
+    // rather than polling forever in a background tab.
+    systemOtaPollAttemptsRemaining = 200;
+    systemOtaPollTimer = setInterval(() => {
+      if (systemOtaPollAttemptsRemaining-- <= 0 || currentView !== "system") {
+        stopSystemOtaPoll();
+        return;
+      }
+      loadSystemStatus();
+    }, 3000);
+  }
+
+  systemRefresh.addEventListener("click", () => loadSystemStatus());
+
+  systemReboot.addEventListener("click", async () => {
+    if (!csrfToken) return;
+    if (!window.confirm("確定要重新啟動裝置？連線會暫時中斷。")) return;
+    systemReboot.disabled = true;
+    systemRebootStatus.className = "save-status";
+    systemRebootStatus.textContent = "正在重新啟動…";
+    try {
+      const response = await fetch("/api/v1/system/reboot", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken },
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "reboot_failed");
+      systemRebootStatus.className = "save-status success";
+      systemRebootStatus.textContent = "已送出重新啟動要求，裝置即將斷線。";
+    } catch (error) {
+      systemRebootStatus.className = "save-status error";
+      systemRebootStatus.textContent = `重新啟動失敗：${error.message || "請稍後重試"}`;
+      systemReboot.disabled = false;
+    }
+  });
+
+  systemOtaCheck.addEventListener("click", async () => {
+    if (!csrfToken) return;
+    systemOtaCheck.disabled = true;
+    systemOtaStatus.className = "save-status";
+    systemOtaStatus.textContent = "正在檢查更新…";
+    try {
+      const response = await fetch("/api/v1/system/ota/check", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken },
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (response.status === 409) {
+        systemOtaStatus.textContent = "已有檢查或更新在進行中，請稍候。";
+        return;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "ota_check_failed");
+      systemOtaStatus.className = "save-status success";
+      systemOtaStatus.textContent = "已送出檢查要求，稍後重新整理查看結果。";
+      setTimeout(loadSystemStatus, 3000);
+    } catch (error) {
+      systemOtaStatus.className = "save-status error";
+      systemOtaStatus.textContent = `檢查失敗：${error.message || "請稍後重試"}`;
+    } finally {
+      systemOtaCheck.disabled = false;
+    }
+  });
+
+  systemOtaUpdate.addEventListener("click", async () => {
+    if (!csrfToken) return;
+    if (!window.confirm("確定要立即更新韌體？更新完成後裝置會自動重新啟動，過程中請勿斷電。")) return;
+    systemOtaUpdate.disabled = true;
+    systemOtaStatus.className = "save-status";
+    systemOtaStatus.textContent = "正在下載並寫入新韌體…";
+    try {
+      const response = await fetch("/api/v1/system/ota/update", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken },
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (response.status === 409) {
+        systemOtaStatus.textContent = "已有檢查或更新在進行中，請稍候。";
+        systemOtaUpdate.disabled = false;
+        return;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "ota_update_failed");
+      systemOtaStatus.className = "save-status success";
+      systemOtaStatus.textContent = "更新已開始，完成後裝置會自動重新啟動；請勿中斷電源。";
+      startSystemOtaPoll();
+    } catch (error) {
+      systemOtaStatus.className = "save-status error";
+      systemOtaStatus.textContent = `更新失敗：${error.message || "請稍後重試"}`;
+      systemOtaUpdate.disabled = false;
+    }
+  });
+
   function showView(view, refresh = true) {
     currentView = view;
     dashboardView.hidden = view !== "dashboard";
@@ -1014,6 +1248,7 @@
     weatherView.hidden = view !== "weather";
     imageView.hidden = view !== "image";
     environmentView.hidden = view !== "environment";
+    systemView.hidden = view !== "system";
     $$(".nav-link[data-view]").forEach((link) => {
       const active = link.dataset.view === view;
       link.classList.toggle("active", active);
@@ -1025,6 +1260,7 @@
     if (refresh && view === "weather") loadWeatherConfig();
     if (refresh && view === "image") loadImageLibrary();
     if (refresh && view === "environment") loadEnvironmentConfig();
+    if (refresh && view === "system") loadSystemStatus();
   }
 
   $$(".nav-link[data-view]").forEach((link) => link.addEventListener("click", () => showView(link.dataset.view)));
