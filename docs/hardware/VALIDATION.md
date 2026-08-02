@@ -1000,31 +1000,35 @@ display path 接入＋既有 bug 修正、目錄上限 48→96、瀏覽器端壓
   多次重複皆成功，過程中沒有出現 `Failed to fetch` 或
   `upload_unavailable`（這兩個錯誤先前在 96 筆／64 筆版本上分別重現過，
   確認與 `kCatalogMaxEntries` 直接相關，不是隨機的網路問題）。
-- 這次測試沒有特別控制上傳圖片一定使用 `floyd-steinberg`/`atkinson`
-  dithering，也沒有逐位元組核對瀏覽器端是否真的觸發壓縮（例如比對上傳
-  payload 大小）或肉眼比對面板顯示內容與來源圖片是否一致——這兩點仍列在
-  下方待驗證清單，不能宣稱已完成。
+- **壓縮確實生效的端對端確認（追加，同日）**：使用者透過真實瀏覽器上傳
+  3 張圖片，回報壓縮後 PFR1 檔案大小分別為 28 KB、46 KB、63 KB，顯示
+  正常無異狀。三個數字都遠小於未壓縮的固定大小（landscape 176,000
+  bytes／172 KB、portrait 182,400 bytes／178 KB）——換算省下約
+  63%～84% 空間（63 KB／172 KB ≈ 省 63%；46 KB／172 KB ≈ 省 73%；
+  28 KB／172 KB ≈ 省 84%），比先前用合成測試圖估計的
+  floyd-steinberg/atkinson 保守情境（省 40–47%）好上不少，且由於未壓縮
+  PFR1 payload 大小是固定常數，這三個檔案明顯小於該常數本身就是
+  `Pfr1Flags.compressed` 有被瀏覽器端設定、且韌體端正確解壓縮顯示的
+  間接證據，不需要另外用瀏覽器開發者工具逐位元組核對 flag bit。
+  **仍未核實的部分**：沒有記錄這三張圖各自使用的 dithering 模式，也沒有
+  跟同一張來源圖片的未壓縮版本做逐像素或肉眼並排比對（只確認「顯示正常
+  無異狀」，不是「與未壓縮版本完全一致」）。
 
 ### 尚未驗證（需要實機，明確列為風險，不得視為已完成）
 
 以下項目在拿到硬體前都無法用 host test 或 `pio run` 涵蓋，任何一項在
 交付前都不能被略過：
 
-1. **壓縮確實生效的端對端確認**：目前只確認了「上傳/顯示流程整體不出
-   錯」，還沒有具體核對某一次真實上傳「瀏覽器端是否真的送出壓縮後的
-   payload」（例如比對上傳 request 大小、或用瀏覽器開發者工具檢查
-   `PFR1` 檔案的 `compressed` flag），也沒有肉眼比對面板顯示內容與
-   來源圖片是否一致、且與同一張圖的未壓縮版本比對是否有可辨識差異。
-2. **真機開機 stack high-water-mark（全面）**：目前只確認了 upload／
+1. **真機開機 stack high-water-mark（全面）**：目前只確認了 upload／
    mutation 這兩個「有請求才配置」的 task 在 48 筆基準下餘裕健康；
    `app_main` 主線、`esp_http_server` 其他 worker task、新增的
    `carousel_inflate_compressed`/`carousel_inflate_output` PSRAM buffer
    的配置成功與否，都還沒有逐一在真機 log 上確認過。
-3. **carousel 顯示延遲量測**：inflate 步驟是否讓壓縮圖片的 carousel
+2. **carousel 顯示延遲量測**：inflate 步驟是否讓壓縮圖片的 carousel
    換圖出現可感知延遲，尚未實際量測，也沒有跟未壓縮版本比較。
-4. **斷電／recovery 對壓縮圖片的處理**：模擬交易中斷電，確認壓縮圖片的
+3. **斷電／recovery 對壓縮圖片的處理**：模擬交易中斷電，確認壓縮圖片的
    candidate 能在重開機後正確驗證並復原（host test 已用 fake filesystem
    驗證邏輯正確，但真實 LittleFS 斷電行為需要真機確認）。
 
-以上 4 項若在下一輪有硬體時仍未執行，必須繼續留在本檔案的待驗證清單，
+以上 3 項若在下一輪有硬體時仍未執行，必須繼續留在本檔案的待驗證清單，
 不得從交付說明中省略。
