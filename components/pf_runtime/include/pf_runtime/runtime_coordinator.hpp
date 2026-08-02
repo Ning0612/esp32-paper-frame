@@ -35,7 +35,8 @@ public:
 
     void update_network(
         WifiState wifi,
-        InternetState internet);
+        InternetState internet,
+        const char* ip_address = nullptr);
     void update_time_sync(TimeSyncState time_sync);
     void update_weather(
         const pf_weather::Cache& weather,

@@ -30,12 +30,16 @@ void test_glyph_for_known_characters_matches_authored_table()
     for (const std::uint8_t row : glyph.rows) {
         TEST_ASSERT_EQUAL_HEX8(0U, row);
     }
+
+    for (const char character : {'M', 'o', 'n', '.', '%'}) {
+        TEST_ASSERT_TRUE(pf_display::glyph_for(character, glyph));
+    }
 }
 
 void test_glyph_for_unsupported_character_returns_false()
 {
     Glyph glyph{};
-    TEST_ASSERT_FALSE(pf_display::glyph_for('A', glyph));
+    TEST_ASSERT_FALSE(pf_display::glyph_for('?', glyph));
 }
 
 void test_draw_text_paints_exact_glyph_pixels_at_scale_one()

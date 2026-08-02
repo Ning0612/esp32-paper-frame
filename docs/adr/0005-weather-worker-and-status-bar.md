@@ -124,3 +124,12 @@ namespace 由 `pf_weather_worker` 改為 `pf_weather`（`WeatherWorker` 類別
 本體與本 ADR 記錄的所有決策不變，純粹是元件邊界調整，不是 superseding
 ADR 的範疇）。本文其餘內容提到的 `pf_weather_worker` 是撰寫當下的元件
 名稱，保留作歷史紀錄。
+
+## Update (2026-08-03)
+
+狀態列版面依產品需求固定為：左側 `YYYY-MM-DD-<英文星期縮寫>`（例如
+`2026-08-03-Mon`）接 OpenWeatherMap 天氣圖示與室外溫度；裝置 IPv4
+位址置中；右側在環境感測器狀態為 `online` 且有有效 reading 時顯示室內
+溫度與溼度，否則保留空白。IP 由 `NetworkService` 發布至唯一的
+`RuntimeSnapshot`，不由 renderer 直接查詢網路介面。480px 直向狀態列採
+較小點陣字級以保留三區的獨立位置；`^` 是韌體內部的一位元組度數符號。

@@ -256,6 +256,15 @@ pf_display::StatusBarContent build_status_bar_content()
         }
     }
 
+    content.device_ip_available = snapshot.ip_address[0] != '\0';
+    if (content.device_ip_available) {
+        std::memcpy(
+            content.device_ip,
+            snapshot.ip_address,
+            sizeof(content.device_ip));
+        content.device_ip[sizeof(content.device_ip) - 1U] = '\0';
+    }
+
     content.weather_available = snapshot.weather.has_observation;
     if (content.weather_available) {
         content.weather_stale = pf_weather::stale(
@@ -269,6 +278,24 @@ pf_display::StatusBarContent build_status_bar_content()
             snapshot.weather.observation.icon,
             sizeof(content.icon_code));
         content.icon_code[sizeof(content.icon_code) - 1U] = '\0';
+    }
+
+    content.indoor_available =
+        snapshot.environment_status == pf_sensors::SensorStatus::online &&
+        snapshot.environment.has_reading;
+    if (content.indoor_available) {
+        const float indoor_temperature =
+            snapshot.environment.reading.temperature_c;
+        content.indoor_temperature_rounded = static_cast<int>(
+            indoor_temperature >= 0.0F
+                ? indoor_temperature + 0.5F
+                : indoor_temperature - 0.5F);
+        const float indoor_humidity =
+            snapshot.environment.reading.humidity_percent;
+        content.indoor_humidity_rounded = static_cast<int>(
+            indoor_humidity >= 0.0F
+                ? indoor_humidity + 0.5F
+                : indoor_humidity - 0.5F);
     }
 
     return content;

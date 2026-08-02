@@ -131,6 +131,7 @@ constexpr const char* to_string(const OtaUpdateState state)
 
 inline constexpr std::size_t kOtaVersionCapacity = 24U;
 inline constexpr std::size_t kOtaErrorCapacity = 32U;
+inline constexpr std::size_t kIpAddressCapacity = 16U;
 
 struct RuntimeSnapshot {
     std::uint32_t sequence;
@@ -163,6 +164,10 @@ struct RuntimeSnapshot {
     // mode. The app_main carousel owner applies it once no refresh is in flight.
     std::uint32_t carousel_mode_request_id = 0U;
     bool carousel_mode_request_random = false;
+    // Current device IPv4 address. Empty means the active network interface
+    // does not have an address yet; the display renders an explicit
+    // placeholder instead of fabricating one.
+    char ip_address[kIpAddressCapacity]{};
     // Value copy of the latest weather fetch cache; units records what the
     // cached observation was fetched in, since Observation itself does not
     // carry that (the API response never echoes back the requested units).

@@ -278,12 +278,28 @@ std::uint32_t RuntimeCoordinator::allocate_request_id()
 
 void RuntimeCoordinator::update_network(
     const WifiState wifi,
-    const InternetState internet)
+    const InternetState internet,
+    const char* const ip_address)
 {
+    char bounded_ip_address[kIpAddressCapacity]{};
+    if (ip_address != nullptr) {
+        std::size_t index = 0U;
+        while (index < sizeof(bounded_ip_address) - 1U &&
+               ip_address[index] != '\0') {
+            bounded_ip_address[index] = ip_address[index];
+            ++index;
+        }
+        bounded_ip_address[index] = '\0';
+    }
+
     portENTER_CRITICAL(&snapshot_lock_);
     const WifiState previous_wifi = snapshot_.wifi;
     snapshot_.wifi = wifi;
     snapshot_.internet = internet;
+    std::memcpy(
+        snapshot_.ip_address,
+        bounded_ip_address,
+        sizeof(snapshot_.ip_address));
     if (previous_wifi != WifiState::failed && wifi == WifiState::failed) {
         record_diagnostic_event_locked(
             DiagnosticCategory::network,

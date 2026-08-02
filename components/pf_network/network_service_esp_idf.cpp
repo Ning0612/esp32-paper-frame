@@ -121,6 +121,44 @@ void log_station_network_info(const ip_event_got_ip_t* const event)
         esp_err_to_name(dns_result));
 }
 
+bool copy_active_ip_address(
+    const pf_runtime::WifiState wifi,
+    char* const destination,
+    const std::size_t destination_size)
+{
+    if (destination == nullptr || destination_size == 0U) {
+        return false;
+    }
+
+    const char* interface_key = nullptr;
+    if (wifi == pf_runtime::WifiState::connected) {
+        interface_key = "WIFI_STA_DEF";
+    } else if (
+        wifi == pf_runtime::WifiState::starting_ap ||
+        wifi == pf_runtime::WifiState::provisioning) {
+        interface_key = "WIFI_AP_DEF";
+    }
+    if (interface_key == nullptr) {
+        return false;
+    }
+
+    esp_netif_t* const netif =
+        esp_netif_get_handle_from_ifkey(interface_key);
+    if (netif == nullptr) {
+        return false;
+    }
+
+    esp_netif_ip_info_t ip_info{};
+    if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK ||
+        ip_info.ip.addr == 0U) {
+        return false;
+    }
+    return esp_ip4addr_ntoa(
+               &ip_info.ip,
+               destination,
+               destination_size) != nullptr;
+}
+
 }  // namespace
 
 esp_err_t NetworkService::start(
@@ -704,7 +742,9 @@ void NetworkService::publish_state()
         InternetState::unreachable) {
         internet = pf_runtime::InternetState::unreachable;
     }
-    runtime_->update_network(wifi, internet);
+    char ip_address[pf_runtime::kIpAddressCapacity]{};
+    copy_active_ip_address(wifi, ip_address, sizeof(ip_address));
+    runtime_->update_network(wifi, internet, ip_address);
 
     // Authoritative fallback: publish_state() runs on every processed
     // network event, so polling here (cheap, non-blocking) catches a

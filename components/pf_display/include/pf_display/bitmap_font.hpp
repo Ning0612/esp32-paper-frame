@@ -8,11 +8,9 @@
 namespace pf_display {
 
 // Minimal self-authored bitmap font for the status bar (see
-// docs/adr/0005-weather-worker-and-status-bar.md): a 3x5 dot-matrix digit
-// style, covering only what the status bar needs to render dates and
-// temperatures without letters -- digits, a dash (date separator / minus
-// sign), a degree mark, an asterisk-style stale marker, and space.
-// Not a general-purpose font.
+// docs/adr/0005-weather-worker-and-status-bar.md): a 3x5 dot-matrix style,
+// covering only the digits, punctuation, and weekday letters needed by the
+// status bar. It is not a general-purpose font.
 inline constexpr std::size_t kGlyphWidth = 3U;
 inline constexpr std::size_t kGlyphHeight = 5U;
 
@@ -65,6 +63,57 @@ inline bool glyph_for(const char character, Glyph& out)
             return true;
         case '*':
             out = Glyph{{0b101, 0b010, 0b111, 0b010, 0b101}};
+            return true;
+        case '.':
+            out = Glyph{{0b000, 0b000, 0b000, 0b000, 0b010}};
+            return true;
+        case '%':
+            out = Glyph{{0b101, 0b001, 0b010, 0b100, 0b101}};
+            return true;
+        case 'M':
+            out = Glyph{{0b101, 0b111, 0b111, 0b101, 0b101}};
+            return true;
+        case 'T':
+            out = Glyph{{0b111, 0b010, 0b010, 0b010, 0b010}};
+            return true;
+        case 'W':
+            out = Glyph{{0b101, 0b101, 0b111, 0b111, 0b101}};
+            return true;
+        case 'F':
+            out = Glyph{{0b111, 0b100, 0b110, 0b100, 0b100}};
+            return true;
+        case 'S':
+            out = Glyph{{0b111, 0b100, 0b111, 0b001, 0b111}};
+            return true;
+        case 'a':
+            out = Glyph{{0b000, 0b010, 0b101, 0b111, 0b101}};
+            return true;
+        case 'd':
+            out = Glyph{{0b001, 0b011, 0b101, 0b101, 0b011}};
+            return true;
+        case 'e':
+            out = Glyph{{0b000, 0b111, 0b100, 0b110, 0b111}};
+            return true;
+        case 'h':
+            out = Glyph{{0b100, 0b100, 0b111, 0b101, 0b101}};
+            return true;
+        case 'i':
+            out = Glyph{{0b010, 0b000, 0b010, 0b010, 0b010}};
+            return true;
+        case 'n':
+            out = Glyph{{0b000, 0b110, 0b101, 0b101, 0b101}};
+            return true;
+        case 'o':
+            out = Glyph{{0b000, 0b111, 0b101, 0b111, 0b000}};
+            return true;
+        case 'r':
+            out = Glyph{{0b000, 0b110, 0b100, 0b100, 0b100}};
+            return true;
+        case 't':
+            out = Glyph{{0b010, 0b111, 0b010, 0b010, 0b011}};
+            return true;
+        case 'u':
+            out = Glyph{{0b000, 0b101, 0b101, 0b101, 0b111}};
             return true;
         case ' ':
             out = Glyph{{0b000, 0b000, 0b000, 0b000, 0b000}};

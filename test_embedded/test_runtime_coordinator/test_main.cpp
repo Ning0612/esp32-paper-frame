@@ -56,7 +56,8 @@ void test_runtime_queues_and_snapshot()
 
     runtime.update_network(
         pf_runtime::WifiState::provisioning,
-        pf_runtime::InternetState::unknown);
+        pf_runtime::InternetState::unknown,
+        "192.168.4.1");
     TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(pf_runtime::WifiState::provisioning),
@@ -64,6 +65,7 @@ void test_runtime_queues_and_snapshot()
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(pf_runtime::InternetState::unknown),
         static_cast<int>(observed.internet));
+    TEST_ASSERT_EQUAL_STRING("192.168.4.1", observed.ip_address);
     TEST_ASSERT_EQUAL_UINT32(updated.sequence + 1U, observed.sequence);
 
     runtime.update_time_sync(pf_runtime::TimeSyncState::synced);
