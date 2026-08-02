@@ -329,7 +329,7 @@
   const weatherMap = (() => {
     const TILE_SIZE = 256;
     const MIN_ZOOM = 0;
-    const MAX_ZOOM = 12;
+    const MAX_ZOOM = 16;
     // Web Mercator's usable latitude range; used everywhere centerLat is
     // set or clamped (online tiles, offline canvas, and setCoordinates())
     // so the number inputs, the fixed center pin, and the offline marker
