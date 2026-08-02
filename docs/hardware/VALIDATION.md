@@ -1096,19 +1096,46 @@ I (110991) paperframe: carousel_request=2 outcome=1 next_due_ms=1910297
   改成 PSRAM＋fallback 配置）在真機上正常運作，沒有出現
   `carousel_status_alloc_failed` 或顯示失敗。
 
-**尚未涵蓋**（不得視為已驗證，需要下一輪硬體時段補測）：
+**尚未涵蓋**（第一輪時的狀態，第二輪已補上，見下一節）：
 
-1. **Phase 1a**：重開機後，既有圖片與目錄內容是否還在、驗證通過——本輪
-   只驗證了同一次開機期間的 upload/mutation/carousel，沒有實際觸發
-   `StorageWorker::start()` 的開機復原路徑並確認結果正確。
-2. **Phase 1b**：`weather_config`/`sensor_config` 表單在冷開機後第一次
-   送出是否成功（驗證 `start_weather_config_task(true)`/
-   `start_sensor_config_task(true)` 這個按需配置路徑真的有效，本輪 log
-   只看到既有的 weather worker 週期性抓取因為 API 認證問題失敗
-   （`weather_fetch_failed=ESP_ERR_NOT_SUPPORTED`），這是既有、跟本次
-   RAM 重構無關的既知問題，不是 Phase 1b 的回歸，但也不能當作 Phase 1b
-   已驗證通過）。
+1. Phase 1a：重開機後，既有圖片與目錄內容是否還在、驗證通過。
+2. Phase 1b：`weather_config`/`sensor_config` 表單在冷開機後第一次送出
+   是否成功。
 3. 上方既有清單第 1 項（`app_main` 主線與其他 worker task 的完整
-   high-water-mark）本輪仍未逐一確認。
+   high-water-mark）本輪仍未逐一確認，繼續留在待驗證清單。
 
-以上 2 項若在下一輪仍未執行，必須繼續留在待驗證清單。
+## 2026-08-02 — Phase 1 RAM 回收（1a/1b）：實機驗證第二輪，補齊剩餘項目
+
+用即時序列監看（COM10 native USB console）盯著使用者操作，補測第一輪
+遺漏的兩項。
+
+**Phase 1a — 重開機復原**：使用者觸發實體重置，log 擷取：
+
+```text
+rst:0xc (RTC_SW_CPU_RST),boot:0x8 (SPI_FAST_FLASH_BOOT)
+...
+I (699) main_task: Calling app_main()
+I (779) paperframe: storage_worker_ready recovery=none action=no_change
+```
+
+`recovery=none action=no_change` 代表 `StorageWorker::start()` 開機
+復原路徑跑完，沒有偵測到需要 rollback 的中斷交易，也沒有觸發
+`recovery_workspace_alloc_failed`／`storage_worker_start_failed`——確認
+Phase 1a 把 `RecoveryWorkspace` 改成開機暫時配置（用完即釋放）之後，
+復原邏輯本身沒有壞。使用者隨後在 WebUI／面板上確認圖片庫內容還在、
+correct（逐張確認過，不是只看數量）。**Phase 1a 完整驗證通過。**
+
+**Phase 1b — 冷開機後 config 表單首次送出**：使用者重開機後（同一次
+開機期間，未先觸發過 weather/sensor config 相關 task），透過瀏覽器
+送出設定表單，回報「沒有跳出錯誤」。序列監看期間沒有出現
+`deferred_task_stack_alloc_failed task=pf_weather_cfg`／
+`task=pf_sensor_cfg` 或 `weather_config_unavailable`／
+`sensor_config_unavailable`（這兩個 task 走 `start_deferred_task()`，
+成功路徑本身不印訊息，因此「沒有失敗 log ＋瀏覽器沒有錯誤」是這條路徑
+成功的正確判讀方式，不是遺漏了成功訊息）。**Phase 1b 完整驗證通過。**
+
+至此，Phase 1（1a／1b／1c）三個子項全部完成實機驗證，回收 57,824 bytes
+internal DRAM，upload/mutation/carousel/config 表單/開機復原全部在真機
+上確認正常，無回歸。`app_main` 主線與其他 worker task 的完整
+high-water-mark（既有清單第 1 項）仍未逐一量測，維持待驗證，但不阻塞
+Phase 3 的啟動評估。
