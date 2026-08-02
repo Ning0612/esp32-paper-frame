@@ -821,7 +821,21 @@ extern "C" void app_main()
     static CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
     std::size_t carousel_shown_count = 0U;
     static pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
-    static std::uint8_t carousel_status[pf_display::kLandscapeStatusBytes]{};
+    std::uint8_t* carousel_status = static_cast<std::uint8_t*>(
+        heap_caps_malloc(
+            pf_display::kLandscapeStatusBytes,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (carousel_status == nullptr) {
+        carousel_status = static_cast<std::uint8_t*>(
+            heap_caps_malloc(
+                pf_display::kLandscapeStatusBytes, MALLOC_CAP_8BIT));
+    }
+    if (carousel_status == nullptr) {
+        ESP_LOGE(
+            kTag,
+            "carousel_status_alloc_failed bytes=%u; image display disabled",
+            static_cast<unsigned>(pf_display::kLandscapeStatusBytes));
+    }
     std::uint8_t* carousel_payload = static_cast<std::uint8_t*>(
         heap_caps_malloc(
             kCarouselPayloadBytes,
@@ -1191,6 +1205,7 @@ extern "C" void app_main()
             pf_display::FrameWriteLease frame =
                 pf_display::display_task().try_acquire_frame();
             if (frame.valid() && carousel_payload != nullptr &&
+                carousel_status != nullptr &&
                 storage_worker.find_catalog_entry_by_id(
                     decision.image_id,
                     entry) &&
