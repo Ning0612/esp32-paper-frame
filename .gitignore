@@ -2,6 +2,8 @@
 .venv/
 .pio/
 managed_components/
+__pycache__/
+*.pyc
 
 # Native ESP-IDF and CMake outputs
 build/

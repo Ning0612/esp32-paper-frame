@@ -34,7 +34,7 @@ NNNN-short-imperative-title.md
 - [ADR-0002：固定 ESP32-S3-N16R8 開發 profile](0002-esp32-s3-n16r8-profile.md)
 - [ADR-0003：固定 Phase 2 顯示器接線與 driver contract](0003-fix-phase2-display-integration.md)
 - [ADR-0004：凍結 imagefs-preserving partition layout](0004-freeze-image-preserving-partitions.md)
-- [ADR-0005：WeatherWorker HTTPS 契約與狀態列渲染基線](0005-weather-worker-and-status-bar.md)
+- [ADR-0005：WeatherWorker HTTPS 契約與狀態列渲染基線](0005-weather-worker-and-status-bar.md)（「字型與圖示授權」的圖示部分已被 ADR-0013 取代）
 - [ADR-0006：感測器 driver 來源與在場/離席判定機制](0006-sensor-drivers-and-presence.md)
 - [ADR-0007：PBKDF2 迭代次數與同步登入決策（G6 收斂）](0007-auth-pbkdf2-iterations-and-sync-login.md)
 - [ADR-0008：OTA 韌體來源、TLS 信任、Rollback 確認時機與 Release 慣例](0008-ota-github-releases-and-rollback.md)
@@ -42,3 +42,4 @@ NNNN-short-imperative-title.md
 - [ADR-0010：撤銷 PFC1 目錄容量上限拉高，維持 48 筆](0010-revert-catalog-cap-raise-ram-constraint.md)
 - [ADR-0011：PFR1 壓縮功能的 PSRAM／flash cache-disable 交錯安全性調查](0011-psram-flash-cache-disable-safety.md)
 - [ADR-0012：RAM 重構後重新拉高 PFC1 目錄容量上限至 64 筆](0012-raise-catalog-cap-after-ram-reclaim.md)（取代 ADR-0010 的 `kCatalogMaxEntries` 部分）
+- [ADR-0013：天氣圖示改用轉檔自第三方 OFL-1.1 素材的點陣圖](0013-weather-icon-bitmaps-from-third-party-ofl-source.md)（取代 ADR-0005「字型與圖示授權」的圖示部分）

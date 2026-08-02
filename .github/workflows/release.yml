@@ -89,12 +89,28 @@ jobs:
             release-assets/paperframe-webfs.bin
           cp partitions/paperframe-dev.csv \
             release-assets/paperframe-partitions.csv
+          # Bundled as a zip (not flat files) so the LICENSES/OFL-1.1.txt
+          # relative link inside ASSET_CREDITS.md/THIRD_PARTY_NOTICES.md
+          # still resolves after extraction -- GitHub Release assets have
+          # no real directory structure, so flat copies would break it.
+          mkdir -p release-assets/licenses-staging/LICENSES
+          cp ASSET_CREDITS.md release-assets/licenses-staging/ASSET_CREDITS.md
+          cp THIRD_PARTY_NOTICES.md \
+            release-assets/licenses-staging/THIRD_PARTY_NOTICES.md
+          cp LICENSES/OFL-1.1.txt \
+            release-assets/licenses-staging/LICENSES/OFL-1.1.txt
+          (
+            cd release-assets/licenses-staging
+            zip -r ../paperframe-licenses.zip .
+          )
+          rm -rf release-assets/licenses-staging
           (
             cd release-assets
             sha256sum \
               paperframe-firmware.bin \
               paperframe-webfs.bin \
               paperframe-partitions.csv \
+              paperframe-licenses.zip \
               > SHA256SUMS
           )
           printf '%s\n' \
@@ -105,6 +121,7 @@ jobs:
             '- paperframe-firmware.bin is the app image used by device OTA.' \
             '- paperframe-webfs.bin contains the WebUI and must not be written to imagefs.' \
             '- paperframe-partitions.csv records the partition layout used for this build.' \
+            '- paperframe-licenses.zip: third-party asset attribution (weather icon bitmaps converted from erikflowers/weather-icons, SIL OFL-1.1) required to accompany this compiled firmware -- contains ASSET_CREDITS.md, THIRD_PARTY_NOTICES.md, and LICENSES/OFL-1.1.txt.' \
             '- SHA256SUMS contains SHA-256 checksums for the release assets.' \
             '' \
             "- Hardware validation checklist: https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/docs/hardware/VALIDATION.md" \
@@ -122,6 +139,7 @@ jobs:
             release-assets/paperframe-firmware.bin
             release-assets/paperframe-webfs.bin
             release-assets/paperframe-partitions.csv
+            release-assets/paperframe-licenses.zip
             release-assets/SHA256SUMS
           )
           release_args=(

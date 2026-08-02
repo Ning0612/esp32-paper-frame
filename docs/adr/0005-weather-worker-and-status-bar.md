@@ -76,13 +76,17 @@ WeatherWorker（`pf_weather_worker` component）與狀態列渲染（`pf_display
 - 對應 `docs/IMPLEMENTATION_PLAN.md` 第 203 行的既有原則：
   「DNS、weather 或 Internet 錯誤只改變 Internet 狀態，不進 AP」。
 
-### 字型與圖示授權
+### 字型與圖示授權（**圖示部分已被 ADR-0013 取代**）
 
 - 狀態列渲染（日期、星期、weather icon、temperature、stale 標記）採用
   **自製最小點陣字型**（僅涵蓋數字、`:`、`/`、`-`、`°`、`%`、星期縮寫
-  所需的拉丁字母）與 **9 組簡化天氣圖示分類**（對映 OpenWeatherMap
-  icon code 的天氣狀況群組），皆為本專案原創點陣資料，不引入任何
-  第三方字型或圖示檔案，避免授權查證與再散布限制的負擔。
+  所需的拉丁字母，本段落仍然有效）與 **9 組簡化天氣圖示分類**（對映
+  OpenWeatherMap icon code 的天氣狀況群組）。天氣圖示原本的決策是「皆為
+  本專案原創點陣資料，不引入任何第三方字型或圖示檔案，避免授權查證與
+  再散布限制的負擔」——這個部分已被
+  [ADR-0013](0013-weather-icon-bitmaps-from-third-party-ofl-source.md)
+  取代：圖示改為轉檔自 `erikflowers/weather-icons`（OFL-1.1）的點陣圖，
+  9 組分類本身不變。點陣字型（數字/日期）維持原創，不受影響。
 
 ## Consequences
 

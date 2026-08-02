@@ -506,7 +506,9 @@ Wi-Fi、面板）驗證**，以下項目仍完全待補：
 開發過程中在 host test 階段抓到一個 `draw_line`（Bresenham 演算法）的
 符號計算錯誤，會在向上方向畫線時造成無窮迴圈（太陽圖示的向上射線觸發），
 已修正並加上步數上限防呆；記錄於此供未來類似 pure-geometry 程式碼審查
-參考。
+參考。（2026-08：`draw_line`／`draw_cloud`／`fill_circle` 等程序化繪製
+機制已被 ADR-0013 移除，天氣圖示改為轉檔點陣圖 blit，本段落的
+Bresenham 死角不再適用於目前程式碼，僅保留作歷史記錄。）
 
 ### 2026-07-31 — Phase 7 DHT22／光敏在場偵測：僅完成 host 驗證
 
@@ -1198,3 +1200,27 @@ image_mutation_stack_free_bytes=1188
 但不是「已被證明會失敗」；96 未測試，結果未知；65–79 之間也未測試，
 不知道實際臨界值在哪裡。裝置已重新燒錄回 64 筆版本作為最終狀態（不是
 停在 80 筆的測試狀態）。
+
+### 2026-08-02 — ADR-0013 天氣圖示改為轉檔點陣圖：僅完成開機穩定性驗證
+
+本段（見 `docs/adr/0013-weather-icon-bitmaps-from-third-party-ofl-source.md`）
+把狀態列天氣圖示從程序化繪製改為轉檔自 `erikflowers/weather-icons` 的
+32×32 單色點陣圖，`pio run` 編譯乾淨（Flash 1,242,997 / 2,621,440
+bytes 47.4%，RAM 106,080 / 327,680 bytes 32.4%）、`pio test -e native`
+282/282 全綠後，燒錄到實機（`COM10`，`esptool` 回報 hash 驗證成功）。
+
+實機驗證範圍與結果：
+
+- 燒錄後裝置經 `esptool` hard reset 開機，串列主控台可見
+  `esp_image: segment 3` 等正常開機 log，隨後進入應用層並持續運作
+  （觀察到 `carousel_request=1 outcome=1 next_due_ms=1832717` 這類正常
+  排程 log，顯示 carousel scheduler 有在跑）。
+- 另開一個獨立 120 秒監看視窗（不含開機那次連線），全程掃描開機 banner
+  （`rst:0x`）與常見 panic 訊號（`Guru Meditation`／`abort() was
+  called`／`Backtrace:`／`CORRUPT HEAP`），**0 次出現、0 行輸出**——
+  代表這 120 秒內裝置完全靜默運作、沒有任何重開機或當機。
+
+**明確未驗證**：這次驗證只確認「燒進去會開機、120 秒內不會自發重開機／
+當機」，**沒有**用肉眼確認 9 種天氣圖示、狀態列文字在實體面板上的實際
+視覺呈現——這正是第 499–501 行記錄的既有風險項，本輪未縮小範圍，仍待
+補齊（需要有天氣資料可顯示、且有人在裝置前用肉眼核對面板畫面）。
