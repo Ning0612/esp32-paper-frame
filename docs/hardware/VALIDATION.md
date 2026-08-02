@@ -1061,3 +1061,54 @@ ADR-0011 的原始碼層級結論可以成立，但不能取代實機量測與�
 未來相關程式碼的資料流架構或 flash host 配置改變（例如 PSRAM 指標開始
 被直接傳給 `filesystem.write()`/`filesystem.read()`，或改用非
 SPI1_HOST 的 flash host），必須重新評估，不能直接沿用本結論。
+
+## 2026-08-02 — Phase 1 RAM 回收（1a/1b/1c）：實機驗證第一輪
+
+燒錄含 Phase 1a（`RecoveryWorkspace` 開機暫時配置）、Phase 1b
+（weather/sensor config task stack 按需配置）、Phase 1c（`carousel_status`
+PSRAM＋fallback）三個 commit 的韌體到實體 ESP32-S3-N16R8，累計回收
+57,824 bytes internal DRAM（見 ADR-0010 之後的 RAM 重構計畫）。實機 log
+擷取：
+
+```text
+I (32541) paperframe: carousel_request=1 outcome=1 next_due_ms=1831847
+I (70301) pf_web: image_upload_stack_free_bytes=2120
+I (77621) pf_web: image_mutation_stack_free_bytes=10324
+I (78911) paperframe: carousel_image_queued id=7 request=2
+I (109031) pf_web: image_mutation_stack_free_bytes=10020
+I (110991) paperframe: carousel_request=2 outcome=1 next_due_ms=1910297
+```
+
+**已確認**：
+
+- **上傳／mutation task stack 餘裕未受影響**：`image_upload_stack_free_
+  bytes=2120`、`image_mutation_stack_free_bytes=10324`/`10020`，跟
+  ADR-0010 原始 48 筆基準（上傳 2116~2120、mutation 10020~10324）幾乎
+  完全一致——證實 Phase 1 回收的 57.8KB 沒有換到這兩個既有 task 的餘裕，
+  是從別的地方（`RecoveryWorkspace`、weather/sensor config 常駐 stack、
+  `carousel_status`）騰出來的，符合 Phase 1 的設計目標。
+- **WiFi 連線後的上傳／切換（activate）／刪除圖片流程**：使用者透過
+  WebUI 實際操作，回報「看起來沒問題」，跟上面的 stack free-bytes log
+  對應一致。
+- **carousel 顯示（Phase 1c 相關）**：`carousel_request` 兩次
+  `outcome=1`（成功）、`carousel_image_queued id=7` 成功排入刷新佇列，
+  代表 `render_carousel_image()` 用到的 `carousel_status`（Phase 1c
+  改成 PSRAM＋fallback 配置）在真機上正常運作，沒有出現
+  `carousel_status_alloc_failed` 或顯示失敗。
+
+**尚未涵蓋**（不得視為已驗證，需要下一輪硬體時段補測）：
+
+1. **Phase 1a**：重開機後，既有圖片與目錄內容是否還在、驗證通過——本輪
+   只驗證了同一次開機期間的 upload/mutation/carousel，沒有實際觸發
+   `StorageWorker::start()` 的開機復原路徑並確認結果正確。
+2. **Phase 1b**：`weather_config`/`sensor_config` 表單在冷開機後第一次
+   送出是否成功（驗證 `start_weather_config_task(true)`/
+   `start_sensor_config_task(true)` 這個按需配置路徑真的有效，本輪 log
+   只看到既有的 weather worker 週期性抓取因為 API 認證問題失敗
+   （`weather_fetch_failed=ESP_ERR_NOT_SUPPORTED`），這是既有、跟本次
+   RAM 重構無關的既知問題，不是 Phase 1b 的回歸，但也不能當作 Phase 1b
+   已驗證通過）。
+3. 上方既有清單第 1 項（`app_main` 主線與其他 worker task 的完整
+   high-water-mark）本輪仍未逐一確認。
+
+以上 2 項若在下一輪仍未執行，必須繼續留在待驗證清單。
