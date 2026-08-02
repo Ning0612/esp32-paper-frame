@@ -89,6 +89,33 @@ function testCoverAnchorSelectsTheExpectedVerticalWindow() {
   assert.deepEqual(pixel(bottom, 0, 0), pixel(source, 0, 2));
 }
 
+function testCropZoomNarrowsTheSelectedWindow() {
+  const source = makeLabeledRaster(8, 2);
+  const result = pipeline.fitRaster(source, 4, 2, "crop", undefined, { x: 0.5, y: 0.5 }, 2);
+  assert.deepEqual(pixel(result, 0, 0), pixel(source, 3, 0));
+  assert.deepEqual(pixel(result, 3, 0), pixel(source, 4, 0));
+}
+
+function testCoverZoomMagnifiesTheSelectedTarget() {
+  const source = makeLabeledRaster(2, 8);
+  const normal = pipeline.fitRaster(source, 2, 2, "cover", undefined, { x: 0.5, y: 0 }, 1);
+  const zoomed = pipeline.fitRaster(source, 2, 2, "cover", undefined, { x: 0.5, y: 0 }, 2);
+  const zoomedThree = pipeline.fitRaster(source, 2, 2, "cover", undefined, { x: 0.5, y: 0 }, 3);
+  assert.notDeepEqual(pixel(normal, 0, 0), pixel(normal, 0, 1));
+  assert.deepEqual(pixel(zoomed, 0, 0), pixel(zoomed, 0, 1));
+  assert.deepEqual(pixel(zoomedThree, 0, 0), pixel(zoomedThree, 0, 1));
+}
+
+function testCoverZoomKeepsNearestSamplingWithoutIntermediateRaster() {
+  const source = makeLabeledRaster(5, 3);
+  const position = { x: 0.3, y: 0.7 };
+  const geometry = pipeline.cropGeometry(source, 4, 2, 2);
+  const scaled = pipeline.resizeNearest(source, geometry.scaledWidth, geometry.scaledHeight);
+  const expected = pipeline.cropRaster(scaled, 4, 2, position);
+  const actual = pipeline.fitRaster(source, 4, 2, "cover", undefined, position, 2);
+  assert.deepEqual(Array.from(actual.data), Array.from(expected.data));
+}
+
 function testProcessOrderNormalizesExifBeforeUserOperations() {
   const source = makeLabeledRaster(2, 3);
   const result = pipeline.processRaster(source, {
@@ -110,6 +137,7 @@ function testInvalidInputsFailClosed() {
   assert.throws(() => pipeline.makeRaster(2, 2, new Uint8ClampedArray(3)), RangeError);
   assert.throws(() => pipeline.normalizeCropPosition({ x: 2, y: 0.5 }), RangeError);
   assert.throws(() => pipeline.normalizeCropPosition({ x: 0.5, y: -1 }), RangeError);
+  assert.throws(() => pipeline.normalizeCropZoom(0.99), RangeError);
 }
 
 function testExifReaderExtractsJpegOrientationAndFailsClosed() {
@@ -138,7 +166,10 @@ testTransparentPixelsFlattenToWhite();
 testEveryFitModeProducesTheRequestedDimensions();
 testCropAnchorSelectsTheExpectedHorizontalWindow();
 testCoverAnchorSelectsTheExpectedVerticalWindow();
+testCropZoomNarrowsTheSelectedWindow();
+testCoverZoomMagnifiesTheSelectedTarget();
+testCoverZoomKeepsNearestSamplingWithoutIntermediateRaster();
 testProcessOrderNormalizesExifBeforeUserOperations();
 testInvalidInputsFailClosed();
 testExifReaderExtractsJpegOrientationAndFailsClosed();
-console.log("image_pipeline: 10 tests passed");
+console.log("image_pipeline: 13 tests passed");

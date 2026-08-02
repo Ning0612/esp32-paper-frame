@@ -86,6 +86,9 @@
   const imageProcessedCard = $("#image-processed-card");
   const imageCropHint = $("#image-crop-hint");
   const imageCropPositionLabel = $("#image-crop-position");
+  const imageCropControls = $("#image-crop-controls");
+  const imageCropZoomInput = $("#image-crop-zoom");
+  const imageCropZoomValue = $("#image-crop-zoom-value");
   const previewSixColor = $("#preview-sixcolor");
   const previewFrame = $("#preview-frame");
   const dashboardStatus = $("#dashboard-status");
@@ -107,6 +110,7 @@
   let imageBaseRaster = null;
   let imageWorkingRaster = null;
   let imageCropPosition = { x: 0.5, y: 0.5 };
+  let imageCropZoom = 1;
   let cropDragState = null;
   let imageExifOrientation = 1;
   let imageFileName = "paperframe.pfr1";
@@ -1080,13 +1084,27 @@
     return Boolean(imageWorkingRaster) && (imageFit.value === "crop" || imageFit.value === "cover");
   }
 
+  function invalidateImageOutput() {
+    imageRevision += 1;
+    cancelQuantizeWorker();
+    imagePfr1 = null;
+    downloadPfr1.disabled = true;
+    uploadPfr1.disabled = true;
+  }
+
   function updateCropInteraction() {
     const enabled = cropInteractionEnabled();
     imageProcessedCard.classList.toggle("is-draggable", enabled);
     imageCropHint.hidden = !enabled;
+    imageCropControls.hidden = !enabled;
+    imageCropZoomInput.disabled = !enabled;
+    imageCropZoomInput.value = String(imageCropZoom);
+    const zoomPercent = Math.round(imageCropZoom * 100);
+    imageCropZoomValue.textContent = `${zoomPercent}%`;
+    imageCropZoomInput.setAttribute("aria-valuetext", `${zoomPercent}%`);
     previewProcessed.setAttribute("aria-disabled", enabled ? "false" : "true");
     imageCropPositionLabel.textContent =
-      `目前裁切位置：x ${imageCropPosition.x.toFixed(2)}，y ${imageCropPosition.y.toFixed(2)}`;
+      `目前裁切位置：x ${imageCropPosition.x.toFixed(2)}，y ${imageCropPosition.y.toFixed(2)}；縮放 ${zoomPercent}%`;
   }
 
   function cropProfile() {
@@ -1099,28 +1117,26 @@
         imageWorkingRaster,
         profile.width,
         profile.height,
+        imageCropZoom,
       );
       return {
         overflowX: geometry.overflowX,
         overflowY: geometry.overflowY,
-        contentWidth: geometry.scaledWidth,
-        contentHeight: geometry.scaledHeight,
+        viewportWidth: profile.width,
+        viewportHeight: profile.height,
       };
     }
-    const targetAspect = profile.width / profile.height;
-    const sourceAspect = imageWorkingRaster.width / imageWorkingRaster.height;
-    let cropWidth = imageWorkingRaster.width;
-    let cropHeight = imageWorkingRaster.height;
-    if (sourceAspect > targetAspect) {
-      cropWidth = Math.max(1, Math.round(imageWorkingRaster.height * targetAspect));
-    } else if (sourceAspect < targetAspect) {
-      cropHeight = Math.max(1, Math.round(imageWorkingRaster.width / targetAspect));
-    }
+    const cropWindow = window.PaperFrameImage.cropWindow(
+      imageWorkingRaster,
+      profile.width,
+      profile.height,
+      imageCropZoom,
+    );
     return {
-      overflowX: imageWorkingRaster.width - cropWidth,
-      overflowY: imageWorkingRaster.height - cropHeight,
-      contentWidth: imageWorkingRaster.width,
-      contentHeight: imageWorkingRaster.height,
+      overflowX: imageWorkingRaster.width - cropWindow.width,
+      overflowY: imageWorkingRaster.height - cropWindow.height,
+      viewportWidth: cropWindow.width,
+      viewportHeight: cropWindow.height,
     };
   }
 
@@ -1135,6 +1151,7 @@
       fit: imageFit.value,
       skipFlatten: true,
       cropPosition: imageCropPosition,
+      cropZoom: imageCropZoom,
       targetWidth: profile.width,
       targetHeight: profile.height,
     });
@@ -1144,18 +1161,14 @@
   function updateCropPositionFromPointer(event) {
     if (!cropDragState || !imageWorkingRaster || !cropInteractionEnabled()) return;
     if (!cropDragState.invalidated) {
-      imageRevision += 1;
-      cancelQuantizeWorker();
-      imagePfr1 = null;
-      downloadPfr1.disabled = true;
-      uploadPfr1.disabled = true;
+      invalidateImageOutput();
       cropDragState.invalidated = true;
     }
     const profile = cropProfile();
     const geometry = cropDragGeometry(profile);
     const rect = previewProcessed.getBoundingClientRect();
-    const displayScaleX = rect.width / geometry.contentWidth;
-    const displayScaleY = rect.height / geometry.contentHeight;
+    const displayScaleX = rect.width / geometry.viewportWidth;
+    const displayScaleY = rect.height / geometry.viewportHeight;
     const rangeX = geometry.overflowX * displayScaleX;
     const rangeY = geometry.overflowY * displayScaleY;
     const deltaX = event.clientX - cropDragState.startX;
@@ -1164,12 +1177,12 @@
       x: rangeX > 0 ? cropDragState.startPosition.x - (deltaX / rangeX) : cropDragState.startPosition.x,
       y: rangeY > 0 ? cropDragState.startPosition.y - (deltaY / rangeY) : cropDragState.startPosition.y,
     };
-    imageCropPosition = window.PaperFrameImage.normalizeCropPosition(next);
+    imageCropPosition = window.PaperFrameImage.normalizeCropPosition({
+      x: Math.min(1, Math.max(0, next.x)),
+      y: Math.min(1, Math.max(0, next.y)),
+    });
     updateCropInteraction();
     renderProcessedPreview();
-    imagePfr1 = null;
-    downloadPfr1.disabled = true;
-    uploadPfr1.disabled = true;
   }
 
   function finishCropDrag() {
@@ -1177,6 +1190,20 @@
     const shouldProcess = cropDragState.invalidated;
     cropDragState = null;
     if (shouldProcess) void processImage();
+  }
+
+  function handleCropZoomInput() {
+    imageCropZoom = window.PaperFrameImage.normalizeCropZoom(imageCropZoomInput.value);
+    updateCropInteraction();
+    if (!imageWorkingRaster) return;
+    invalidateImageOutput();
+    renderProcessedPreview();
+    imageStatus.className = "save-status";
+    imageStatus.textContent = `裁切縮放 ${Math.round(imageCropZoom * 100)}%；放開後完成處理…`;
+  }
+
+  function handleCropZoomChange() {
+    if (imageBaseRaster && cropInteractionEnabled()) void processImage();
   }
 
   function handleCropPointerDown(event) {
@@ -1218,6 +1245,7 @@
     const previousPfr1 = cropDragState.previousPfr1;
     previewProcessed.classList.remove("is-dragging");
     cropDragState = null;
+    updateCropInteraction();
     renderProcessedPreview();
     if (previousPfr1) {
       imagePfr1 = previousPfr1;
@@ -1226,22 +1254,6 @@
       imageStatus.className = "save-status success";
       imageStatus.textContent = "已取消裁切調整，保留原本輸出。";
     }
-  }
-
-  function handleCropKeydown(event) {
-    if (!cropInteractionEnabled()) return;
-    const step = 0.05;
-    const next = { ...imageCropPosition };
-    if (event.key === "ArrowLeft") next.x -= step;
-    else if (event.key === "ArrowRight") next.x += step;
-    else if (event.key === "ArrowUp") next.y -= step;
-    else if (event.key === "ArrowDown") next.y += step;
-    else return;
-    event.preventDefault();
-    imageCropPosition = window.PaperFrameImage.normalizeCropPosition(next);
-    updateCropInteraction();
-    renderProcessedPreview();
-    void processImage();
   }
 
   function drawFramePreview(canvas, raster) {
@@ -1452,6 +1464,7 @@
         fit: imageFit.value,
         skipFlatten: true,
         cropPosition: imageCropPosition,
+        cropZoom: imageCropZoom,
         targetWidth: profile.width,
         targetHeight: profile.height,
       });
@@ -1504,6 +1517,7 @@
     imageBaseRaster = null;
     imageWorkingRaster = null;
     imageCropPosition = { x: 0.5, y: 0.5 };
+    imageCropZoom = 1;
     imageTransformFlags = 0;
     imageTransformButtons.forEach((button) => { button.disabled = true; });
     imageProcessButton.disabled = true;
@@ -1926,6 +1940,8 @@
   });
   imageFilename.addEventListener("change", () => { if (imageBaseRaster) processImage(); });
   imageProcessButton.addEventListener("click", () => processImage());
+  imageCropZoomInput.addEventListener("input", handleCropZoomInput);
+  imageCropZoomInput.addEventListener("change", handleCropZoomChange);
   imageMirrorX.addEventListener("click", () => applyImageTransform("mirror-x"));
   imageMirrorY.addEventListener("click", () => applyImageTransform("mirror-y"));
   imageRotate.addEventListener("click", () => applyImageTransform("rotate-90-cw"));
@@ -1936,7 +1952,6 @@
   previewProcessed.addEventListener("pointerup", handleCropPointerEnd);
   previewProcessed.addEventListener("pointercancel", handleCropPointerCancel);
   previewProcessed.addEventListener("lostpointercapture", handleCropPointerCancel);
-  previewProcessed.addEventListener("keydown", handleCropKeydown);
   imageLibraryRefresh.addEventListener("click", () => loadImageLibrary());
   imageLibraryList.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-image-action]");

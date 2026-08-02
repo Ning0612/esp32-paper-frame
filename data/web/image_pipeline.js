@@ -13,6 +13,7 @@
     portrait: Object.freeze({ orientation: 1, width: 480, height: 760 }),
   });
   const DEFAULT_CROP_POSITION = Object.freeze({ x: 0.5, y: 0.5 });
+  const DEFAULT_CROP_ZOOM = 1;
 
   function assertInteger(value, name) {
     if (!Number.isInteger(value) || value <= 0) {
@@ -242,19 +243,49 @@
     return { x, y };
   }
 
-  function cropGeometry(raster, width, height) {
+  function normalizeCropZoom(zoom) {
+    const value = zoom == null ? DEFAULT_CROP_ZOOM : Number(zoom);
+    if (!Number.isFinite(value) || value < DEFAULT_CROP_ZOOM) {
+      throw new RangeError("crop zoom must be a finite number greater than or equal to 1");
+    }
+    return value;
+  }
+
+  function cropGeometry(raster, width, height, cropZoom) {
     const source = validateRaster(raster);
     assertInteger(width, "crop target width");
     assertInteger(height, "crop target height");
-    const scale = Math.max(width / source.width, height / source.height);
+    const zoom = normalizeCropZoom(cropZoom);
+    const scale = Math.max(width / source.width, height / source.height) * zoom;
     const scaledWidth = Math.max(width, Math.round(source.width * scale));
     const scaledHeight = Math.max(height, Math.round(source.height * scale));
     return Object.freeze({
+      zoom,
       scale,
       scaledWidth,
       scaledHeight,
       overflowX: scaledWidth - width,
       overflowY: scaledHeight - height,
+    });
+  }
+
+  function cropWindow(raster, width, height, cropZoom) {
+    const source = validateRaster(raster);
+    assertInteger(width, "crop target width");
+    assertInteger(height, "crop target height");
+    const zoom = normalizeCropZoom(cropZoom);
+    const targetAspect = width / height;
+    const sourceAspect = source.width / source.height;
+    let cropWidth = source.width;
+    let cropHeight = source.height;
+    if (sourceAspect > targetAspect) {
+      cropWidth = Math.max(1, Math.round(source.height * targetAspect));
+    } else if (sourceAspect < targetAspect) {
+      cropHeight = Math.max(1, Math.round(source.width / targetAspect));
+    }
+    return Object.freeze({
+      width: Math.max(1, Math.round(cropWidth / zoom)),
+      height: Math.max(1, Math.round(cropHeight / zoom)),
     });
   }
 
@@ -273,6 +304,37 @@
       const sourceStart = (((top + y) * source.width) + left) * 4;
       const destinationStart = y * width * 4;
       output.set(source.data.subarray(sourceStart, sourceStart + (width * 4)), destinationStart);
+    }
+    return { width, height, data: output };
+  }
+
+  function resizeCropNearest(raster, width, height, geometry, position) {
+    const source = validateRaster(raster);
+    assertInteger(width, "crop target width");
+    assertInteger(height, "crop target height");
+    const anchor = normalizeCropPosition(position);
+    const left = Math.floor(geometry.overflowX * anchor.x);
+    const top = Math.floor(geometry.overflowY * anchor.y);
+    const output = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y += 1) {
+      const scaledY = top + y;
+      const sourceY = Math.min(
+        source.height - 1,
+        Math.floor((scaledY * source.height) / geometry.scaledHeight),
+      );
+      for (let x = 0; x < width; x += 1) {
+        const scaledX = left + x;
+        const sourceX = Math.min(
+          source.width - 1,
+          Math.floor((scaledX * source.width) / geometry.scaledWidth),
+        );
+        copyPixel(
+          source.data,
+          ((sourceY * source.width) + sourceX) * 4,
+          output,
+          ((y * width) + x) * 4,
+        );
+      }
     }
     return { width, height, data: output };
   }
@@ -324,7 +386,7 @@
     return { width, height, data: output };
   }
 
-  function fitRaster(raster, width, height, fit, background, cropPosition) {
+  function fitRaster(raster, width, height, fit, background, cropPosition, cropZoom) {
     const source = validateRaster(raster);
     assertInteger(width, "target width");
     assertInteger(height, "target height");
@@ -338,25 +400,17 @@
       return paintContain(source, width, height, background);
     }
     const anchor = normalizeCropPosition(cropPosition);
+    const zoom = normalizeCropZoom(cropZoom);
     if (fit === "cover") {
-      const geometry = cropGeometry(source, width, height);
-      const scaled = resizeNearest(
-        source,
-        geometry.scaledWidth,
-        geometry.scaledHeight,
-      );
-      return cropRaster(scaled, width, height, anchor);
+      const geometry = cropGeometry(source, width, height, zoom);
+      return resizeCropNearest(source, width, height, geometry, anchor);
     }
-    const targetAspect = width / height;
-    const sourceAspect = source.width / source.height;
-    let cropWidth = source.width;
-    let cropHeight = source.height;
-    if (sourceAspect > targetAspect) {
-      cropWidth = Math.max(1, Math.round(source.height * targetAspect));
-    } else if (sourceAspect < targetAspect) {
-      cropHeight = Math.max(1, Math.round(source.width / targetAspect));
-    }
-    return resizeNearest(cropRaster(source, cropWidth, cropHeight, anchor), width, height);
+    const cropWindowSize = cropWindow(source, width, height, zoom);
+    return resizeNearest(
+      cropRaster(source, cropWindowSize.width, cropWindowSize.height, anchor),
+      width,
+      height,
+    );
   }
 
   function processRaster(raster, options) {
@@ -380,6 +434,7 @@
       settings.fit || "contain",
       settings.background,
       settings.cropPosition,
+      settings.cropZoom,
     );
   }
 
@@ -387,6 +442,7 @@
     FIT_MODES,
     ORIENTATION_PROFILES,
     DEFAULT_CROP_POSITION,
+    DEFAULT_CROP_ZOOM,
     makeRaster,
     readExifOrientation,
     flattenOnWhite,
@@ -394,7 +450,9 @@
     mirror,
     rotate90Cw,
     normalizeCropPosition,
+    normalizeCropZoom,
     cropGeometry,
+    cropWindow,
     cropRaster,
     cropCenter,
     resizeNearest,

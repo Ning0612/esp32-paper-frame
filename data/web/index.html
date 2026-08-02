@@ -437,6 +437,13 @@
                           title="將目前工作影像順時針旋轉 90 度">順時針旋轉 90°</button>
                 </div>
                 <p class="field-hint">每按一次就立即套用一次；可連續按下累積變換。</p>
+                <div id="image-crop-controls" class="image-crop-controls" hidden>
+                  <label class="field" for="image-crop-zoom">
+                    <span>裁切縮放 <output id="image-crop-zoom-value" for="image-crop-zoom">100%</output></span>
+                    <input id="image-crop-zoom" type="range" min="1" max="3" step="0.01" value="1" disabled aria-label="裁切縮放">
+                  </label>
+                  <p id="image-crop-zoom-hint" class="field-hint">100% 保留最大的裁切範圍；放大後可在預覽中拖曳選擇目標。</p>
+                </div>
                 <button id="image-process" class="primary-button" type="button" disabled>重新處理圖片</button>
                 <p id="image-status" class="save-status" role="status" aria-live="polite">請先選擇圖片。</p>
               </section>
@@ -461,7 +468,7 @@
 
             <section class="preview-grid" aria-label="圖片預覽">
               <article class="panel preview-card"><div class="preview-heading"><h3>原圖</h3><span>EXIF normalized</span></div><canvas id="preview-original" aria-label="原圖預覽"></canvas></article>
-              <article id="image-processed-card" class="panel preview-card crop-interactive"><div class="preview-heading"><h3>處理後</h3><span>fit / crop</span></div><canvas id="preview-processed" tabindex="0" aria-describedby="image-crop-hint image-crop-position" aria-label="處理後預覽；Crop 或 Cover 模式可拖曳圖片調整位置"></canvas><p id="image-crop-hint" class="field-hint" hidden>Crop／Cover 模式：拖曳圖片調整裁切位置；也可使用方向鍵微調。</p><p id="image-crop-position" class="field-hint">目前裁切位置：中央（x 0.50，y 0.50）</p></article>
+              <article id="image-processed-card" class="panel preview-card crop-interactive"><div class="preview-heading"><h3>處理後</h3><span>fit / crop</span></div><canvas id="preview-processed" aria-describedby="image-crop-hint image-crop-position image-crop-zoom-hint" aria-label="處理後預覽；Crop 或 Cover 模式可拖曳圖片調整位置"></canvas><p id="image-crop-hint" class="field-hint" hidden>Crop／Cover 模式：拖曳圖片調整裁切位置。</p><p id="image-crop-position" class="field-hint">目前裁切位置：中央（x 0.50，y 0.50）</p></article>
               <article class="panel preview-card"><div class="preview-heading"><h3>六色</h3><span>native palette</span></div><canvas id="preview-sixcolor" aria-label="六色預覽"></canvas></article>
               <article class="panel preview-card"><div class="preview-heading"><h3>面板畫面</h3><span>status bar</span></div><canvas id="preview-frame" aria-label="含狀態列的面板預覽"></canvas></article>
             </section>

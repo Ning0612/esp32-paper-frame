@@ -140,6 +140,12 @@ h3 { font-size: 1.25rem; }
 .image-transform-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 19px; }
 .image-output-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .transform-button { min-height: 46px; padding: 9px 10px; background: var(--surface-strong); color: var(--ink); box-shadow: 3px 3px 0 var(--line); }
+.image-crop-controls { margin-top: 19px; padding: 12px 13px 10px; border: 2px solid var(--line); background: color-mix(in srgb, var(--surface-strong) 78%, var(--yellow)); }
+.image-crop-controls .field { margin: 0; }
+.image-crop-controls .field > span { display: flex; justify-content: space-between; gap: 12px; }
+.image-crop-controls output { font: 800 .78rem/1.2 Consolas, monospace; }
+.image-crop-controls input[type="range"] { width: 100%; margin: 13px 0 4px; accent-color: var(--coral); cursor: pointer; }
+.image-crop-controls input[type="range"]:disabled { cursor: not-allowed; opacity: .55; }
 .transform-button:hover, .transform-button:focus-visible { background: var(--yellow); color: var(--ink); }
 .transform-button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--line); }
 .field-hint { margin: 10px 0 0; color: var(--muted); font-size: .8rem; font-weight: 700; line-height: 1.45; }
