@@ -65,6 +65,7 @@
   const environmentStatus = $("#environment-status");
   const imageSourceInput = $("#image-source");
   const imageSourceInfo = $("#image-source-info");
+  const imageSourceDropzone = $("#image-source-dropzone");
   const imageOrientation = $("#image-orientation");
   const imageFit = $("#image-fit");
   const imageDither = $("#image-dither");
@@ -1573,6 +1574,46 @@
     }
   }
 
+  function dataTransferHasFiles(dataTransfer) {
+    return Boolean(dataTransfer && (
+      (dataTransfer.files && dataTransfer.files.length > 0) ||
+      Array.from(dataTransfer.items || []).some((item) => item.kind === "file")
+    ));
+  }
+
+  function clearImageSourceDragState() {
+    imageSourceDropzone.classList.remove("is-drag-over");
+  }
+
+  function handleImageSourceDragOver(event) {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    imageSourceDropzone.classList.add("is-drag-over");
+  }
+
+  function handleImageSourceDragLeave(event) {
+    if (event.relatedTarget && imageSourceDropzone.contains(event.relatedTarget)) return;
+    clearImageSourceDragState();
+  }
+
+  function handleImageSourceDrop(event) {
+    event.preventDefault();
+    clearImageSourceDragState();
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (file) void selectImageFile(file);
+  }
+
+  function openImageSourcePicker() {
+    imageSourceInput.click();
+  }
+
+  function handleImageSourceDropzoneKeydown(event) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openImageSourcePicker();
+  }
+
   function downloadImagePfr1() {
     if (!imagePfr1) return;
     const fileName = imageFilename.value.trim() || imageFileName;
@@ -1932,7 +1973,15 @@
 
   $$(".nav-link[data-view]").forEach((link) => link.addEventListener("click", () => showView(link.dataset.view)));
   refreshDashboard.addEventListener("click", () => loadDashboard());
-  imageSourceInput.addEventListener("change", () => selectImageFile(imageSourceInput.files[0]));
+  imageSourceInput.addEventListener("change", () => {
+    clearImageSourceDragState();
+    void selectImageFile(imageSourceInput.files[0]);
+  });
+  imageSourceDropzone.addEventListener("dragover", handleImageSourceDragOver);
+  imageSourceDropzone.addEventListener("dragleave", handleImageSourceDragLeave);
+  imageSourceDropzone.addEventListener("drop", handleImageSourceDrop);
+  imageSourceDropzone.addEventListener("click", openImageSourcePicker);
+  imageSourceDropzone.addEventListener("keydown", handleImageSourceDropzoneKeydown);
   [imageOrientation, imageFit, imageDither].forEach((control) => {
     control.addEventListener("change", () => { if (imageBaseRaster) processImage(); });
   });

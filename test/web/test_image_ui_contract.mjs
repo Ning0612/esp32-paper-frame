@@ -15,7 +15,7 @@ assert.equal(previewBlocks.length, 3);
 assert.ok(html.indexOf("<h3>原圖</h3>") < html.indexOf("<h3>處理後</h3>"));
 assert.ok(html.indexOf("<h3>處理後</h3>") < html.indexOf("<h3>面板畫面</h3>"));
 for (const id of [
-  "image-source", "image-orientation", "image-fit", "image-dither", "image-filename",
+  "image-source", "image-source-dropzone", "image-source-drop-hint", "image-orientation", "image-fit", "image-dither", "image-filename",
   "image-mirror-x", "image-mirror-y", "image-rotate", "preview-original",
   "preview-processed", "preview-frame", "download-pfr1",
   "upload-pfr1",
@@ -44,6 +44,12 @@ assert.ok(html.includes('class="top-navigation"'));
 assert.ok(!html.includes('id="image-mirror-x" type="checkbox"'));
 assert.ok(css.includes(".top-navigation .nav-link { width: auto; min-width: 88px; text-align: center; }"));
 assert.ok(css.includes(".preview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));"));
+assert.ok(html.includes('role="button" tabindex="0"'));
+assert.ok(ui.includes("dataTransfer.files"));
+assert.ok(ui.includes('addEventListener("dragover"'));
+assert.ok(ui.includes('addEventListener("drop"'));
+assert.ok(ui.includes("is-drag-over"));
+assert.ok(css.includes(".image-source-dropzone"));
 assert.ok(ui.includes('fetch("/api/v1/images"'));
 assert.ok(ui.includes("renderImageLibrary"));
 assert.ok(ui.includes("encodeURIComponent(image.name)"));
@@ -77,4 +83,4 @@ assert.ok(!ui.includes("previewProcessed.addEventListener(\"keydown\""));
 assert.ok(!ui.includes('imageSourceRaster'));
 assert.ok(ui.includes("data-image-action"));
 assert.ok(css.includes(".image-library-actions .danger-button"));
-console.log("image_ui_contract: 23 tests passed");
+console.log("image_ui_contract: 29 tests passed");

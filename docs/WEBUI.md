@@ -70,6 +70,9 @@ RuntimeCoordinator 發出模式變更請求，carousel 正在刷新時會等安�
 
 ## Phase 4 圖片處理管線
 
+圖片頁的來源圖片除了檔案選擇按鈕，也可直接拖曳圖片到來源圖片拖放區；兩者會共用相同的
+檔案大小、像素上限、EXIF 與瀏覽器解碼流程。
+
 `data/web/image_pipeline.js` 是離線可載入、也可由 Node host test 驗證的純
 RGBA raster helper。`processRaster()` 固定依序正規化 EXIF orientation 1–8、
 水平鏡像、垂直鏡像、順時針 90°、fit/crop 與 nearest-neighbor resize；透明

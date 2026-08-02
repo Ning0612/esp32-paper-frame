@@ -135,6 +135,11 @@ h3 { font-size: 1.25rem; }
 .image-workbench { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 22px; align-items: start; }
 .image-output { position: sticky; top: 20px; }
 .image-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 15px; }
+.image-source-dropzone { display: grid; gap: 4px; margin: 13px 0 2px; padding: 14px; border: 2px dashed color-mix(in srgb, var(--line) 65%, var(--muted)); background: color-mix(in srgb, var(--surface-strong) 86%, var(--blue)); color: var(--ink); cursor: pointer; outline: none; transition: background .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+.image-source-dropzone strong { font-size: .9rem; }
+.image-source-dropzone span { color: var(--muted); font-size: .78rem; font-weight: 700; }
+.image-source-dropzone:hover, .image-source-dropzone:focus-visible, .image-source-dropzone.is-drag-over { border-color: var(--coral); background: color-mix(in srgb, var(--surface-strong) 72%, var(--yellow)); }
+.image-source-dropzone:focus-visible, .image-source-dropzone.is-drag-over { box-shadow: 4px 4px 0 var(--line); transform: translate(-1px, -1px); }
 .field select { width: 100%; min-height: 46px; border: 2px solid var(--line); border-radius: 0; background: var(--surface-strong); color: var(--ink); padding: 9px 11px; outline: none; font: inherit; }
 .field select:focus { box-shadow: 0 0 0 3px var(--yellow); }
 .image-transform-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 19px; }
