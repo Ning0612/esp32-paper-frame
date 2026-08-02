@@ -968,31 +968,63 @@ display path 接入＋既有 bug 修正、目錄上限 48→96、瀏覽器端壓
   解壓縮回 176,000 bytes 全白 payload 且 CRC32 相符——證明韌體端（ROM
   miniz／host zlib）與瀏覽器端假設的 raw DEFLATE framing 一致。
 
+### 實機驗證結果（2026-08-02，同日追加）
+
+在拿到硬體後實際燒錄（`scripts\flash-app-and-webfs.ps1`）並透過 WebUI
+操作，發現並修正了一個 `pio run` 靜態報告完全看不出來的真實問題，詳見
+[ADR-0010](../adr/0010-revert-catalog-cap-raise-ram-constraint.md)：
+
+- **`kCatalogMaxEntries` 拉到 96（甚至 64）會讓圖片上傳／mutation
+  （activate／reorder／delete）的 task stack 動態配置在真機上失敗**
+  （`deferred_task_stack_alloc_failed task=pf_image_mut bytes=24576`）。
+  已改回 48（原始基準），實機重新驗證：
+  - 上傳成功，`image_upload_stack_free_bytes=2116~2120`（與 Phase 8
+    時期記錄的 ~6,864 bytes 餘裕基準同數量級，仍偏薄但穩定）。
+  - 設為目前／刪除（mutation task）成功，
+    `image_mutation_stack_free_bytes=10020~10324`（比 Phase 8 記錄的
+    ~2,096 bytes 基準餘裕更健康，此次測試時 WiFi/heap 狀態較寬鬆）。
+  - 這代表原先「尚未驗證：真機開機 stack high-water-mark」與「尚未驗證：
+    接近 96 筆容量時的行為」兩項風險，其中後者已經因為撤銷 96 而不再
+    適用（catalog 上限與其相依的靜態 RAM 預算回到拉高前基準，不需要另外
+    驗證「接近上限」情境；但本次功能仍新增了 PFR1 壓縮相關的程式碼路徑，
+    不是「完全沒有異動」）；前者則已用 upload/mutation task 各自的
+    free-bytes log 間接驗證過健康，但尚未逐一檢查 `app_main` 主線與
+    `esp_http_server` 其他 worker task 的 high-water-mark（見下方仍待驗證
+    清單）。
+  - 目前只實測過 48／64／96 三個數字：48 是唯一已實測穩定的設定，
+    64 與 96 都已實測失敗（64 筆時上傳勉強成功但 mutation 失敗；96 筆時
+    上傳本身就失敗）。49–63 之間沒有實測過，不能推論哪個數字是實際的
+    臨界點。
+- **真實瀏覽器上傳流程端對端驗證成功**：使用者透過實際瀏覽器（非測試
+  腳本）連上 WebUI、上傳圖片、設為目前、刪除，整個流程在 48 筆基準下
+  多次重複皆成功，過程中沒有出現 `Failed to fetch` 或
+  `upload_unavailable`（這兩個錯誤先前在 96 筆／64 筆版本上分別重現過，
+  確認與 `kCatalogMaxEntries` 直接相關，不是隨機的網路問題）。
+- 這次測試沒有特別控制上傳圖片一定使用 `floyd-steinberg`/`atkinson`
+  dithering，也沒有逐位元組核對瀏覽器端是否真的觸發壓縮（例如比對上傳
+  payload 大小）或肉眼比對面板顯示內容與來源圖片是否一致——這兩點仍列在
+  下方待驗證清單，不能宣稱已完成。
+
 ### 尚未驗證（需要實機，明確列為風險，不得視為已完成）
 
 以下項目在拿到硬體前都無法用 host test 或 `pio run` 涵蓋，任何一項在
 交付前都不能被略過：
 
-1. **真實瀏覽器 `CompressionStream('deflate-raw')` 與韌體端解壓縮的真正
-   互通性**：目前只驗證了 Node 模擬（`test_pfr1_packer.mjs`）與
-   host zlib／ROM miniz 各自的 raw-deflate 相容性，兩者從未在同一次
-   端對端流程中實際串接過——沒有一次「真實瀏覽器壓縮 → 真實裝置上傳
-   → 真實裝置解壓縮顯示」的完整驗證。
-2. **真機開機 stack high-water-mark**：新增的 PSRAM scratch buffer（
-   ingest／recovery 共用一對、display 另一對，各 182,400 bytes）與拉高
-   目錄上限後的 BSS 成長，都需要在真機上確認 `app_main` 啟動、
-   `esp_http_server` worker、`image_mutation_task_entry` 的 stack 餘裕
-   仍然健康，不能只看 `pio run` 的靜態百分比。
-3. **真機面板顯示與延遲**：上傳一張真實 `floyd-steinberg`/`atkinson`
-   壓縮圖片，確認 carousel 在真實 e-Paper 面板上正確顯示、視覺內容與
-   未壓縮版本一致，且 inflate 沒有造成有感刷新延遲（見前一筆紀錄的待補
-   清單）。
-4. **接近 96 筆容量時的行為**：上傳到接近（不用剛好打到）96 筆，確認
-   reorder／activate／delete 正常運作，且 free-space precheck 在接近
-   容量時仍正確擋下超量上傳。
-5. **斷電／recovery 對壓縮圖片的處理**：模擬交易中斷電，確認壓縮圖片的
+1. **壓縮確實生效的端對端確認**：目前只確認了「上傳/顯示流程整體不出
+   錯」，還沒有具體核對某一次真實上傳「瀏覽器端是否真的送出壓縮後的
+   payload」（例如比對上傳 request 大小、或用瀏覽器開發者工具檢查
+   `PFR1` 檔案的 `compressed` flag），也沒有肉眼比對面板顯示內容與
+   來源圖片是否一致、且與同一張圖的未壓縮版本比對是否有可辨識差異。
+2. **真機開機 stack high-water-mark（全面）**：目前只確認了 upload／
+   mutation 這兩個「有請求才配置」的 task 在 48 筆基準下餘裕健康；
+   `app_main` 主線、`esp_http_server` 其他 worker task、新增的
+   `carousel_inflate_compressed`/`carousel_inflate_output` PSRAM buffer
+   的配置成功與否，都還沒有逐一在真機 log 上確認過。
+3. **carousel 顯示延遲量測**：inflate 步驟是否讓壓縮圖片的 carousel
+   換圖出現可感知延遲，尚未實際量測，也沒有跟未壓縮版本比較。
+4. **斷電／recovery 對壓縮圖片的處理**：模擬交易中斷電，確認壓縮圖片的
    candidate 能在重開機後正確驗證並復原（host test 已用 fake filesystem
    驗證邏輯正確，但真實 LittleFS 斷電行為需要真機確認）。
 
-以上 5 項若在下一輪有硬體時仍未執行，必須繼續留在本檔案的待驗證清單，
+以上 4 項若在下一輪有硬體時仍未執行，必須繼續留在本檔案的待驗證清單，
 不得從交付說明中省略。

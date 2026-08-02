@@ -38,4 +38,5 @@ NNNN-short-imperative-title.md
 - [ADR-0006：感測器 driver 來源與在場/離席判定機制](0006-sensor-drivers-and-presence.md)
 - [ADR-0007：PBKDF2 迭代次數與同步登入決策（G6 收斂）](0007-auth-pbkdf2-iterations-and-sync-login.md)
 - [ADR-0008：OTA 韌體來源、TLS 信任、Rollback 確認時機與 Release 慣例](0008-ota-github-releases-and-rollback.md)
-- [ADR-0009：PFR1 Payload 壓縮與 PFC1 目錄容量上限](0009-pfr1-payload-compression-and-catalog-cap.md)
+- [ADR-0009：PFR1 Payload 壓縮與 PFC1 目錄容量上限](0009-pfr1-payload-compression-and-catalog-cap.md)（`kCatalogMaxEntries` 部分已被 ADR-0010 取代）
+- [ADR-0010：撤銷 PFC1 目錄容量上限拉高，維持 48 筆](0010-revert-catalog-cap-raise-ram-constraint.md)

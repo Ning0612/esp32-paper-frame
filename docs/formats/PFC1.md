@@ -10,12 +10,16 @@ PFC1（PaperFrame Catalog 1）是 `imagefs` 上持久化影像目錄的固定格
 - 所有多位元整數都是 little-endian unsigned integer。
 - magic 固定為 ASCII `PFC1`（bytes `50 46 43 31`）。
 - v1 header 固定 32 bytes，entry 固定 128 bytes。
-- 目錄最多 96 筆，序列化後最多 `32 + 96 × 128 = 12,320` bytes。這是政策
+- 目錄最多 48 筆，序列化後最多 `32 + 48 × 128 = 6,176` bytes。這是政策
   常數（`kCatalogMaxEntries`），不是 wire format 的位元寬度上限——`count`
-  欄位本身是 2 bytes，撐得住遠大於 96，調整這個常數不需要 bump
-  `version`。但這不代表調整永遠零成本：仍要檢查相依的固定大小緩衝區
-  （例如 `components/pf_web/health_server.cpp` 的 reorder body 容量）、
-  驗證邏輯與 RAM 預算是否也需要跟著調整。
+  欄位本身是 2 bytes，撐得住遠大於 48，調整這個常數不需要 bump
+  `version`。但這不代表調整永遠零成本：
+  [ADR-0010](../adr/0010-revert-catalog-cap-raise-ram-constraint.md)
+  記錄了一次實機驗證失敗——拉到 96（甚至 64）都會讓
+  `components/pf_web/health_server.cpp` 的圖片上傳／mutation task
+  「有請求才動態配置」的 internal RAM stack 配置失敗，因為 `pio run`
+  的靜態百分比不涵蓋這類執行期動態配置需求。未來要再調整這個常數，
+  必須先完成實機驗證，不能只看編譯期報告。
 - 空目錄仍有 32-byte header；`next_id` 從 `1` 開始，`generation` 在每次
   成功的目錄 mutation 後遞增。`UINT32_MAX` 是持久化的 exhausted marker，
   表示不再自動配置 id；實際 entry id 永遠小於此值。
@@ -32,7 +36,7 @@ PFC1（PaperFrame Catalog 1）是 `imagefs` 上持久化影像目錄的固定格
 | 6 | 2 | `reserved` | 必須為 0 |
 | 8 | 4 | `generation` | 目錄 mutation generation |
 | 12 | 4 | `next_id` | 下一個自動配置的非零 entry id；`UINT32_MAX` 表示 exhausted |
-| 16 | 2 | `count` | `0..96` |
+| 16 | 2 | `count` | `0..48` |
 | 18 | 2 | `entry_size` | `128` |
 | 20 | 4 | `payload_length` | 必須等於 `count × 128` |
 | 24 | 4 | `payload_crc32` | CRC32 of all entry records |
@@ -76,7 +80,7 @@ Header CRC 的輸入包含 `payload_length`，但不包含兩個 CRC 欄位。pa
 - `current` 必須同時 `enabled` 且不可 `corrupt`；`enabled | corrupt` 可暫存，
   但永遠不得送入 carousel eligible set。
 - `order` 必須是沒有缺口的 `0..count-1`。
-- id、filename 不可重複；entry 數不得超過 96。
+- id、filename 不可重複；entry 數不得超過 48。
 - 任何驗證失敗都不得序列化成可提交的 catalog。
 
 ## 交易邊界

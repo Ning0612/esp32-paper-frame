@@ -1,8 +1,27 @@
 # ADR-0009：PFR1 Payload 壓縮與 PFC1 目錄容量上限
 
-- Status: accepted
+- Status: accepted（`kCatalogMaxEntries` 部分已被
+  [ADR-0010](0010-revert-catalog-cap-raise-ram-constraint.md) 取代，見下方
+  「更新」；PFR1 payload 壓縮決策不受影響，繼續有效）
 - Date: 2026-08-02
 - Supersedes: none
+
+## 更新（2026-08-02，同日）
+
+實機驗證發現「`kCatalogMaxEntries` 48→96」這個決策在真實 RAM 預算下不
+成立（見 [ADR-0010](0010-revert-catalog-cap-raise-ram-constraint.md)）：
+`pio run` 的靜態 RAM 報告沒有涵蓋 `components/pf_web/health_server.cpp`
+圖片上傳／mutation task 「有請求才動態配置」的 stack 需求，96 筆（甚至
+64 筆）都會讓 mutation task 的 24 KB stack 配置在實機上失敗。
+`kCatalogMaxEntries` 已改回 48；本文件下方「`kCatalogMaxEntries`：
+48 → 96」整段內容保留原樣供歷史脈絡參考，**目前有效的決策以 ADR-0010
+為準**。PFR1 payload 壓縮（`compressed` flag、瀏覽器端 `CompressionStream`
+／韌體端 ROM miniz）這個決策本身**不受此次撤銷影響**——但這句話僅指
+「沒有被撤銷」，不是「已完整驗證」：目前只確認了 48-entry 基準下 WebUI
+的上傳與 mutation（設為目前／刪除）流程能跑完不出錯；瀏覽器端是否真的
+對該次上傳送出壓縮後的 payload、以及面板顯示內容是否與來源圖片一致，
+都還沒有具體核對，仍列在 `docs/hardware/VALIDATION.md` 的待驗證清單，
+不能宣稱「顯示正常」。
 
 ## Context
 
