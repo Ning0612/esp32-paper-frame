@@ -1,7 +1,9 @@
 # ADR-0009：PFR1 Payload 壓縮與 PFC1 目錄容量上限
 
 - Status: accepted（`kCatalogMaxEntries` 部分已被
-  [ADR-0010](0010-revert-catalog-cap-raise-ram-constraint.md) 取代，見下方
+  [ADR-0010](0010-revert-catalog-cap-raise-ram-constraint.md) 取代，
+  ADR-0010 本身又已被
+  [ADR-0012](0012-raise-catalog-cap-after-ram-reclaim.md) 取代，見下方
   「更新」；PFR1 payload 壓縮決策不受影響，繼續有效）
 - Date: 2026-08-02
 - Supersedes: none
@@ -13,9 +15,13 @@
 `pio run` 的靜態 RAM 報告沒有涵蓋 `components/pf_web/health_server.cpp`
 圖片上傳／mutation task 「有請求才動態配置」的 stack 需求，96 筆（甚至
 64 筆）都會讓 mutation task 的 24 KB stack 配置在實機上失敗。
-`kCatalogMaxEntries` 已改回 48；本文件下方「`kCatalogMaxEntries`：
-48 → 96」整段內容保留原樣供歷史脈絡參考，**目前有效的決策以 ADR-0010
-為準**。PFR1 payload 壓縮（`compressed` flag、瀏覽器端 `CompressionStream`
+`kCatalogMaxEntries` 當時改回 48；本文件下方「`kCatalogMaxEntries`：
+48 → 96」整段內容保留原樣供歷史脈絡參考。**ADR-0010 的 48 這個決策後來
+在 RAM 重構＋重新實機驗證後又被
+[ADR-0012](0012-raise-catalog-cap-after-ram-reclaim.md) 取代，目前有效
+的值是 64，不是 48 也不是 96**——三份 ADR 依序取代，讀者若只看 ADR-0010
+會誤以為 48 仍是目前狀態，請以 ADR-0012 為準。PFR1 payload 壓縮
+（`compressed` flag、瀏覽器端 `CompressionStream`
 ／韌體端 ROM miniz）這個決策本身**不受此次撤銷影響**——但這句話僅指
 「沒有被撤銷」，不是「已完整驗證」：目前只確認了 48-entry 基準下 WebUI
 的上傳與 mutation（設為目前／刪除）流程能跑完不出錯；瀏覽器端是否真的

@@ -968,7 +968,10 @@ display path 接入＋既有 bug 修正、目錄上限 48→96、瀏覽器端壓
   解壓縮回 176,000 bytes 全白 payload 且 CRC32 相符——證明韌體端（ROM
   miniz／host zlib）與瀏覽器端假設的 raw DEFLATE framing 一致。
 
-### 實機驗證結果（2026-08-02，同日追加）
+### 實機驗證結果（2026-08-02，同日追加；⚠️ 本節全部是 Phase 1 RAM 重構
+**之前**的歷史紀錄，`kCatalogMaxEntries` 目前的值與現況請見下方
+「Phase 3」那筆紀錄與 [ADR-0012](../adr/0012-raise-catalog-cap-after-ram-reclaim.md)，
+不要把本節任何「已改回 48」「目前」等描述當作現在的狀態）
 
 在拿到硬體後實際燒錄（`scripts\flash-app-and-webfs.ps1`）並透過 WebUI
 操作，發現並修正了一個 `pio run` 靜態報告完全看不出來的真實問題，詳見
@@ -977,7 +980,7 @@ display path 接入＋既有 bug 修正、目錄上限 48→96、瀏覽器端壓
 - **`kCatalogMaxEntries` 拉到 96（甚至 64）會讓圖片上傳／mutation
   （activate／reorder／delete）的 task stack 動態配置在真機上失敗**
   （`deferred_task_stack_alloc_failed task=pf_image_mut bytes=24576`）。
-  已改回 48（原始基準），實機重新驗證：
+  當時改回 48（原始基準），實機重新驗證：
   - 上傳成功，`image_upload_stack_free_bytes=2116~2120`（與 Phase 8
     時期記錄的 ~6,864 bytes 餘裕基準同數量級，仍偏薄但穩定）。
   - 設為目前／刪除（mutation task）成功，
@@ -991,10 +994,14 @@ display path 接入＋既有 bug 修正、目錄上限 48→96、瀏覽器端壓
     free-bytes log 間接驗證過健康，但尚未逐一檢查 `app_main` 主線與
     `esp_http_server` 其他 worker task 的 high-water-mark（見下方仍待驗證
     清單）。
-  - 目前只實測過 48／64／96 三個數字：48 是唯一已實測穩定的設定，
-    64 與 96 都已實測失敗（64 筆時上傳勉強成功但 mutation 失敗；96 筆時
-    上傳本身就失敗）。49–63 之間沒有實測過，不能推論哪個數字是實際的
-    臨界點。
+  - **（Phase 1 RAM 重構前）**只實測過 48／64／96 三個數字：48 是唯一
+    已實測穩定的設定，64 與 96 都已實測失敗（64 筆時上傳勉強成功但
+    mutation 失敗；96 筆時上傳本身就失敗）。49–63 之間沒有實測過，不能
+    推論哪個數字是實際的臨界點。**這個結論的前提是 Phase 1 之前的 RAM
+    預算**；Phase 1 回收 57.8KB 之後重新測試，64 已經穩定通過，見下方
+    2026-08-02「Phase 3」那筆紀錄與
+    [ADR-0012](../adr/0012-raise-catalog-cap-after-ram-reclaim.md)，
+    不要把這裡的舊結論當作目前狀態。
 - **真實瀏覽器上傳流程端對端驗證成功**：使用者透過實際瀏覽器（非測試
   腳本）連上 WebUI、上傳圖片、設為目前、刪除，整個流程在 48 筆基準下
   多次重複皆成功，過程中沒有出現 `Failed to fetch` 或
@@ -1139,3 +1146,55 @@ internal DRAM，upload/mutation/carousel/config 表單/開機復原全部在真�
 上確認正常，無回歸。`app_main` 主線與其他 worker task 的完整
 high-water-mark（既有清單第 1 項）仍未逐一量測，維持待驗證，但不阻塞
 Phase 3 的啟動評估。
+
+## 2026-08-02 — Phase 3：重新拉高 `kCatalogMaxEntries`，真機兩點風險探測
+
+Phase 1 完整實機驗證通過後，測試了 64 與 80 兩個候選值（不是完整
+bisection，65–79 與 96 都沒測）。用即時序列監看盯著使用者在 WiFi 已
+連線、weather worker 有活動的條件下操作 WebUI（上傳／設為目前／
+刪除／排序）。完整記錄見
+[ADR-0012](../adr/0012-raise-catalog-cap-after-ram-reclaim.md)。
+
+**量測方式的限制**：`image_upload_stack_free_bytes`／
+`image_mutation_stack_free_bytes` 底層用的是
+`uxTaskGetStackHighWaterMark()`，回傳的是該 task 自建立以來的歷史
+最低剩餘 stack，不是每次呼叫當下的即時剩餘量；`pf_image_up`／
+`pf_image_mut` 這兩個 task 在同一次開機期間只建立一次、之後重複使用，
+所以下面同一輪測試裡的多筆數字反映的是「目前為止哪一次操作把 stack
+用到最深」，不是逐次量測的即時趨勢。
+
+**64 筆**：`pio run` internal RAM 32.4%（106,080 bytes）。多次上傳與
+mutation 操作全部成功，記錄到的歷史最低餘裕：
+
+```text
+image_upload_stack_free_bytes=2120
+image_upload_stack_free_bytes=2124
+image_mutation_stack_free_bytes=5912
+image_mutation_stack_free_bytes=5608
+image_mutation_stack_free_bytes=5608
+```
+
+**80 筆**：`pio run` internal RAM 33.8%（110,624 bytes）。上傳成功
+（`2124`），mutation 也全部成功，但記錄到的歷史最低餘裕明顯更薄：
+
+```text
+image_mutation_stack_free_bytes=1492
+image_mutation_stack_free_bytes=1492
+image_mutation_stack_free_bytes=1428
+image_mutation_stack_free_bytes=1188
+```
+
+同一個 24,576-byte 的 mutation stack，64 筆時最低餘裕落在
+5608~5912 bytes（約 23%~24%），80 筆時掉到 1188 bytes（約 4.8%）——
+這是同一 task、同一指標的前後對照，不需要跟 upload task 的數字比較。
+這四次操作都沒有真正觸發 `deferred_task_stack_alloc_failed`，**不能
+解讀為「持續惡化的趨勢」**（high-water-mark 本身只會持平或下降，不是
+即時量測），正確的解讀是「本輪測試裡最深的一次操作只剩 1188 bytes
+餘裕」，已經薄到不足以保守採用，因此拒絕 80，但**沒有證據證明 80
+必然會失敗**——只有兩個測試點，證據強度僅止於此。
+
+**結論（定案，見 ADR-0012）**：`kCatalogMaxEntries` 訂為 **64**——本輪
+唯一通過保守安全門檻的候選值。80 因為記錄到的最低餘裕不足而拒絕採用，
+但不是「已被證明會失敗」；96 未測試，結果未知；65–79 之間也未測試，
+不知道實際臨界值在哪裡。裝置已重新燒錄回 64 筆版本作為最終狀態（不是
+停在 80 筆的測試狀態）。

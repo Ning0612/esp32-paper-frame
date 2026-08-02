@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 #include <unity.h>
@@ -371,6 +372,39 @@ void test_catalog_accepts_smaller_payload_bytes_but_rejects_zero_or_oversized()
         static_cast<int>(error));
 }
 
+void test_catalog_accepts_exactly_max_entries_and_rejects_one_more()
+{
+    // Direct regression guard for kCatalogMaxEntries itself, independent
+    // of whatever the constant's current value is (ADR-0012 raised it
+    // 48 -> 64; a future ADR may change it again) -- fills the catalog to
+    // the boundary and confirms the last accepted add and the first
+    // rejected add land exactly where kCatalogMaxEntries says they should.
+    pf_storage::Catalog catalog{};
+    TEST_ASSERT_TRUE(pf_storage::initialize_catalog(catalog));
+    pf_storage::CatalogError error = pf_storage::CatalogError::none;
+    std::uint32_t assigned_id = 0U;
+
+    for (std::size_t index = 0U; index < pf_storage::kCatalogMaxEntries;
+         ++index) {
+        char name[32] = {};
+        std::snprintf(name, sizeof(name), "img-%zu.pfr1", index);
+        TEST_ASSERT_TRUE(pf_storage::add_catalog_entry(
+            catalog, make_entry(name), assigned_id, error));
+    }
+    TEST_ASSERT_EQUAL_UINT16(
+        static_cast<std::uint16_t>(pf_storage::kCatalogMaxEntries),
+        catalog.count);
+
+    TEST_ASSERT_FALSE(pf_storage::add_catalog_entry(
+        catalog, make_entry("one-too-many.pfr1"), assigned_id, error));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_storage::CatalogError::invalid_count),
+        static_cast<int>(error));
+    TEST_ASSERT_EQUAL_UINT16(
+        static_cast<std::uint16_t>(pf_storage::kCatalogMaxEntries),
+        catalog.count);
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -382,5 +416,6 @@ int main(int, char**)
     RUN_TEST(test_catalog_reorder_and_remove_keep_invariants);
     RUN_TEST(test_catalog_id_exhaustion_is_explicit_and_safe);
     RUN_TEST(test_catalog_accepts_smaller_payload_bytes_but_rejects_zero_or_oversized);
+    RUN_TEST(test_catalog_accepts_exactly_max_entries_and_rejects_one_more);
     return UNITY_END();
 }

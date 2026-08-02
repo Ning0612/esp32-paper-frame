@@ -4,6 +4,10 @@
 - Date: 2026-08-02
 - Supersedes: ADR-0009（僅 `kCatalogMaxEntries` 部分；PFR1 payload 壓縮
   決策不受影響，繼續有效）
+- **Superseded by**：[ADR-0012](0012-raise-catalog-cap-after-ram-reclaim.md)
+  （僅 `kCatalogMaxEntries` 部分——完成 RAM 重構並重新實機驗證後改為
+  64 筆；本 ADR 的根因分析與「調整前必須先實機驗證」的教訓繼續有效，
+  沒有被推翻）
 
 ## Context
 

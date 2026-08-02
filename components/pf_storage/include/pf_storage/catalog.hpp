@@ -11,7 +11,7 @@ inline constexpr std::size_t kCatalogHeaderSize = 32U;
 inline constexpr std::size_t kCatalogEntrySize = 128U;
 inline constexpr std::size_t kCatalogNameCapacity =
     pf_image::kPfr1MaxFilenameBytes + 1U;
-inline constexpr std::size_t kCatalogMaxEntries = 48U;
+inline constexpr std::size_t kCatalogMaxEntries = 64U;
 inline constexpr std::size_t kCatalogMaxBytes =
     kCatalogHeaderSize + kCatalogEntrySize * kCatalogMaxEntries;
 // UINT32_MAX is a durable exhaustion marker: no automatic id can be assigned

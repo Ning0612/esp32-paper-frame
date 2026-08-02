@@ -41,3 +41,4 @@ NNNN-short-imperative-title.md
 - [ADR-0009：PFR1 Payload 壓縮與 PFC1 目錄容量上限](0009-pfr1-payload-compression-and-catalog-cap.md)（`kCatalogMaxEntries` 部分已被 ADR-0010 取代）
 - [ADR-0010：撤銷 PFC1 目錄容量上限拉高，維持 48 筆](0010-revert-catalog-cap-raise-ram-constraint.md)
 - [ADR-0011：PFR1 壓縮功能的 PSRAM／flash cache-disable 交錯安全性調查](0011-psram-flash-cache-disable-safety.md)
+- [ADR-0012：RAM 重構後重新拉高 PFC1 目錄容量上限至 64 筆](0012-raise-catalog-cap-after-ram-reclaim.md)（取代 ADR-0010 的 `kCatalogMaxEntries` 部分）
