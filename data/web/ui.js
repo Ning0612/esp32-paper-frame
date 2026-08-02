@@ -537,7 +537,12 @@
     }
 
     mapEl.addEventListener("pointerdown", (event) => {
-      if (!state.online) return;
+      // The zoom buttons and the attribution link are DOM descendants of
+      // mapEl (positioned as overlays), so their pointerdown bubbles up
+      // here too. Without this guard, starting a click on them also
+      // starts a map drag and steals the pointer via setPointerCapture
+      // below, so the button/link never gets a working click.
+      if (!state.online || event.target.closest("button, a")) return;
       state.dragging = true;
       state.dragStartX = event.clientX;
       state.dragStartY = event.clientY;
