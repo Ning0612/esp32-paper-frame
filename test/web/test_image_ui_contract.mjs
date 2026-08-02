@@ -4,16 +4,20 @@ import { readFile } from "node:fs/promises";
 const html = await readFile("data/web/index.html", "utf8");
 const ui = await readFile("data/web/ui.js", "utf8");
 const css = await readFile("data/web/style.css", "utf8");
+const previewBlocks = html.match(/<article[^>]*class="panel preview-card[^>]*>[\s\S]*?<\/article>/g) || [];
 
 assert.ok(html.includes('<script src="/image_pipeline.js" defer></script>'));
 assert.ok(html.includes('<script src="/image_quantizer.js" defer></script>'));
 assert.ok(html.includes('<script src="/image_pfr1.js" defer></script>'));
 assert.ok(html.includes('data-view="image"'));
 assert.ok(html.includes('id="top-navigation"'));
+assert.equal(previewBlocks.length, 3);
+assert.ok(html.indexOf("<h3>原圖</h3>") < html.indexOf("<h3>處理後</h3>"));
+assert.ok(html.indexOf("<h3>處理後</h3>") < html.indexOf("<h3>面板畫面</h3>"));
 for (const id of [
   "image-source", "image-orientation", "image-fit", "image-dither", "image-filename",
   "image-mirror-x", "image-mirror-y", "image-rotate", "preview-original",
-  "preview-processed", "preview-sixcolor", "preview-frame", "download-pfr1",
+  "preview-processed", "preview-frame", "download-pfr1",
   "upload-pfr1",
   "image-library-refresh", "image-library-status", "image-library-list",
   "image-processed-card", "image-crop-hint", "image-crop-controls", "image-crop-zoom",
@@ -39,6 +43,7 @@ assert.ok(html.includes('id="image-library"'));
 assert.ok(html.includes('class="top-navigation"'));
 assert.ok(!html.includes('id="image-mirror-x" type="checkbox"'));
 assert.ok(css.includes(".top-navigation .nav-link { width: auto; min-width: 88px; text-align: center; }"));
+assert.ok(css.includes(".preview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));"));
 assert.ok(ui.includes('fetch("/api/v1/images"'));
 assert.ok(ui.includes("renderImageLibrary"));
 assert.ok(ui.includes("encodeURIComponent(image.name)"));
@@ -64,10 +69,12 @@ assert.ok(html.includes('value="floyd-steinberg"'));
 assert.ok(html.includes('value="atkinson"'));
 assert.ok(!html.includes('value="nearest"'));
 assert.ok(!html.includes('value="bayer-4x4"'));
+assert.ok(!html.includes('id="preview-sixcolor"'));
+assert.ok(!ui.includes("previewSixColor"));
 assert.ok(!html.includes("方向鍵微調"));
 assert.ok(!ui.includes("handleCropKeydown"));
 assert.ok(!ui.includes("previewProcessed.addEventListener(\"keydown\""));
 assert.ok(!ui.includes('imageSourceRaster'));
 assert.ok(ui.includes("data-image-action"));
 assert.ok(css.includes(".image-library-actions .danger-button"));
-console.log("image_ui_contract: 20 tests passed");
+console.log("image_ui_contract: 23 tests passed");

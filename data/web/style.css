@@ -162,7 +162,7 @@ h3 { font-size: 1.25rem; }
 .weather-map-zoom button:hover { background: var(--yellow); color: #171712; }
 .weather-map-attribution { position: absolute; right: 0; bottom: 0; z-index: 2; background: color-mix(in srgb, var(--surface-strong) 85%, transparent); color: var(--ink); padding: 2px 6px; font: 700 .68rem/1.3 Consolas, monospace; text-decoration: none; }
 .weather-map-attribution:hover { text-decoration: underline; }
-.preview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
+.preview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
 .preview-card { padding: 14px; }
 .preview-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 9px; border-bottom: 2px solid var(--line); }
 .preview-heading h3 { margin: 0; font-size: 1rem; }

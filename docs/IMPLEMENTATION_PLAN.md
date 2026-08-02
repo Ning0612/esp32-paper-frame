@@ -232,7 +232,7 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - G4 的 `docs/formats/PFR1.md` 與跨 C++/JavaScript golden vectors。
 - 瀏覽器載圖、EXIF orientation、透明白底、鏡像、旋轉、fit/crop、縮放。
 - Floyd–Steinberg、Atkinson 六色量化 Web Worker；Crop/Cover 預覽支援拖曳定位與 100%–300% 裁切縮放。
-- 原圖／處理後／六色／狀態列預覽與輸出尺寸、方向、大小提示。
+- 原圖／處理後／面板畫面預覽與輸出尺寸、方向、大小提示；六色量化仍在背景完成並用於 PFR1 打包。
 - 圖片頁可保存 Random／隨機輪播設定；來源圖片上限為 6,400 萬像素（檔案仍限 32 MB）。
 - JavaScript PFR1 packer 與韌體端 streaming parser/validator。
 

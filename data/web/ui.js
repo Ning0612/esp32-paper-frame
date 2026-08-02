@@ -89,7 +89,6 @@
   const imageCropControls = $("#image-crop-controls");
   const imageCropZoomInput = $("#image-crop-zoom");
   const imageCropZoomValue = $("#image-crop-zoom-value");
-  const previewSixColor = $("#preview-sixcolor");
   const previewFrame = $("#preview-frame");
   const dashboardStatus = $("#dashboard-status");
   const refreshDashboard = $("#refresh-dashboard");
@@ -1478,7 +1477,6 @@
       imageStatus.textContent = "正在由離線 worker 做六色量化…";
       const quantized = await quantizeWithWorker(processed, imageDither.value, requestId);
       if (requestId !== imageRevision) return;
-      drawRaster(previewSixColor, quantized);
       drawFramePreview(previewFrame, quantized);
       const packed = await window.PaperFramePfr1.packPfr1(quantized, {
         filename: imageFilename.value.trim() || imageFileName,
