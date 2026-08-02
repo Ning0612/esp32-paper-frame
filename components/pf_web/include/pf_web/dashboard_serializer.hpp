@@ -31,10 +31,7 @@ struct MaskedConfig {
     bool weather_api_key_set;
     std::int32_t weather_latitude_e6;
     std::int32_t weather_longitude_e6;
-    std::uint32_t weather_interval_minutes;
-    const char* weather_location;
     const char* weather_units;
-    const char* weather_language;
     const char* weather_ntp_server;
     bool environment_enabled;
     bool light_enabled;
@@ -773,8 +770,8 @@ inline SerializeResult serialize_masked_config(
     const std::size_t output_size)
 {
     if (output == nullptr || output_size == 0U ||
-        config.timezone == nullptr || config.weather_location == nullptr ||
-        config.weather_units == nullptr || config.weather_language == nullptr ||
+        config.timezone == nullptr ||
+        config.weather_units == nullptr ||
         config.weather_ntp_server == nullptr) {
         return {false, 0U};
     }
@@ -803,21 +800,11 @@ inline SerializeResult serialize_masked_config(
                                      pf_config::kTimezoneCapacity)
                                     ? config.timezone
                                     : "unknown";
-    const char* const location = safe_text(
-                                     config.weather_location,
-                                     pf_config::kWeatherLocationCapacity)
-                                    ? config.weather_location
-                                    : "unknown";
     const char* const units = safe_text(
                                   config.weather_units,
                                   pf_config::kWeatherUnitsCapacity)
                                   ? config.weather_units
                                   : "unknown";
-    const char* const language = safe_text(
-                                    config.weather_language,
-                                    pf_config::kWeatherLanguageCapacity)
-                                    ? config.weather_language
-                                    : "unknown";
     const char* const ntp_server = safe_text(
                                       config.weather_ntp_server,
                                       pf_config::kWeatherNtpServerCapacity)
@@ -845,8 +832,7 @@ inline SerializeResult serialize_masked_config(
         "\"timezone\":\"%s\"},\"weather\":{"
         "\"configured\":%s,\"api_key_set\":%s,"
         "\"latitude_e6\":%ld,\"longitude_e6\":%ld,"
-        "\"interval_minutes\":%lu,\"location\":\"%s\","
-        "\"units\":\"%s\",\"language\":\"%s\","
+        "\"units\":\"%s\","
         "\"ntp_server\":\"%s\"},\"sensors\":{"
         "\"environment_enabled\":%s,\"light_enabled\":%s,"
         "\"light_threshold\":%u,\"away_duration_s\":%lu,"
@@ -860,10 +846,7 @@ inline SerializeResult serialize_masked_config(
         config.weather_api_key_set ? "true" : "false",
         static_cast<long>(config.weather_latitude_e6),
         static_cast<long>(config.weather_longitude_e6),
-        static_cast<unsigned long>(config.weather_interval_minutes),
-        location,
         units,
-        language,
         ntp_server,
         config.environment_enabled ? "true" : "false",
         config.light_enabled ? "true" : "false",

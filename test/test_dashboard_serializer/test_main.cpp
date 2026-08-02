@@ -365,10 +365,7 @@ void test_masked_config_never_returns_secret_values()
         .weather_api_key_set = true,
         .weather_latitude_e6 = 25033000,
         .weather_longitude_e6 = 121565000,
-        .weather_interval_minutes = 10,
-        .weather_location = "Taipei",
         .weather_units = "metric",
-        .weather_language = "zh_tw",
         .weather_ntp_server = "pool.ntp.org",
         .environment_enabled = true,
         .light_enabled = true,
@@ -423,10 +420,7 @@ void test_unavailable_config_uses_null_for_unknown_refresh()
         .weather_api_key_set = false,
         .weather_latitude_e6 = 0,
         .weather_longitude_e6 = 0,
-        .weather_interval_minutes = 0,
-        .weather_location = "unknown",
         .weather_units = "unknown",
-        .weather_language = "unknown",
         .weather_ntp_server = "unknown",
     };
     char output[1024]{};
@@ -456,10 +450,7 @@ void test_masked_config_bounds_unterminated_text()
         .weather_api_key_set = false,
         .weather_latitude_e6 = 0,
         .weather_longitude_e6 = 0,
-        .weather_interval_minutes = 0,
-        .weather_location = "Taipei",
         .weather_units = "metric",
-        .weather_language = "zh_tw",
         .weather_ntp_server = "pool.ntp.org",
     };
     char output[1024]{};

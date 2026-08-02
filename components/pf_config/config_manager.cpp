@@ -316,8 +316,17 @@ WeatherSettingsLoadResult load_weather_settings()
     }
     if (result != ESP_OK || length != sizeof(blob)) {
         secure_zero(blob);
+        // ESP_ERR_NVS_INVALID_LENGTH means the stored blob no longer fits
+        // this build's (smaller) WeatherSettingsBlob -- e.g. a pre-upgrade
+        // record from before a schema version bump. Normalize it to the
+        // same ESP_ERR_INVALID_SIZE used for the "read ok but wrong
+        // length" case below, so callers only need to recognize one
+        // "recoverable schema mismatch" code instead of reaching into
+        // NVS-specific error codes.
+        const bool schema_size_mismatch =
+            result == ESP_OK || result == ESP_ERR_NVS_INVALID_LENGTH;
         return {
-            result == ESP_OK ? ESP_ERR_INVALID_SIZE : result,
+            schema_size_mismatch ? ESP_ERR_INVALID_SIZE : result,
             false,
             {},
         };

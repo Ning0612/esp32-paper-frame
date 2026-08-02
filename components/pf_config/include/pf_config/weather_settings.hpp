@@ -10,27 +10,23 @@
 namespace pf_config {
 
 inline constexpr std::uint32_t kWeatherSettingsMagic = 0x31574650U;
-inline constexpr std::uint16_t kWeatherSettingsVersion = 1U;
+inline constexpr std::uint16_t kWeatherSettingsVersion = 2U;
 inline constexpr std::size_t kWeatherApiKeyCapacity = 128U;
-inline constexpr std::size_t kWeatherLocationCapacity = 48U;
 inline constexpr std::size_t kWeatherUnitsCapacity = 9U;
-inline constexpr std::size_t kWeatherLanguageCapacity = 16U;
 inline constexpr std::size_t kWeatherNtpServerCapacity = 64U;
-inline constexpr std::uint32_t kMinimumWeatherIntervalMinutes = 10U;
-inline constexpr std::uint32_t kMaximumWeatherIntervalMinutes = 1440U;
 inline constexpr std::int32_t kMinimumLatitudeE6 = -90'000'000;
 inline constexpr std::int32_t kMaximumLatitudeE6 = 90'000'000;
 inline constexpr std::int32_t kMinimumLongitudeE6 = -180'000'000;
 inline constexpr std::int32_t kMaximumLongitudeE6 = 180'000'000;
 
+// Display language is fixed to English (see ADR-0014) and the update
+// cadence is driven by the carousel's panel-refresh cycle instead of a
+// user-configured interval, so neither is part of the persisted schema.
 struct WeatherSettings {
     std::int32_t latitude_e6 = 25'033'000;
     std::int32_t longitude_e6 = 121'565'000;
-    std::uint32_t update_interval_minutes = 10U;
     char api_key[kWeatherApiKeyCapacity]{};
-    char location[kWeatherLocationCapacity] = "Taipei";
     char units[kWeatherUnitsCapacity] = "metric";
-    char language[kWeatherLanguageCapacity] = "zh_tw";
     char ntp_server[kWeatherNtpServerCapacity] = "pool.ntp.org";
 };
 
@@ -40,11 +36,8 @@ struct WeatherSettingsBlob {
     std::uint16_t reserved = 0U;
     std::int32_t latitude_e6 = 0;
     std::int32_t longitude_e6 = 0;
-    std::uint32_t update_interval_minutes = 0U;
     char api_key[kWeatherApiKeyCapacity]{};
-    char location[kWeatherLocationCapacity]{};
     char units[kWeatherUnitsCapacity]{};
-    char language[kWeatherLanguageCapacity]{};
     char ntp_server[kWeatherNtpServerCapacity]{};
     std::uint32_t crc32 = 0U;
 };
@@ -82,24 +75,12 @@ inline bool weather_settings_valid(const WeatherSettings& settings)
            settings.latitude_e6 <= kMaximumLatitudeE6 &&
            settings.longitude_e6 >= kMinimumLongitudeE6 &&
            settings.longitude_e6 <= kMaximumLongitudeE6 &&
-           settings.update_interval_minutes >=
-               kMinimumWeatherIntervalMinutes &&
-           settings.update_interval_minutes <=
-               kMaximumWeatherIntervalMinutes &&
            valid_weather_text(
                settings.api_key,
                sizeof(settings.api_key),
                true) &&
            (api_key_length == 0U || api_key_length >= 8U) &&
-           valid_weather_text(
-               settings.location,
-               sizeof(settings.location),
-               false) &&
            units_valid &&
-           valid_weather_text(
-               settings.language,
-               sizeof(settings.language),
-               false) &&
            valid_weather_text(
                settings.ntp_server,
                sizeof(settings.ntp_server),
@@ -140,17 +121,10 @@ inline std::uint32_t weather_settings_crc32(
     update_u16(blob.reserved);
     update_i32(blob.latitude_e6);
     update_i32(blob.longitude_e6);
-    update_u32(blob.update_interval_minutes);
     for (const char value : blob.api_key) {
         update(static_cast<std::uint8_t>(value));
     }
-    for (const char value : blob.location) {
-        update(static_cast<std::uint8_t>(value));
-    }
     for (const char value : blob.units) {
-        update(static_cast<std::uint8_t>(value));
-    }
-    for (const char value : blob.language) {
         update(static_cast<std::uint8_t>(value));
     }
     for (const char value : blob.ntp_server) {
@@ -170,7 +144,6 @@ inline bool encode_weather_settings(
     const SecureZeroGuard candidate_guard(candidate);
     candidate.latitude_e6 = settings.latitude_e6;
     candidate.longitude_e6 = settings.longitude_e6;
-    candidate.update_interval_minutes = settings.update_interval_minutes;
     const auto copy_text = [](char* const destination,
                               const std::size_t capacity,
                               const char* const source) {
@@ -185,9 +158,7 @@ inline bool encode_weather_settings(
         return true;
     };
     if (!copy_text(candidate.api_key, sizeof(candidate.api_key), settings.api_key) ||
-        !copy_text(candidate.location, sizeof(candidate.location), settings.location) ||
         !copy_text(candidate.units, sizeof(candidate.units), settings.units) ||
-        !copy_text(candidate.language, sizeof(candidate.language), settings.language) ||
         !copy_text(candidate.ntp_server, sizeof(candidate.ntp_server), settings.ntp_server)) {
         return false;
     }
@@ -210,7 +181,6 @@ inline bool decode_weather_settings(
     const SecureZeroGuard candidate_guard(candidate);
     candidate.latitude_e6 = blob.latitude_e6;
     candidate.longitude_e6 = blob.longitude_e6;
-    candidate.update_interval_minutes = blob.update_interval_minutes;
     const auto copy_text = [](char* const destination,
                               const std::size_t capacity,
                               const char* const source) {
@@ -225,9 +195,7 @@ inline bool decode_weather_settings(
         return true;
     };
     if (!copy_text(candidate.api_key, sizeof(candidate.api_key), blob.api_key) ||
-        !copy_text(candidate.location, sizeof(candidate.location), blob.location) ||
         !copy_text(candidate.units, sizeof(candidate.units), blob.units) ||
-        !copy_text(candidate.language, sizeof(candidate.language), blob.language) ||
         !copy_text(candidate.ntp_server, sizeof(candidate.ntp_server), blob.ntp_server)) {
         return false;
     }

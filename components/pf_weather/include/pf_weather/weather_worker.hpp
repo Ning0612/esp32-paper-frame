@@ -34,8 +34,10 @@ public:
         pf_network::NetworkService& network);
 
     // Wakes the worker immediately instead of waiting for the next
-    // scheduled attempt; called after a settings save so a changed
-    // location/API key takes effect without waiting out the old interval.
+    // scheduled attempt; called after a settings save (changed lat/lng or
+    // API key) and right after the carousel accepts a real panel-refresh
+    // submission, since there is no periodic timer of its own -- see
+    // ADR-0014.
     void request_immediate_refresh();
 
 private:

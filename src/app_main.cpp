@@ -1179,6 +1179,14 @@ extern "C" void app_main()
                 if (submit == pf_display::SubmitStatus::accepted) {
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
+                    // No periodic weather timer (ADR-0014): kick a refresh
+                    // attempt right after a real panel refresh is accepted
+                    // so the status bar picks up fresher data on the
+                    // following cycle. Gated on actual acceptance (not
+                    // every non-wait decision) so a stuck frame
+                    // pool/submit queue can't turn this into a once-a-
+                    // second retry loop.
+                    pf_weather::weather_worker().request_immediate_refresh();
                     ESP_LOGI(
                         kTag,
                         "carousel_welcome_queued request=%" PRIu32,
@@ -1228,6 +1236,9 @@ extern "C" void app_main()
                 if (submit == pf_display::SubmitStatus::accepted) {
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
+                    // See the matching comment on the welcome-frame path
+                    // above: only trigger on an accepted submission.
+                    pf_weather::weather_worker().request_immediate_refresh();
                     ESP_LOGI(
                         kTag,
                         "carousel_image_queued id=%" PRIu32

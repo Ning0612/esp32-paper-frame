@@ -14,14 +14,25 @@ configuration while preserving these result categories.
 
 Cache updates happen only after a complete, validated observation. Failures
 retain the previous observation, record a failure category, and schedule a
-bounded exponential retry (10 seconds through 60 minutes). A successful fetch
-resets the backoff and schedules the normal 10-minute refresh interval.
+bounded exponential retry (10 seconds through 60 minutes), unchanged by
+ADR-0014. A successful fetch resets the backoff and schedules no further
+automatic attempt (see ADR-0014): the next fetch only happens when something
+calls `WeatherWorker::request_immediate_refresh()`.
 
 ## Persisted settings
 
 Weather settings are stored in the independent NVS namespace `pf_weather`.
-The record includes latitude/longitude (microdegrees), update interval, API
-key, display location, units, language, and NTP server. The record is versioned
-and protected by CRC32; a missing record uses the safe Taipei/metric defaults.
-The API key is never returned by the management API: callers receive only an
-`api_key_set` boolean.
+The record includes latitude/longitude (microdegrees), API key, units, and
+NTP server. The record is versioned and protected by CRC32; a missing record
+uses the safe Taipei/metric defaults. The API key is never returned by the
+management API: callers receive only an `api_key_set` boolean.
+
+There is no user-configurable update interval or display language/location
+(see [ADR-0014](adr/0014-weather-panel-refresh-cadence-and-map-picker.md)):
+the API request language is fixed to English, and refreshes are triggered by
+`WeatherWorker::request_immediate_refresh()` right after the carousel accepts
+a real panel refresh submission, instead of running on a periodic timer. The
+WebUI's latitude/
+longitude fields are set either by typing microdegrees directly or through a
+map coordinate picker (online OpenStreetMap tiles with a fixed center pin,
+falling back to a canvas-drawn graticule when offline).

@@ -37,7 +37,8 @@ WeatherWorker（`pf_weather_worker` component）與狀態列渲染（`pf_display
   `weather_last_success_epoch_s`、`weather_consecutive_failures`、
   `weather_last_failure`），值語意複製，不使用指標，維持
   `RuntimeSnapshot` 的 trivially-copyable 契約。
-- **Rate limit / 更新頻率**：改採 `WeatherSettings.update_interval_minutes`
+- **Rate limit / 更新頻率**（**已被 [ADR-0014](0014-weather-panel-refresh-cadence-and-map-picker.md) 取代**）：
+  改採 `WeatherSettings.update_interval_minutes`
   （使用者可設 10–1440 分鐘）取代 `pf_weather::kUpdateIntervalMs` 目前寫死
   的 10 分鐘；`pf_weather::record_success` 擴充一個 `interval_ms` 參數，
   預設值等於原常數以維持既有呼叫端相容。OpenWeatherMap 免費額度為
@@ -99,7 +100,11 @@ WeatherWorker（`pf_weather_worker` component）與狀態列渲染（`pf_display
   `request_immediate_refresh()` 提前喚醒，不必等到下一個排程週期。
 - 狀態列內容更新沿用既有整頁 refresh 節奏（不新增 `CommandKind`、不做
   局部刷新驅動）；天氣本身 10–1440 分鐘的更新頻率與既有 5–30 分鐘
-  carousel refresh 週期已經匹配，此設計為刻意簡化，非遺漏。
+  carousel refresh 週期已經匹配，此設計為刻意簡化，非遺漏
+  （**更新頻率的排程來源本身已被 [ADR-0014](0014-weather-panel-refresh-cadence-and-map-picker.md)
+  取代**：不再有獨立的使用者可調間隔，改為 carousel 每次面板刷新前
+  觸發，但「沿用整頁 refresh 節奏、不做局部刷新」這個更上層的設計仍然
+  成立）。
 - 未來若要改變 endpoint、TLS 策略或字型/圖示來源，需要新的 superseding
   ADR，而不是直接修改程式碼繞過本決策。
 

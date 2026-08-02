@@ -37,10 +37,7 @@
   const weatherApiKey = $("#weather-api-key");
   const weatherLatitude = $("#weather-latitude");
   const weatherLongitude = $("#weather-longitude");
-  const weatherInterval = $("#weather-interval");
-  const weatherLocation = $("#weather-location");
   const weatherUnits = $("#weather-units");
-  const weatherLanguage = $("#weather-language");
   const weatherNtpServer = $("#weather-ntp-server");
   const weatherSave = $("#weather-save");
   const weatherStatus = $("#weather-status");
@@ -322,6 +319,322 @@
     }
   }
 
+  // Coordinate picker for the weather form's latitude/longitude fields.
+  // Online: real OpenStreetMap XYZ raster tiles with a fixed center pin
+  // (drag the map to pan, +/- to zoom). Offline (tile probe fails, or
+  // navigator.onLine is false): falls back to a canvas-drawn equirectangular
+  // graticule with a free-form draggable pin, so the picker keeps working
+  // without any external asset or CDN dependency (CLAUDE.md offline
+  // requirement) -- see ADR-0014.
+  const weatherMap = (() => {
+    const TILE_SIZE = 256;
+    const MIN_ZOOM = 0;
+    const MAX_ZOOM = 12;
+    // Web Mercator's usable latitude range; used everywhere centerLat is
+    // set or clamped (online tiles, offline canvas, and setCoordinates())
+    // so the number inputs, the fixed center pin, and the offline marker
+    // never disagree about what a stored latitude actually represents.
+    const MAX_LAT = 85.0511;
+    const mapEl = $("#weather-map");
+    const tilesLayer = $("#weather-map-tiles");
+    const canvas = $("#weather-map-canvas");
+    const pin = $("#weather-map-pin");
+    const zoomInButton = $("#weather-map-zoom-in");
+    const zoomOutButton = $("#weather-map-zoom-out");
+    const modeLabel = $("#weather-map-mode");
+    const attribution = $("#weather-map-attribution");
+
+    const state = {
+      online: null,
+      zoom: 4,
+      centerLat: 25.033,
+      centerLon: 121.565,
+      dragging: false,
+      dragStartX: 0,
+      dragStartY: 0,
+      dragStartLat: 0,
+      dragStartLon: 0,
+    };
+
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+    // Wrap into [-180, 180) so panning across the antimeridian can't leave
+    // centerLon (and therefore the saved longitude) out of range; renderTiles()
+    // already wraps tile X independently, but the stored/synced value needs
+    // its own wrap.
+    const normalizeLon = (lon) => ((((lon + 180) % 360) + 360) % 360) - 180;
+
+    function lonToWorldX(lon, zoom) {
+      return ((lon + 180) / 360) * TILE_SIZE * 2 ** zoom;
+    }
+    function latToWorldY(lat, zoom) {
+      const rad = (clamp(lat, -MAX_LAT, MAX_LAT) * Math.PI) / 180;
+      return (
+        ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) *
+        TILE_SIZE *
+        2 ** zoom
+      );
+    }
+    function worldXToLon(x, zoom) {
+      return (x / (TILE_SIZE * 2 ** zoom)) * 360 - 180;
+    }
+    function worldYToLat(y, zoom) {
+      const n = Math.PI - (2 * Math.PI * y) / (TILE_SIZE * 2 ** zoom);
+      return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+    }
+
+    function syncInputsFromCenter() {
+      weatherLatitude.value = Math.round(state.centerLat * 1e6);
+      weatherLongitude.value = Math.round(state.centerLon * 1e6);
+    }
+
+    function renderTiles() {
+      const width = mapEl.clientWidth;
+      const height = mapEl.clientHeight;
+      if (width === 0 || height === 0) return;
+      const centerX = lonToWorldX(state.centerLon, state.zoom);
+      const centerY = latToWorldY(state.centerLat, state.zoom);
+      const originX = centerX - width / 2;
+      const originY = centerY - height / 2;
+      const tileCount = 2 ** state.zoom;
+      const firstTileX = Math.floor(originX / TILE_SIZE);
+      const firstTileY = Math.floor(originY / TILE_SIZE);
+      const tilesX = Math.ceil(width / TILE_SIZE) + 2;
+      const tilesY = Math.ceil(height / TILE_SIZE) + 2;
+      tilesLayer.textContent = "";
+      for (let ty = 0; ty < tilesY; ty += 1) {
+        const gy = firstTileY + ty;
+        if (gy < 0 || gy >= tileCount) continue;
+        for (let tx = 0; tx < tilesX; tx += 1) {
+          const gx = firstTileX + tx;
+          const wrappedX = ((gx % tileCount) + tileCount) % tileCount;
+          const img = document.createElement("img");
+          img.src = `https://tile.openstreetmap.org/${state.zoom}/${wrappedX}/${gy}.png`;
+          img.alt = "";
+          img.draggable = false;
+          img.style.left = `${gx * TILE_SIZE - originX}px`;
+          img.style.top = `${gy * TILE_SIZE - originY}px`;
+          tilesLayer.appendChild(img);
+        }
+      }
+    }
+
+    function drawGraticule() {
+      const rect = mapEl.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      const ctx = canvas.getContext("2d");
+      const styles = getComputedStyle(document.documentElement);
+      const surfaceColor = styles.getPropertyValue("--surface-strong").trim() || "#fffdf5";
+      const mutedColor = styles.getPropertyValue("--muted").trim() || "#686355";
+      const lineColor = styles.getPropertyValue("--line").trim() || "#25241f";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = surfaceColor;
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.strokeStyle = `${mutedColor}66`;
+      ctx.lineWidth = 1;
+      ctx.font = "10px Consolas, monospace";
+      ctx.fillStyle = mutedColor;
+      for (let lon = -180; lon <= 180; lon += 30) {
+        const x = ((lon + 180) / 360) * rect.width;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, rect.height);
+        ctx.stroke();
+        ctx.fillText(`${lon}°`, Math.min(x + 3, rect.width - 26), 11);
+      }
+      for (let lat = -90; lat <= 90; lat += 30) {
+        const y = ((90 - lat) / 180) * rect.height;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(rect.width, y);
+        ctx.stroke();
+        ctx.fillText(`${lat}°`, 2, Math.max(y - 3, 11));
+      }
+      ctx.strokeStyle = "#d8483d";
+      ctx.lineWidth = 2;
+      const zeroX = (180 / 360) * rect.width;
+      ctx.beginPath();
+      ctx.moveTo(zeroX, 0);
+      ctx.lineTo(zeroX, rect.height);
+      ctx.stroke();
+      const zeroY = (90 / 180) * rect.height;
+      ctx.beginPath();
+      ctx.moveTo(0, zeroY);
+      ctx.lineTo(rect.width, zeroY);
+      ctx.stroke();
+
+      const markerX = ((state.centerLon + 180) / 360) * rect.width;
+      const markerY = ((90 - state.centerLat) / 180) * rect.height;
+      ctx.fillStyle = "#d8483d";
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(markerX, markerY, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function render() {
+      if (state.online) renderTiles();
+      else if (state.online === false) drawGraticule();
+    }
+
+    function updateFromCanvasEvent(event) {
+      const rect = canvas.getBoundingClientRect();
+      // A zero-size rect (layout not settled yet, e.g. right as the view
+      // is unhidden) would divide by zero below; bail out rather than
+      // writing NaN into state and the number inputs.
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const lon = clamp((x / rect.width) * 360 - 180, -180, 180);
+      const lat = clamp(90 - (y / rect.height) * 180, -MAX_LAT, MAX_LAT);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+      state.centerLon = lon;
+      state.centerLat = lat;
+      drawGraticule();
+      syncInputsFromCenter();
+    }
+
+    function enterOnlineMode() {
+      if (state.online) return;
+      state.online = true;
+      modeLabel.textContent = "線上地圖";
+      canvas.hidden = true;
+      tilesLayer.hidden = false;
+      pin.hidden = false;
+      zoomInButton.hidden = false;
+      zoomOutButton.hidden = false;
+      attribution.hidden = false;
+      renderTiles();
+    }
+
+    function enterOfflineMode() {
+      if (state.online === false) return;
+      state.online = false;
+      modeLabel.textContent = "離線模式（經緯度格線）";
+      tilesLayer.hidden = true;
+      pin.hidden = true;
+      zoomInButton.hidden = true;
+      zoomOutButton.hidden = true;
+      attribution.hidden = true;
+      canvas.hidden = false;
+      drawGraticule();
+    }
+
+    function probeConnectivity() {
+      if (!navigator.onLine) {
+        enterOfflineMode();
+        return;
+      }
+      const probe = new Image();
+      probe.addEventListener("load", enterOnlineMode, { once: true });
+      probe.addEventListener("error", enterOfflineMode, { once: true });
+      probe.src = "https://tile.openstreetmap.org/0/0/0.png";
+    }
+
+    mapEl.addEventListener("pointerdown", (event) => {
+      if (!state.online) return;
+      state.dragging = true;
+      state.dragStartX = event.clientX;
+      state.dragStartY = event.clientY;
+      state.dragStartLat = state.centerLat;
+      state.dragStartLon = state.centerLon;
+      mapEl.setPointerCapture(event.pointerId);
+    });
+    mapEl.addEventListener("pointermove", (event) => {
+      // state.dragging is shared with the offline canvas's own drag
+      // handling below; without this online check, a pointermove that
+      // bubbles up from a canvas drag (offline mode) would still run
+      // this branch using stale/zeroed dragStart values and call
+      // renderTiles() -- i.e. issue real OpenStreetMap tile requests
+      // while the picker is supposed to be fully offline.
+      if (!state.online || !state.dragging) return;
+      const dx = event.clientX - state.dragStartX;
+      const dy = event.clientY - state.dragStartY;
+      const originX = lonToWorldX(state.dragStartLon, state.zoom) - dx;
+      const originY = latToWorldY(state.dragStartLat, state.zoom) - dy;
+      state.centerLon = normalizeLon(worldXToLon(originX, state.zoom));
+      state.centerLat = clamp(worldYToLat(originY, state.zoom), -MAX_LAT, MAX_LAT);
+      renderTiles();
+    });
+    const endDrag = () => {
+      if (!state.dragging) return;
+      state.dragging = false;
+      syncInputsFromCenter();
+    };
+    mapEl.addEventListener("pointerup", endDrag);
+    mapEl.addEventListener("pointercancel", endDrag);
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (state.online) return;
+      event.stopPropagation();
+      state.dragging = true;
+      canvas.setPointerCapture(event.pointerId);
+      updateFromCanvasEvent(event);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (state.online || !state.dragging) return;
+      event.stopPropagation();
+      updateFromCanvasEvent(event);
+    });
+    const endCanvasDrag = (event) => {
+      state.dragging = false;
+      event.stopPropagation();
+    };
+    canvas.addEventListener("pointerup", endCanvasDrag);
+    canvas.addEventListener("pointercancel", endCanvasDrag);
+
+    zoomInButton.addEventListener("click", () => {
+      state.zoom = clamp(state.zoom + 1, MIN_ZOOM, MAX_ZOOM);
+      renderTiles();
+    });
+    zoomOutButton.addEventListener("click", () => {
+      state.zoom = clamp(state.zoom - 1, MIN_ZOOM, MAX_ZOOM);
+      renderTiles();
+    });
+    window.addEventListener("resize", () => {
+      if (!weatherView.hidden) render();
+    });
+
+    return {
+      // syncBack controls whether the (possibly clamped/normalized) value
+      // gets written back into the number inputs. loadWeatherConfig()
+      // passes false: positioning the map to show what the backend has
+      // saved should never itself alter what would be submitted on the
+      // next unrelated save (e.g. just changing the NTP server). The
+      // manual lat/lng "change" handler passes true, since there the user
+      // just edited that exact field and immediate clamp feedback is
+      // expected. Drag/click on the map itself always calls
+      // syncInputsFromCenter() directly (not through here), since that is
+      // inherently a user-driven coordinate edit.
+      setCoordinates(latE6, lonE6, { syncBack = false } = {}) {
+        const lat = Number(latE6);
+        const lon = Number(lonE6);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        // Clamp to the same +/-85.0511 Web Mercator limit renderTiles()
+        // uses, not +/-90 (no real weather location is this far
+        // poleward anyway).
+        state.centerLat = clamp(lat / 1e6, -MAX_LAT, MAX_LAT);
+        state.centerLon = normalizeLon(clamp(lon / 1e6, -180, 180));
+        if (syncBack) syncInputsFromCenter();
+        if (state.online === null) probeConnectivity();
+        else render();
+      },
+    };
+  })();
+
+  const syncMapFromInputs = () => {
+    weatherMap.setCoordinates(weatherLatitude.value, weatherLongitude.value, {
+      syncBack: true,
+    });
+  };
+  weatherLatitude.addEventListener("change", syncMapFromInputs);
+  weatherLongitude.addEventListener("change", syncMapFromInputs);
+
   async function loadWeatherConfig() {
     weatherStatus.textContent = "正在讀取天氣設定…";
     try {
@@ -337,15 +650,13 @@
       const weather = payload.data.weather;
       weatherLatitude.value = weather.latitude_e6 ?? "";
       weatherLongitude.value = weather.longitude_e6 ?? "";
-      weatherInterval.value = weather.interval_minutes ?? 10;
-      weatherLocation.value = weather.location || "Taipei";
       weatherUnits.value = weather.units || "metric";
-      weatherLanguage.value = weather.language || "zh_tw";
       weatherNtpServer.value = weather.ntp_server || "pool.ntp.org";
       weatherApiKey.value = "";
       $("#weather-config-state").textContent = weather.configured ? "已保存" : "使用預設值";
       $("#weather-api-key-state").textContent = weather.api_key_set ? "已設定（遮罩）" : "尚未設定";
       weatherStatus.textContent = "設定已載入；留白 API key 會保留原值。";
+      weatherMap.setCoordinates(weatherLatitude.value, weatherLongitude.value);
     } catch (error) {
       weatherStatus.className = "save-status error";
       weatherStatus.textContent = `天氣設定讀取失敗：${error.message || "請稍後重試"}`;
@@ -358,15 +669,12 @@
     const values = {
       latitude_e6: weatherLatitude.value.trim(),
       longitude_e6: weatherLongitude.value.trim(),
-      interval_minutes: weatherInterval.value.trim(),
-      location: weatherLocation.value.trim(),
       units: weatherUnits.value,
-      language: weatherLanguage.value.trim(),
       ntp_server: weatherNtpServer.value.trim(),
     };
-    if (!values.location || !values.language || !values.ntp_server) {
+    if (!values.latitude_e6 || !values.longitude_e6 || !values.ntp_server) {
       weatherStatus.className = "save-status error";
-      weatherStatus.textContent = "請完整填寫地點、語言與 NTP server。";
+      weatherStatus.textContent = "請完整填寫經緯度與 NTP server。";
       return;
     }
     weatherSave.disabled = true;

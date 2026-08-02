@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "pf_config/config_manager.hpp"
+#include "pf_config/secure_memory.hpp"
 #include "pf_network/network_service_esp_idf.hpp"
 #include "pf_runtime/runtime_coordinator.hpp"
 
@@ -36,6 +37,21 @@ void bounded_copy(
         ++index;
     }
     destination[index] = '\0';
+}
+
+// True for the load_weather_settings() error codes that mean "the stored
+// blob doesn't match the current WeatherSettingsBlob layout" (schema
+// version bump, corrupted/truncated record) rather than "NVS itself is
+// broken". Only these are safe to treat as "use defaults and keep trying"
+// -- a genuine NVS driver/open failure should still count as a fetch
+// failure instead of silently masking a real storage problem.
+// config_manager.cpp's load_weather_settings() normalizes NVS-specific
+// size errors (e.g. ESP_ERR_NVS_INVALID_LENGTH from a pre-upgrade blob
+// that no longer fits the current struct) into ESP_ERR_INVALID_SIZE, so
+// this component only needs to know these two plain esp_err.h codes.
+bool is_recoverable_schema_mismatch(const esp_err_t error)
+{
+    return error == ESP_ERR_INVALID_CRC || error == ESP_ERR_INVALID_SIZE;
 }
 
 }  // namespace
@@ -125,10 +141,16 @@ void WeatherWorker::task_main()
         }
 
         const std::uint64_t after_ms = now_ms_since_boot();
-        const TickType_t wait_ticks =
-            cache_.next_attempt_ms > after_ms
-                ? pdMS_TO_TICKS(cache_.next_attempt_ms - after_ms)
-                : pdMS_TO_TICKS(1000U);
+        // next_attempt_ms == UINT64_MAX means "no automatic retry
+        // scheduled" (see the record_success() call above); computing
+        // pdMS_TO_TICKS() on that magnitude would overflow, so wait
+        // indefinitely for request_immediate_refresh() instead.
+        TickType_t wait_ticks = portMAX_DELAY;
+        if (cache_.next_attempt_ms != UINT64_MAX) {
+            wait_ticks = cache_.next_attempt_ms > after_ms
+                             ? pdMS_TO_TICKS(cache_.next_attempt_ms - after_ms)
+                             : pdMS_TO_TICKS(1000U);
+        }
         xSemaphoreTake(wake_semaphore_, wait_ticks);
     }
 }
@@ -184,35 +206,75 @@ void WeatherWorker::report_internet(const bool reachable)
 
 void WeatherWorker::fetch_once()
 {
+    // A recoverable schema-mismatch load failure (e.g. a pre-upgrade blob
+    // whose size no longer matches WeatherSettingsBlob after a schema
+    // version bump) still yields safe Taipei/metric defaults in
+    // settings_result.settings -- mirrors app_main.cpp's
+    // "weather_settings_load_failed=...; using defaults" handling instead
+    // of treating it as a fetch failure. A genuine NVS-level failure (e.g.
+    // the namespace itself won't open) is not silently papered over the
+    // same way: it still counts as Failure::network so a real storage
+    // problem isn't misreported as (say) an invalid API key.
     const pf_config::WeatherSettingsLoadResult settings_result =
         pf_config::load_weather_settings();
-    if (settings_result.error != ESP_OK) {
+    if (settings_result.error != ESP_OK &&
+        !is_recoverable_schema_mismatch(settings_result.error)) {
+        ESP_LOGW(
+            kTag,
+            "weather_settings_load_failed=%s",
+            esp_err_to_name(settings_result.error));
         apply_failure(pf_weather::Failure::network);
         return;
     }
+    if (settings_result.error != ESP_OK) {
+        ESP_LOGW(
+            kTag,
+            "weather_settings_load_failed=%s; using defaults",
+            esp_err_to_name(settings_result.error));
+    }
     const pf_config::WeatherSettings& settings = settings_result.settings;
+
+    if (settings.api_key[0] == '\0') {
+        // No point spending a real HTTPS round trip: an empty key is
+        // guaranteed to come back 401. Record the state so the dashboard
+        // shows "not configured" and schedule no automatic retry --
+        // saving a valid key already wakes the worker via
+        // request_immediate_refresh(), so there is nothing to gain by
+        // polling on a timer for a key that clearly isn't there yet.
+        ESP_LOGW(kTag, "weather_api_key_not_configured; skipping fetch");
+        cache_.last_failure = pf_weather::Failure::api_key_invalid;
+        cache_.next_attempt_ms = UINT64_MAX;
+        publish();
+        return;
+    }
 
     // Bounded, guaranteed-NUL-terminated local copies: WeatherSettings is
     // decoded from NVS via a separate path and this function has no way
     // to re-verify that contract, so it does not trust %s formatting
     // fixed-size fields directly.
     char api_key[sizeof(settings.api_key)]{};
+    const pf_config::SecureZeroGuard api_key_guard(api_key);
     char units[sizeof(settings.units)]{};
-    char language[sizeof(settings.language)]{};
     bounded_copy(api_key, sizeof(api_key), settings.api_key);
     bounded_copy(units, sizeof(units), settings.units);
-    bounded_copy(language, sizeof(language), settings.language);
 
+    // url_buffer_ embeds the API key in its query string; zero it once
+    // this function returns (any path) instead of leaving the key sitting
+    // in this member until the next fetch overwrites it.
+    const pf_config::SecureZeroGuard url_buffer_guard(url_buffer_);
+
+    // Language is fixed to English (ADR-0014): it is not user-configurable
+    // so the internal weather-condition/icon mapping only has one string
+    // table to stay in sync with.
     const int url_written = std::snprintf(
         url_buffer_,
         sizeof(url_buffer_),
         "https://api.openweathermap.org/data/2.5/weather"
-        "?lat=%.6f&lon=%.6f&appid=%s&units=%s&lang=%s",
+        "?lat=%.6f&lon=%.6f&appid=%s&units=%s&lang=en",
         static_cast<double>(settings.latitude_e6) / 1000000.0,
         static_cast<double>(settings.longitude_e6) / 1000000.0,
         api_key,
-        units,
-        language);
+        units);
     if (url_written < 0 ||
         static_cast<std::size_t>(url_written) >= sizeof(url_buffer_)) {
         ESP_LOGW(kTag, "weather_url_build_failed_or_truncated");
@@ -302,13 +364,18 @@ void WeatherWorker::fetch_once()
     }
 
     bounded_copy(cached_units_, sizeof(cached_units_), units);
+    // No periodic follow-up: the next fetch is woken externally by
+    // request_immediate_refresh() right after the carousel's next panel
+    // refresh is accepted (see app_main.cpp), not by a user-configured
+    // interval.
+    // UINT64_MAX saturates next_attempt_ms so retry_due() stays false
+    // until something calls request_immediate_refresh() again.
     pf_weather::record_success(
         cache_,
         parsed.observation,
         static_cast<std::uint64_t>(wall_clock_now),
         now_ms_since_boot(),
-        static_cast<std::uint64_t>(settings.update_interval_minutes) *
-            60U * 1000U);
+        UINT64_MAX);
     report_internet(true);
     publish();
 }

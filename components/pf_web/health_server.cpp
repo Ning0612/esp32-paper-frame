@@ -285,11 +285,30 @@ esp_err_t set_common_headers(
             "nosniff");
     }
     if (result == ESP_OK) {
+        // img-src carves out an exception for the weather page's map
+        // coordinate picker (ADR-0014): it loads OpenStreetMap tiles
+        // directly from the browser when online, falling back to a
+        // canvas-drawn graticule (no external asset) when the tile host
+        // is unreachable -- including when this CSP itself blocks it, so
+        // this exception is what makes "online" detection possible at
+        // all rather than every probe silently failing closed. Every
+        // other directive stays locked to 'self'; connect-src is
+        // deliberately not widened since the map only ever issues image
+        // loads (img-src), never fetch/XHR to the tile host.
+        // frame-ancestors/base-uri/form-action/object-src close off
+        // navigation/document-level injection vectors that default-src
+        // doesn't cover on its own; deliberately no
+        // upgrade-insecure-requests since this device is served over
+        // plain HTTP and that directive would try (and fail) to upgrade
+        // its own relative resources to a nonexistent HTTPS origin.
         result = httpd_resp_set_hdr(
             request,
             "Content-Security-Policy",
             "default-src 'self'; connect-src 'self'; "
-            "img-src 'self'; style-src 'self'; script-src 'self'");
+            "img-src 'self' https://tile.openstreetmap.org; "
+            "style-src 'self'; script-src 'self'; "
+            "frame-ancestors 'none'; base-uri 'none'; "
+            "form-action 'self'; object-src 'none'");
     }
     return result;
 }
@@ -799,11 +818,7 @@ esp_err_t config_handler(httpd_req_t* request)
             server_access_config.weather_settings.api_key[0] != '\0',
         .weather_latitude_e6 = server_access_config.weather_settings.latitude_e6,
         .weather_longitude_e6 = server_access_config.weather_settings.longitude_e6,
-        .weather_interval_minutes =
-            server_access_config.weather_settings.update_interval_minutes,
-        .weather_location = server_access_config.weather_settings.location,
         .weather_units = server_access_config.weather_settings.units,
-        .weather_language = server_access_config.weather_settings.language,
         .weather_ntp_server = server_access_config.weather_settings.ntp_server,
         .environment_enabled = false,
         .light_enabled = false,
@@ -929,18 +944,13 @@ esp_err_t process_weather_config(
     xSemaphoreGive(weather_config_mutex);
     const pf_config::SecureZeroGuard candidate_guard(candidate);
     if (!parse_weather_i32(form.latitude_e6, candidate.latitude_e6) ||
-        !parse_weather_i32(form.longitude_e6, candidate.longitude_e6) ||
-        !parse_weather_u32(
-            form.interval_minutes,
-            candidate.update_interval_minutes)) {
+        !parse_weather_i32(form.longitude_e6, candidate.longitude_e6)) {
         return send_json(
             request,
             "422 Unprocessable Entity",
             "{\"ok\":false,\"error\":\"invalid_value\"}");
     }
-    std::memcpy(candidate.location, form.location, sizeof(candidate.location));
     std::memcpy(candidate.units, form.units, sizeof(candidate.units));
-    std::memcpy(candidate.language, form.language, sizeof(candidate.language));
     std::memcpy(candidate.ntp_server, form.ntp_server, sizeof(candidate.ntp_server));
     if (form.api_key_seen) {
         std::memcpy(candidate.api_key, form.api_key, sizeof(candidate.api_key));

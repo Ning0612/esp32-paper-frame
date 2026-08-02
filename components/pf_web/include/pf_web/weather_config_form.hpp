@@ -24,10 +24,7 @@ struct WeatherConfigForm {
     char api_key[pf_config::kWeatherApiKeyCapacity]{};
     char latitude_e6[16]{};
     char longitude_e6[16]{};
-    char interval_minutes[8]{};
-    char location[pf_config::kWeatherLocationCapacity]{};
     char units[pf_config::kWeatherUnitsCapacity]{};
-    char language[pf_config::kWeatherLanguageCapacity]{};
     char ntp_server[pf_config::kWeatherNtpServerCapacity]{};
 };
 
@@ -82,10 +79,7 @@ inline WeatherConfigParseStatus parse_weather_config_form(
     const pf_config::SecureZeroGuard candidate_guard(candidate);
     bool latitude_seen = false;
     bool longitude_seen = false;
-    bool interval_seen = false;
-    bool location_seen = false;
     bool units_seen = false;
-    bool language_seen = false;
     bool ntp_seen = false;
 
     std::size_t cursor = 0U;
@@ -127,29 +121,11 @@ inline WeatherConfigParseStatus parse_weather_config_form(
             destination_field = candidate.longitude_e6;
             destination_capacity = sizeof(candidate.longitude_e6);
             seen = &longitude_seen;
-        } else if (name_length == 16U &&
-                   std::memcmp(
-                       body + field_start,
-                       "interval_minutes",
-                       16U) == 0) {
-            destination_field = candidate.interval_minutes;
-            destination_capacity = sizeof(candidate.interval_minutes);
-            seen = &interval_seen;
-        } else if (name_length == 8U &&
-                   std::memcmp(body + field_start, "location", 8U) == 0) {
-            destination_field = candidate.location;
-            destination_capacity = sizeof(candidate.location);
-            seen = &location_seen;
         } else if (name_length == 5U &&
                    std::memcmp(body + field_start, "units", 5U) == 0) {
             destination_field = candidate.units;
             destination_capacity = sizeof(candidate.units);
             seen = &units_seen;
-        } else if (name_length == 8U &&
-                   std::memcmp(body + field_start, "language", 8U) == 0) {
-            destination_field = candidate.language;
-            destination_capacity = sizeof(candidate.language);
-            seen = &language_seen;
         } else if (name_length == 10U &&
                    std::memcmp(body + field_start, "ntp_server", 10U) == 0) {
             destination_field = candidate.ntp_server;
@@ -173,8 +149,7 @@ inline WeatherConfigParseStatus parse_weather_config_form(
         }
     }
 
-    if (!latitude_seen || !longitude_seen || !interval_seen ||
-        !location_seen || !units_seen || !language_seen || !ntp_seen) {
+    if (!latitude_seen || !longitude_seen || !units_seen || !ntp_seen) {
         return WeatherConfigParseStatus::missing_field;
     }
     destination = candidate;
@@ -221,29 +196,6 @@ inline bool parse_weather_i32(
     } else {
         destination = static_cast<std::int32_t>(value);
     }
-    return true;
-}
-
-inline bool parse_weather_u32(
-    const char* const text,
-    std::uint32_t& destination)
-{
-    if (text == nullptr || text[0] == '\0') {
-        return false;
-    }
-    std::uint32_t value = 0U;
-    for (std::size_t index = 0U; text[index] != '\0'; ++index) {
-        if (text[index] < '0' || text[index] > '9') {
-            return false;
-        }
-        const std::uint32_t digit =
-            static_cast<std::uint32_t>(text[index] - '0');
-        if (value > (UINT32_MAX - digit) / 10U) {
-            return false;
-        }
-        value = value * 10U + digit;
-    }
-    destination = value;
     return true;
 }
 

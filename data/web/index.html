@@ -219,12 +219,24 @@
                 <div class="image-option-grid">
                   <label class="field"><span>緯度 × 10⁶</span><input id="weather-latitude" type="number" min="-90000000" max="90000000" required></label>
                   <label class="field"><span>經度 × 10⁶</span><input id="weather-longitude" type="number" min="-180000000" max="180000000" required></label>
-                  <label class="field"><span>更新間隔（分鐘）</span><input id="weather-interval" type="number" min="10" max="1440" required></label>
-                  <label class="field"><span>顯示地點</span><input id="weather-location" maxlength="47" required></label>
                   <label class="field"><span>單位</span><select id="weather-units"><option value="metric">攝氏／Metric</option><option value="imperial">華氏／Imperial</option></select></label>
-                  <label class="field"><span>語言</span><input id="weather-language" maxlength="15" required></label>
                   <label class="field"><span>NTP server</span><input id="weather-ntp-server" maxlength="63" required></label>
                 </div>
+                <div class="panel-heading compact weather-map-heading">
+                  <div><span class="panel-no blue">L</span><h3>拖曳地圖選點</h3></div>
+                  <span id="weather-map-mode" class="local-only">離線模式</span>
+                </div>
+                <div id="weather-map" class="weather-map">
+                  <div id="weather-map-tiles" class="weather-map-tiles"></div>
+                  <canvas id="weather-map-canvas" class="weather-map-canvas" hidden></canvas>
+                  <div id="weather-map-pin" class="weather-map-pin" aria-hidden="true"></div>
+                  <div class="weather-map-zoom">
+                    <button type="button" id="weather-map-zoom-in" class="plain-button" aria-label="放大">＋</button>
+                    <button type="button" id="weather-map-zoom-out" class="plain-button" aria-label="縮小">－</button>
+                  </div>
+                  <a id="weather-map-attribution" class="weather-map-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" hidden>© OpenStreetMap contributors</a>
+                </div>
+                <p class="field-hint">連線時載入地圖圖磚，拖曳地圖移動中央圖釘；離線時改為經緯度格線，可直接點擊或拖曳圖釘。</p>
                 <button id="weather-save" class="primary-button" type="submit">保存設定</button>
                 <p id="weather-status" class="save-status" role="status" aria-live="assertive"></p>
               </section>
