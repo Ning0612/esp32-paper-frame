@@ -158,6 +158,11 @@ struct RuntimeSnapshot {
     std::uint32_t imagefs_total_bytes = 0;
     std::uint32_t imagefs_used_bytes = 0;
     std::uint32_t carousel_refresh_minutes = 0;
+    bool carousel_random = false;
+    // A non-zero request id means the WebUI has requested a new carousel
+    // mode. The app_main carousel owner applies it once no refresh is in flight.
+    std::uint32_t carousel_mode_request_id = 0U;
+    bool carousel_mode_request_random = false;
     // Value copy of the latest weather fetch cache; units records what the
     // cached observation was fetched in, since Observation itself does not
     // carry that (the API response never echoes back the requested units).

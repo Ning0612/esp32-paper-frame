@@ -35,6 +35,8 @@ enum class Orientation : std::uint8_t {
 };
 
 enum class Dithering : std::uint8_t {
+    // Values 0 and 3 remain readable for imagefs/PFR1 backward
+    // compatibility; the current WebUI only emits values 1 and 2.
     nearest = 0U,
     floyd_steinberg = 1U,
     atkinson = 2U,
@@ -145,7 +147,7 @@ struct Pfr1Header {
     std::uint16_t height = 0U;
     Orientation orientation = Orientation::landscape;
     std::uint8_t palette = 0U;
-    Dithering dithering = Dithering::nearest;
+    Dithering dithering = Dithering::floyd_steinberg;
     std::uint32_t payload_length = 0U;
     std::uint16_t filename_length = 0U;
     std::uint32_t payload_crc32 = 0U;

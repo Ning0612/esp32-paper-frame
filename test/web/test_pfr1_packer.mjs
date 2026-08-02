@@ -44,12 +44,12 @@ function noiseRaster(width, height) {
 
 async function testGoldenLandscapeMatchesCrcAndPackedNibbles() {
   const source = whiteRaster(800, 440);
-  const quantized = quantizer.quantize(source, "nearest");
+  const quantized = quantizer.quantize(source, "floyd-steinberg");
   const file = await pfr1.packPfr1(quantized, {
     filename: "golden.pfr1",
     orientation: "landscape",
     flags: 0x0001,
-    dithering: "nearest",
+    dithering: "floyd-steinberg",
     compress: false,
   });
   assert.equal(file.length, 176043);
@@ -58,7 +58,7 @@ async function testGoldenLandscapeMatchesCrcAndPackedNibbles() {
   assert.equal(readU32(file, 16), 176000);
   assert.equal(readU16(file, 20), 11);
   assert.equal(readU32(file, 24), 0xAF00B5BD);
-  assert.equal(readU32(file, 28), 0xC96F698B);
+  assert.equal(readU32(file, 28), 0x26AD02B5);
   const payloadOffset = 32 + 11;
   assert.equal(file[payloadOffset], 0x11);
   assert.equal(file[file.length - 1], 0x11);
@@ -66,15 +66,15 @@ async function testGoldenLandscapeMatchesCrcAndPackedNibbles() {
 
 async function testPortraitAndFilenameValidation() {
   const source = whiteRaster(480, 760);
-  const quantized = quantizer.quantize(source, "bayer-4x4");
+  const quantized = quantizer.quantize(source, "atkinson");
   const file = await pfr1.packPfr1(quantized, {
     filename: "相框.pfr1",
     orientation: "portrait",
-    dithering: "bayer-4x4",
+    dithering: "atkinson",
   });
   assert.equal(readU16(file, 8), 480);
   assert.equal(readU16(file, 10), 760);
-  assert.equal(file[14], 3);
+  assert.equal(file[14], 2);
   await assert.rejects(
     () => pfr1.packPfr1(quantized, { filename: "../escape", orientation: "portrait" }),
     RangeError,
@@ -87,7 +87,7 @@ async function testPortraitAndFilenameValidation() {
 
 async function testPackerRejectsCallerSuppliedCompressedFlag() {
   const source = whiteRaster(800, 440);
-  const quantized = quantizer.quantize(source, "nearest");
+  const quantized = quantizer.quantize(source, "floyd-steinberg");
   // FLAG_COMPRESSED must only ever be set by packPfr1 itself based on
   // whether it actually compressed the payload -- a caller asserting it
   // regardless (e.g. when compression won't be used) would otherwise
@@ -104,7 +104,7 @@ async function testPackerRejectsCallerSuppliedCompressedFlag() {
 
 async function testPackerRejectsWrongRasterAndPaletteIndex() {
   const source = whiteRaster(800, 440);
-  const quantized = quantizer.quantize(source, "nearest");
+  const quantized = quantizer.quantize(source, "floyd-steinberg");
   await assert.rejects(
     () => pfr1.packPfr1(quantized, { filename: "x", orientation: "portrait" }),
     RangeError,
@@ -124,11 +124,11 @@ async function testPackerRejectsWrongRasterAndPaletteIndex() {
 // via raw inflate back to the exact original nibble payload.
 async function testCompressionAppliesWhenItShrinksThePayload() {
   const source = whiteRaster(800, 440);
-  const quantized = quantizer.quantize(source, "nearest");
+  const quantized = quantizer.quantize(source, "floyd-steinberg");
   const file = await pfr1.packPfr1(quantized, {
     filename: "compressed.pfr1",
     orientation: "landscape",
-    dithering: "nearest",
+    dithering: "floyd-steinberg",
   });
   assert.equal(readU16(file, 6) & pfr1.FLAG_COMPRESSED, pfr1.FLAG_COMPRESSED);
   const payloadLength = readU32(file, 16);
@@ -153,7 +153,7 @@ async function testCompressionAppliesWhenItShrinksThePayload() {
 // runtime-unavailable case is the realistic fallback trigger.
 async function testFallsBackToUncompressedWhenCompressionIsUnavailable() {
   const source = noiseRaster(800, 440);
-  const quantized = quantizer.quantize(source, "nearest");
+  const quantized = quantizer.quantize(source, "floyd-steinberg");
   const originalCompressionStream = globalThis.CompressionStream;
   let fallbackFile;
   try {
@@ -161,7 +161,7 @@ async function testFallsBackToUncompressedWhenCompressionIsUnavailable() {
     fallbackFile = await pfr1.packPfr1(quantized, {
       filename: "noise.pfr1",
       orientation: "landscape",
-      dithering: "nearest",
+      dithering: "floyd-steinberg",
     });
   } finally {
     globalThis.CompressionStream = originalCompressionStream;
@@ -173,7 +173,7 @@ async function testFallsBackToUncompressedWhenCompressionIsUnavailable() {
   const directFile = await pfr1.packPfr1(quantized, {
     filename: "noise.pfr1",
     orientation: "landscape",
-    dithering: "nearest",
+      dithering: "floyd-steinberg",
     compress: false,
   });
   assert.deepEqual(fallbackFile, directFile);

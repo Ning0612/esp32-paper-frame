@@ -36,6 +36,7 @@ API route、handler、access policy 與 WebUI 按鈕，細節見
 | `POST /api/v1/auth/logout` | 已登入 + CSRF | 撤銷目前 session |
 | `GET /api/v1/status` | 已登入 | 完整初版 runtime snapshot、容量與尚未提供功能的 `null` 狀態 |
 | `GET /api/v1/config` | 已登入 | 遮蔽後設定；秘密只回傳 `*_set` 布林值 |
+| `POST /api/v1/config` | 已登入 + CSRF | 以 `random=true|false` 非同步保存隨機輪播設定 |
 | `GET /api/v1/weather/config` | 已登入 | 天氣／NTP 設定；API key 只回傳 `api_key_set` |
 | `POST /api/v1/weather/config` | 已登入 + CSRF | 以 form body 保存天氣／NTP 設定 |
 | `GET /api/v1/wifi/scan` | 首次 provisioning AP 或已登入 | 掃描結果 |
@@ -63,6 +64,10 @@ snapshot；handler 不等待顯示器、網路、NVS 或 filesystem。
 後尚未完成任何一次刷新）時回 `null`，成功輪播後才是真實圖片 id 與距下次
 刷新的毫秒數。
 
+圖片頁的 `GET /api/v1/config` 會在 `data.display.random` 回傳目前輪播模式；
+`POST /api/v1/config` 的寫入在 deferred worker 執行，完成 NVS 保存後才向
+RuntimeCoordinator 發出模式變更請求，carousel 正在刷新時會等安全時機套用。
+
 ## Phase 4 圖片處理管線
 
 `data/web/image_pipeline.js` 是離線可載入、也可由 Node host test 驗證的純
@@ -71,9 +76,9 @@ RGBA raster helper。`processRaster()` 固定依序正規化 EXIF orientation 1�
 像素先以白色背景合成。四種 fit 語意如下：
 
 - `contain`：等比縮放並在目標畫布留白。
-- `cover`：等比放大到覆蓋目標後置中裁切。
+- `cover`：等比放大到覆蓋目標後裁切；處理後預覽可拖曳影像調整位置。
 - `fill`：直接縮放到目標尺寸，不保持比例。
-- `crop`：先以目標比例置中裁切原圖，再等比縮放。
+- `crop`：先以目標比例裁切原圖，再等比縮放；預設置中，也可拖曳或用方向鍵微調。
 
 輸出目標必須由 landscape `800×440` 或 portrait `480×760` profile 指定；
 PFR1 pack 與圖片頁會在後續 Phase 4 commit 接入。Node 驗證命令：
@@ -83,11 +88,17 @@ node test\web\test_image_pipeline.mjs
 node --check data\web\image_pipeline.js
 ```
 
-`data/web/image_quantizer.js` 使用相同的 E6 native palette，提供 `nearest`、
-`floyd-steinberg`、`atkinson` 與 `bayer-4x4` 四種 deterministic mode；輸出
+`data/web/image_quantizer.js` 使用相同的 E6 native palette，提供
+`floyd-steinberg` 與 `atkinson` 兩種 deterministic mode；輸出
 同時包含 preview RGBA 與 native palette index。`image_quantize_worker.js`
 透過 transferable `ArrayBuffer` 執行量化，主執行緒不會因大型 raster 計算而
 卡住；worker 失敗只回傳錯誤訊息，不會將原始 RGB buffer 直接送到韌體。
+
+圖片頁接受來源檔案最多 32 MB、最多 6,400 萬像素；超過面板輸出所需的來源
+尺寸仍由瀏覽器在本機縮放，處理過程不會把原始 RGB framebuffer 上傳到裝置。
+
+圖片庫的「Random／隨機輪播」可由圖片頁開關，設定保存於裝置並在安全時機套用到
+carousel scheduler；關閉時依圖片庫排序輪播。
 
 `data/web/image_pfr1.js` 將固定 profile 的 quantized result 打包成
 `application/vnd.paperframe.pfr1`，重用同一組 filename、flags、dithering、

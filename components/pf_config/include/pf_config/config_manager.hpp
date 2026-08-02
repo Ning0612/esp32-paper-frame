@@ -17,6 +17,7 @@ struct StartupResult {
 };
 
 StartupResult initialize();
+esp_err_t save_config(const ConfigRecord& record);
 
 struct NetworkCredentialLoadResult {
     esp_err_t error;

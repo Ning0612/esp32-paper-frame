@@ -360,6 +360,7 @@ void test_masked_config_never_returns_secret_values()
         .wifi_password_configured = true,
         .management_password_configured = true,
         .refresh_minutes = 30,
+        .carousel_random = true,
         .timezone = "Asia/Taipei",
         .weather_configured = true,
         .weather_api_key_set = true,
@@ -386,6 +387,7 @@ void test_masked_config_never_returns_secret_values()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light_threshold\":2000"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"away_duration_s\":180"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"password_set\":true"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"random\":true"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"timezone\":\"Asia/Taipei\""));
     TEST_ASSERT_NULL(std::strstr(output, "secret"));
     TEST_ASSERT_NULL(std::strstr(output, "credential"));

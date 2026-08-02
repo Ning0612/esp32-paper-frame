@@ -163,6 +163,13 @@ h3 { font-size: 1.25rem; }
 .preview-heading span { color: var(--muted); font: 700 .62rem/1.2 Consolas, monospace; text-align: right; }
 .preview-card canvas { display: block; width: 100%; height: auto; max-height: 340px; margin-top: 13px; background: #fff; image-rendering: pixelated; }
 .preview-card canvas:not([width]) { min-height: 100px; }
+.crop-interactive canvas { cursor: default; outline: none; }
+.crop-interactive.is-draggable canvas { cursor: grab; touch-action: none; }
+.crop-interactive.is-draggable canvas:active,
+.crop-interactive.is-draggable canvas.is-dragging { cursor: grabbing; }
+.crop-interactive.is-draggable canvas:focus-visible { box-shadow: 0 0 0 3px var(--yellow); }
+.image-carousel-settings { margin-top: 22px; }
+.image-carousel-settings .primary-button { max-width: 260px; }
 .image-library { margin-top: 22px; }
 .image-library-list { display: grid; gap: 10px; }
 .image-library-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 18px; align-items: center; border: 2px solid color-mix(in srgb, var(--line) 40%, transparent); background: var(--surface-strong); padding: 13px 14px; }

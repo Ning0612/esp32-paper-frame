@@ -11,7 +11,7 @@
     throw new Error("PaperFrameImage must be loaded before PaperFrameQuantizer");
   }
 
-  const MODES = Object.freeze(["nearest", "floyd-steinberg", "atkinson", "bayer-4x4"]);
+  const MODES = Object.freeze(["floyd-steinberg", "atkinson"]);
   const PALETTE = Object.freeze([
     Object.freeze({ name: "black", code: 0x0, rgb: Object.freeze([0, 0, 0]) }),
     Object.freeze({ name: "white", code: 0x1, rgb: Object.freeze([255, 255, 255]) }),
@@ -20,13 +20,6 @@
     Object.freeze({ name: "blue", code: 0x5, rgb: Object.freeze([0, 0, 255]) }),
     Object.freeze({ name: "green", code: 0x6, rgb: Object.freeze([0, 255, 0]) }),
   ]);
-  const BAYER_4X4 = Object.freeze([
-    0, 8, 2, 10,
-    12, 4, 14, 6,
-    3, 11, 1, 9,
-    15, 7, 13, 5,
-  ]);
-
   function nearestPalette(valueR, valueG, valueB) {
     let bestIndex = 0;
     let bestDistance = Number.POSITIVE_INFINITY;
@@ -69,20 +62,6 @@
       codes,
       palette: PALETTE,
     });
-  }
-
-  function quantizeNearest(raster) {
-    const source = imagePipeline.flattenOnWhite(raster);
-    const codes = new Uint8Array(source.width * source.height);
-    for (let index = 0; index < codes.length; index += 1) {
-      const sourceIndex = index * 4;
-      codes[index] = nearestPalette(
-        source.data[sourceIndex],
-        source.data[sourceIndex + 1],
-        source.data[sourceIndex + 2],
-      );
-    }
-    return createResult(source.width, source.height, codes);
   }
 
   function addError(work, width, height, x, y, red, green, blue, factor) {
@@ -139,41 +118,15 @@
     return createResult(width, height, codes);
   }
 
-  function quantizeBayer(raster) {
-    const source = imagePipeline.flattenOnWhite(raster);
-    const codes = new Uint8Array(source.width * source.height);
-    for (let y = 0; y < source.height; y += 1) {
-      for (let x = 0; x < source.width; x += 1) {
-        const index = (y * source.width) + x;
-        const sourceIndex = index * 4;
-        const threshold = (BAYER_4X4[((y & 3) * 4) + (x & 3)] + 0.5) / 16 - 0.5;
-        const offset = threshold * 64;
-        codes[index] = nearestPalette(
-          clamp(source.data[sourceIndex] + offset),
-          clamp(source.data[sourceIndex + 1] + offset),
-          clamp(source.data[sourceIndex + 2] + offset),
-        );
-      }
-    }
-    return createResult(source.width, source.height, codes);
-  }
-
   function quantize(raster, mode) {
-    const selectedMode = mode || "nearest";
+    const selectedMode = mode || "floyd-steinberg";
     validateMode(selectedMode);
-    if (selectedMode === "nearest") {
-      return quantizeNearest(raster);
-    }
-    if (selectedMode === "bayer-4x4") {
-      return quantizeBayer(raster);
-    }
     return quantizeErrorDiffusion(raster, selectedMode);
   }
 
   return Object.freeze({
     MODES,
     PALETTE,
-    BAYER_4X4,
     nearestPalette,
     quantize,
   });

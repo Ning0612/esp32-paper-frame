@@ -621,6 +621,8 @@ extern "C" void app_main()
         .carousel_refresh_minutes = config_result.record_available
                                          ? config_result.record.refresh_minutes
                                          : 0U,
+        .carousel_random = config_result.record_available &&
+                           config_result.record.carousel_random,
         .reboot_reason = pf_runtime::classify_reset_reason(
             static_cast<int>(esp_reset_reason())),
     };
@@ -768,6 +770,8 @@ extern "C" void app_main()
         .refresh_minutes = config_result.record_available
                                ? config_result.record.refresh_minutes
                                : 0U,
+        .carousel_random = config_result.record_available &&
+                           config_result.record.carousel_random,
         .weather_configured = weather_settings_result.error == ESP_OK &&
                               weather_settings_result.configured,
         .weather_settings = weather_settings_result.error == ESP_OK
@@ -836,7 +840,10 @@ extern "C" void app_main()
     pf_carousel::CarouselScheduler carousel{
         pf_carousel::CarouselConfig{
             refresh_minutes,
-            pf_carousel::CarouselMode::sequential,
+            config_result.record_available &&
+                    config_result.record.carousel_random
+                ? pf_carousel::CarouselMode::random
+                : pf_carousel::CarouselMode::sequential,
             0x50465231U,
         },
     };
@@ -854,6 +861,7 @@ extern "C" void app_main()
     pf_sensors::PresenceState previous_presence =
         pf_sensors::PresenceState::unknown;
     std::uint32_t previous_manual_activate_request_id = 0U;
+    std::uint32_t previous_carousel_mode_request_id = 0U;
     bool pending_manual_activate = false;
     bool pending_manual_activate_warned = false;
     std::uint32_t pending_manual_activate_image_id = 0U;
@@ -990,7 +998,9 @@ extern "C" void app_main()
         // updated from a successful read, and doubles as the "last known
         // presence" used by the carousel-pause gate below.
         pf_runtime::RuntimeSnapshot presence_snapshot{};
-        if (pf_runtime::coordinator().read_snapshot(presence_snapshot) &&
+        const bool presence_snapshot_read =
+            pf_runtime::coordinator().read_snapshot(presence_snapshot);
+        if (presence_snapshot_read &&
             presence_snapshot.presence != previous_presence) {
             const pf_sensors::PresenceState current_presence =
                 presence_snapshot.presence;
@@ -1116,6 +1126,33 @@ extern "C" void app_main()
                         displayed_image_id, carousel.next_due_ms());
                 }
                 active_carousel_request_id = 0U;
+            }
+        }
+
+        if (presence_snapshot_read &&
+            presence_snapshot.carousel_mode_request_id !=
+                previous_carousel_mode_request_id &&
+            active_carousel_request_id == 0U &&
+            active_blank_request_id == 0U &&
+            !carousel.in_flight()) {
+            const bool mode_changed = carousel.configure(
+                pf_carousel::CarouselConfig{
+                    refresh_minutes,
+                    presence_snapshot.carousel_mode_request_random
+                        ? pf_carousel::CarouselMode::random
+                        : pf_carousel::CarouselMode::sequential,
+                    0x50465231U,
+                });
+            if (mode_changed) {
+                previous_carousel_mode_request_id =
+                    presence_snapshot.carousel_mode_request_id;
+                ESP_LOGI(
+                    kTag,
+                    "carousel_mode_applied request=%" PRIu32 " mode=%s",
+                    previous_carousel_mode_request_id,
+                    presence_snapshot.carousel_mode_request_random
+                        ? "random"
+                        : "sequential");
             }
         }
 

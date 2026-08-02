@@ -83,6 +83,9 @@
   const uploadPfr1 = $("#upload-pfr1");
   const previewOriginal = $("#preview-original");
   const previewProcessed = $("#preview-processed");
+  const imageProcessedCard = $("#image-processed-card");
+  const imageCropHint = $("#image-crop-hint");
+  const imageCropPositionLabel = $("#image-crop-position");
   const previewSixColor = $("#preview-sixcolor");
   const previewFrame = $("#preview-frame");
   const dashboardStatus = $("#dashboard-status");
@@ -91,15 +94,20 @@
   const imageLibraryRefresh = $("#image-library-refresh");
   const imageLibraryStatus = $("#image-library-status");
   const imageLibraryList = $("#image-library-list");
+  const imageCarouselForm = $("#image-carousel-form");
+  const imageCarouselRandom = $("#image-carousel-random");
+  const imageCarouselSave = $("#image-carousel-save");
+  const imageCarouselStatus = $("#image-carousel-status");
 
   let selected = "";
   let polling = 0;
   let csrfToken = "";
   let currentView = "dashboard";
   let lastRuntime = null;
-  let imageSourceRaster = null;
   let imageBaseRaster = null;
   let imageWorkingRaster = null;
+  let imageCropPosition = { x: 0.5, y: 0.5 };
+  let cropDragState = null;
   let imageExifOrientation = 1;
   let imageFileName = "paperframe.pfr1";
   let imagePfr1 = null;
@@ -112,7 +120,8 @@
   let systemOtaPollAttemptsRemaining = 0;
   let imageLibraryImages = [];
   const maxSourceBytes = 32 * 1024 * 1024;
-  const maxSourcePixels = 16 * 1024 * 1024;
+  const maxSourcePixels = 64 * 1024 * 1024;
+  const maxWorkingPixels = 4 * 1024 * 1024;
   const scriptReloadPromises = new Map();
 
   function loadScriptOnce(path) {
@@ -1004,6 +1013,60 @@
     }
   }
 
+  async function loadImageCarouselConfig() {
+    imageCarouselStatus.className = "save-status";
+    imageCarouselStatus.textContent = "正在讀取輪播設定…";
+    try {
+      const response = await fetch("/api/v1/config", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      const display = payload.data && payload.data.display;
+      if (!response.ok || !display || typeof display.random !== "boolean") {
+        throw new Error(payload.error || "carousel_config_failed");
+      }
+      imageCarouselRandom.checked = display.random;
+      imageCarouselStatus.textContent = display.random ? "目前為隨機輪播。" : "目前依圖片庫排序輪播。";
+    } catch (error) {
+      imageCarouselStatus.className = "save-status error";
+      imageCarouselStatus.textContent = `輪播設定讀取失敗：${error.message || "請稍後重試"}`;
+    }
+  }
+
+  imageCarouselForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!csrfToken) return;
+    imageCarouselSave.disabled = true;
+    imageCarouselStatus.className = "save-status";
+    imageCarouselStatus.textContent = "正在保存輪播設定…";
+    try {
+      const response = await fetch("/api/v1/config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: new URLSearchParams({ random: imageCarouselRandom.checked ? "true" : "false" }).toString(),
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "carousel_save_failed");
+      imageCarouselStatus.className = "save-status success";
+      imageCarouselStatus.textContent = imageCarouselRandom.checked ? "已開啟隨機輪播。" : "已關閉隨機輪播。";
+      await loadImageCarouselConfig();
+    } catch (error) {
+      imageCarouselStatus.className = "save-status error";
+      imageCarouselStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+    } finally {
+      imageCarouselSave.disabled = false;
+    }
+  });
+
   function drawRaster(canvas, raster) {
     canvas.width = raster.width;
     canvas.height = raster.height;
@@ -1011,6 +1074,174 @@
     const imageData = context.createImageData(raster.width, raster.height);
     imageData.data.set(raster.data);
     context.putImageData(imageData, 0, 0);
+  }
+
+  function cropInteractionEnabled() {
+    return Boolean(imageWorkingRaster) && (imageFit.value === "crop" || imageFit.value === "cover");
+  }
+
+  function updateCropInteraction() {
+    const enabled = cropInteractionEnabled();
+    imageProcessedCard.classList.toggle("is-draggable", enabled);
+    imageCropHint.hidden = !enabled;
+    previewProcessed.setAttribute("aria-disabled", enabled ? "false" : "true");
+    imageCropPositionLabel.textContent =
+      `目前裁切位置：x ${imageCropPosition.x.toFixed(2)}，y ${imageCropPosition.y.toFixed(2)}`;
+  }
+
+  function cropProfile() {
+    return window.PaperFrameImage.ORIENTATION_PROFILES[imageOrientation.value];
+  }
+
+  function cropDragGeometry(profile) {
+    if (imageFit.value === "cover") {
+      const geometry = window.PaperFrameImage.cropGeometry(
+        imageWorkingRaster,
+        profile.width,
+        profile.height,
+      );
+      return {
+        overflowX: geometry.overflowX,
+        overflowY: geometry.overflowY,
+        contentWidth: geometry.scaledWidth,
+        contentHeight: geometry.scaledHeight,
+      };
+    }
+    const targetAspect = profile.width / profile.height;
+    const sourceAspect = imageWorkingRaster.width / imageWorkingRaster.height;
+    let cropWidth = imageWorkingRaster.width;
+    let cropHeight = imageWorkingRaster.height;
+    if (sourceAspect > targetAspect) {
+      cropWidth = Math.max(1, Math.round(imageWorkingRaster.height * targetAspect));
+    } else if (sourceAspect < targetAspect) {
+      cropHeight = Math.max(1, Math.round(imageWorkingRaster.width / targetAspect));
+    }
+    return {
+      overflowX: imageWorkingRaster.width - cropWidth,
+      overflowY: imageWorkingRaster.height - cropHeight,
+      contentWidth: imageWorkingRaster.width,
+      contentHeight: imageWorkingRaster.height,
+    };
+  }
+
+  function renderProcessedPreview() {
+    if (!imageWorkingRaster) return;
+    const profile = cropProfile();
+    const processed = window.PaperFrameImage.processRaster(imageWorkingRaster, {
+      exifOrientation: 1,
+      mirrorX: false,
+      mirrorY: false,
+      rotate90Cw: false,
+      fit: imageFit.value,
+      skipFlatten: true,
+      cropPosition: imageCropPosition,
+      targetWidth: profile.width,
+      targetHeight: profile.height,
+    });
+    drawRaster(previewProcessed, processed);
+  }
+
+  function updateCropPositionFromPointer(event) {
+    if (!cropDragState || !imageWorkingRaster || !cropInteractionEnabled()) return;
+    if (!cropDragState.invalidated) {
+      imageRevision += 1;
+      cancelQuantizeWorker();
+      imagePfr1 = null;
+      downloadPfr1.disabled = true;
+      uploadPfr1.disabled = true;
+      cropDragState.invalidated = true;
+    }
+    const profile = cropProfile();
+    const geometry = cropDragGeometry(profile);
+    const rect = previewProcessed.getBoundingClientRect();
+    const displayScaleX = rect.width / geometry.contentWidth;
+    const displayScaleY = rect.height / geometry.contentHeight;
+    const rangeX = geometry.overflowX * displayScaleX;
+    const rangeY = geometry.overflowY * displayScaleY;
+    const deltaX = event.clientX - cropDragState.startX;
+    const deltaY = event.clientY - cropDragState.startY;
+    const next = {
+      x: rangeX > 0 ? cropDragState.startPosition.x - (deltaX / rangeX) : cropDragState.startPosition.x,
+      y: rangeY > 0 ? cropDragState.startPosition.y - (deltaY / rangeY) : cropDragState.startPosition.y,
+    };
+    imageCropPosition = window.PaperFrameImage.normalizeCropPosition(next);
+    updateCropInteraction();
+    renderProcessedPreview();
+    imagePfr1 = null;
+    downloadPfr1.disabled = true;
+    uploadPfr1.disabled = true;
+  }
+
+  function finishCropDrag() {
+    if (!cropDragState) return;
+    const shouldProcess = cropDragState.invalidated;
+    cropDragState = null;
+    if (shouldProcess) void processImage();
+  }
+
+  function handleCropPointerDown(event) {
+    if (!cropInteractionEnabled() || event.button !== 0 || event.isPrimary === false) return;
+    event.preventDefault();
+    imageStatus.className = "save-status";
+    imageStatus.textContent = "拖曳圖片調整裁切位置…";
+    cropDragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startPosition: { ...imageCropPosition },
+      previousPfr1: imagePfr1,
+      invalidated: false,
+    };
+    previewProcessed.classList.add("is-dragging");
+    if (typeof previewProcessed.setPointerCapture === "function") {
+      previewProcessed.setPointerCapture(event.pointerId);
+    }
+  }
+
+  function handleCropPointerMove(event) {
+    if (!cropDragState || event.pointerId !== cropDragState.pointerId) return;
+    event.preventDefault();
+    updateCropPositionFromPointer(event);
+  }
+
+  function handleCropPointerEnd(event) {
+    if (!cropDragState || event.pointerId !== cropDragState.pointerId) return;
+    event.preventDefault();
+    previewProcessed.classList.remove("is-dragging");
+    finishCropDrag();
+  }
+
+  function handleCropPointerCancel(event) {
+    if (!cropDragState || event.pointerId !== cropDragState.pointerId) return;
+    event.preventDefault();
+    imageCropPosition = { ...cropDragState.startPosition };
+    const previousPfr1 = cropDragState.previousPfr1;
+    previewProcessed.classList.remove("is-dragging");
+    cropDragState = null;
+    renderProcessedPreview();
+    if (previousPfr1) {
+      imagePfr1 = previousPfr1;
+      downloadPfr1.disabled = false;
+      uploadPfr1.disabled = false;
+      imageStatus.className = "save-status success";
+      imageStatus.textContent = "已取消裁切調整，保留原本輸出。";
+    }
+  }
+
+  function handleCropKeydown(event) {
+    if (!cropInteractionEnabled()) return;
+    const step = 0.05;
+    const next = { ...imageCropPosition };
+    if (event.key === "ArrowLeft") next.x -= step;
+    else if (event.key === "ArrowRight") next.x += step;
+    else if (event.key === "ArrowUp") next.y -= step;
+    else if (event.key === "ArrowDown") next.y += step;
+    else return;
+    event.preventDefault();
+    imageCropPosition = window.PaperFrameImage.normalizeCropPosition(next);
+    updateCropInteraction();
+    renderProcessedPreview();
+    void processImage();
   }
 
   function drawFramePreview(canvas, raster) {
@@ -1076,22 +1307,47 @@
       bitmap = await decodeWithImageElement();
       decoderAppliedOrientation = true;
     }
-    const canvas = document.createElement("canvas");
-    if ((bitmap.width * bitmap.height) > maxSourcePixels) {
+    const sourceWidth = bitmap.width;
+    const sourceHeight = bitmap.height;
+    if ((sourceWidth * sourceHeight) > maxSourcePixels) {
       if (typeof bitmap.close === "function") bitmap.close();
       throw new RangeError("source_image_too_large");
     }
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
+    const workingScale = Math.min(
+      1,
+      Math.sqrt(maxWorkingPixels / (sourceWidth * sourceHeight)),
+    );
+    const workingWidth = Math.max(1, Math.round(sourceWidth * workingScale));
+    const workingHeight = Math.max(1, Math.round(sourceHeight * workingScale));
+    const canvas = document.createElement("canvas");
+    canvas.width = workingWidth;
+    canvas.height = workingHeight;
     const context = canvas.getContext("2d", { willReadFrequently: true });
-    context.drawImage(bitmap, 0, 0);
+    if (!context) {
+      if (typeof bitmap.close === "function") bitmap.close();
+      throw new Error("image_decode_failed");
+    }
+    try {
+      context.drawImage(bitmap, 0, 0, workingWidth, workingHeight);
+    } catch {
+      if (typeof bitmap.close === "function") bitmap.close();
+      throw new Error("image_decode_failed");
+    }
     if (typeof bitmap.close === "function") bitmap.close();
+    let pixels;
+    try {
+      pixels = context.getImageData(0, 0, workingWidth, workingHeight).data;
+    } catch {
+      throw new Error("image_decode_failed");
+    }
     return {
       raster: window.PaperFrameImage.makeRaster(
-        canvas.width,
-        canvas.height,
-        context.getImageData(0, 0, canvas.width, canvas.height).data,
+        workingWidth,
+        workingHeight,
+        pixels,
       ),
+      sourceWidth,
+      sourceHeight,
       exifOrientation: decoderAppliedOrientation ? 1 : exif,
     };
   }
@@ -1194,6 +1450,8 @@
         mirrorY: false,
         rotate90Cw: false,
         fit: imageFit.value,
+        skipFlatten: true,
+        cropPosition: imageCropPosition,
         targetWidth: profile.width,
         targetHeight: profile.height,
       });
@@ -1203,6 +1461,7 @@
         imageBaseRaster,
       );
       drawRaster(previewProcessed, processed);
+      updateCropInteraction();
       imageStatus.textContent = "正在由離線 worker 做六色量化…";
       const quantized = await quantizeWithWorker(processed, imageDither.value, requestId);
       if (requestId !== imageRevision) return;
@@ -1214,6 +1473,7 @@
         flags: transformFlags,
         dithering: imageDither.value,
       });
+      if (requestId !== imageRevision) return;
       imagePfr1 = packed;
       imageOutputDimensions.textContent = `${profile.width} × ${profile.height}`;
       imageOutputPayload.textContent = formatImageSize((profile.width * profile.height) / 2);
@@ -1240,8 +1500,10 @@
     const selectionRevision = ++imageSelectionRevision;
     imageRevision += 1;
     cancelQuantizeWorker();
+    cropDragState = null;
     imageBaseRaster = null;
     imageWorkingRaster = null;
+    imageCropPosition = { x: 0.5, y: 0.5 };
     imageTransformFlags = 0;
     imageTransformButtons.forEach((button) => { button.disabled = true; });
     imageProcessButton.disabled = true;
@@ -1250,30 +1512,34 @@
     imageStatus.className = "save-status";
     imageStatus.textContent = "正在讀取本機圖片…";
     if (!file) {
-      imageSourceRaster = null;
+      updateCropInteraction();
       imageStatus.textContent = "請先選擇圖片。";
       return;
     }
     try {
       const decoded = await decodeImageFile(file);
       if (selectionRevision !== imageSelectionRevision) return;
-      imageSourceRaster = decoded.raster;
       imageExifOrientation = decoded.exifOrientation;
       imageBaseRaster = window.PaperFrameImage.flattenOnWhite(
-        window.PaperFrameImage.orientExif(imageSourceRaster, imageExifOrientation),
+        window.PaperFrameImage.orientExif(decoded.raster, imageExifOrientation),
       );
       imageWorkingRaster = imageBaseRaster;
       imageFileName = defaultPfr1Name(file.name);
       imageFilename.value = imageFileName;
-      imageSourceInfo.textContent = `${file.name} · ${decoded.raster.width} × ${decoded.raster.height} · EXIF ${imageExifOrientation}`;
+      const workingNote = decoded.sourceWidth !== decoded.raster.width ||
+          decoded.sourceHeight !== decoded.raster.height
+        ? ` · 工作影像縮至 ${decoded.raster.width} × ${decoded.raster.height}`
+        : "";
+      imageSourceInfo.textContent = `${file.name} · ${decoded.sourceWidth} × ${decoded.sourceHeight}${workingNote} · EXIF ${imageExifOrientation}`;
       imageProcessButton.disabled = false;
       imageTransformButtons.forEach((button) => { button.disabled = false; });
       await processImage();
     } catch (error) {
       if (selectionRevision !== imageSelectionRevision) return;
-      imageSourceRaster = null;
       imageBaseRaster = null;
       imageWorkingRaster = null;
+      imageCropPosition = { x: 0.5, y: 0.5 };
+      updateCropInteraction();
       imageTransformFlags = 0;
       imageTransformButtons.forEach((button) => { button.disabled = true; });
       imageProcessButton.disabled = true;
@@ -1282,7 +1548,7 @@
       if (reason === "source_file_too_large") {
         imageStatus.textContent = "圖片檔案過大（上限 32 MB）。";
       } else if (reason === "source_image_too_large") {
-        imageStatus.textContent = "圖片像素過大（上限 1600 萬像素）。";
+        imageStatus.textContent = "圖片像素過大（上限 6400 萬像素）。";
       } else if (reason === "image_decode_failed") {
         imageStatus.textContent = "瀏覽器無法解碼這張圖片；請改用 PNG/JPEG/WebP。";
       } else if (reason.startsWith("script_load_failed:")) {
@@ -1644,7 +1910,10 @@
     if (refresh && view === "dashboard") loadDashboard();
     if (refresh && view === "wifi") scan(true);
     if (refresh && view === "weather") loadWeatherConfig();
-    if (refresh && view === "image") loadImageLibrary();
+    if (refresh && view === "image") {
+      loadImageLibrary();
+      loadImageCarouselConfig();
+    }
     if (refresh && view === "environment") loadEnvironmentConfig();
     if (refresh && view === "system") loadSystemStatus();
   }
@@ -1653,15 +1922,21 @@
   refreshDashboard.addEventListener("click", () => loadDashboard());
   imageSourceInput.addEventListener("change", () => selectImageFile(imageSourceInput.files[0]));
   [imageOrientation, imageFit, imageDither].forEach((control) => {
-    control.addEventListener("change", () => { if (imageSourceRaster) processImage(); });
+    control.addEventListener("change", () => { if (imageBaseRaster) processImage(); });
   });
-  imageFilename.addEventListener("change", () => { if (imageSourceRaster) processImage(); });
+  imageFilename.addEventListener("change", () => { if (imageBaseRaster) processImage(); });
   imageProcessButton.addEventListener("click", () => processImage());
   imageMirrorX.addEventListener("click", () => applyImageTransform("mirror-x"));
   imageMirrorY.addEventListener("click", () => applyImageTransform("mirror-y"));
   imageRotate.addEventListener("click", () => applyImageTransform("rotate-90-cw"));
   downloadPfr1.addEventListener("click", downloadImagePfr1);
   uploadPfr1.addEventListener("click", uploadImagePfr1);
+  previewProcessed.addEventListener("pointerdown", handleCropPointerDown);
+  previewProcessed.addEventListener("pointermove", handleCropPointerMove);
+  previewProcessed.addEventListener("pointerup", handleCropPointerEnd);
+  previewProcessed.addEventListener("pointercancel", handleCropPointerCancel);
+  previewProcessed.addEventListener("lostpointercapture", handleCropPointerCancel);
+  previewProcessed.addEventListener("keydown", handleCropKeydown);
   imageLibraryRefresh.addEventListener("click", () => loadImageLibrary());
   imageLibraryList.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-image-action]");

@@ -21,6 +21,7 @@ struct HealthServerAccessConfig {
     bool wifi_password_configured = false;
     bool management_password_configured = false;
     std::uint32_t refresh_minutes = 0U;
+    bool carousel_random = false;
     char timezone[pf_config::kTimezoneCapacity]{};
     bool weather_configured = false;
     pf_config::WeatherSettings weather_settings{};

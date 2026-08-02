@@ -5,7 +5,7 @@
 
 namespace pf_config {
 
-inline constexpr std::uint32_t kCurrentSchemaVersion = 1;
+inline constexpr std::uint32_t kCurrentSchemaVersion = 2;
 inline constexpr std::uint32_t kDefaultRefreshMinutes = 30;
 inline constexpr std::uint32_t kMinimumRefreshMinutes = 5;
 inline constexpr std::size_t kTimezoneCapacity = 48;
@@ -15,6 +15,7 @@ enum class SchemaAction {
     initialize_defaults,
     use_current,
     migrate_v0,
+    migrate_v1,
     reject_future,
     reject_corrupt,
     unavailable,
@@ -23,6 +24,7 @@ enum class SchemaAction {
 struct ConfigRecord {
     std::uint32_t refresh_minutes = 0;
     char timezone[kTimezoneCapacity]{};
+    bool carousel_random = false;
 };
 
 struct StoredConfig {
@@ -32,6 +34,8 @@ struct StoredConfig {
     std::uint32_t refresh_minutes = 0;
     bool timezone_present = false;
     char timezone[kTimezoneCapacity]{};
+    bool carousel_random_present = false;
+    std::uint8_t carousel_random = 0U;
 };
 
 struct StartupPlan {
@@ -103,8 +107,20 @@ inline StartupPlan make_startup_plan(const StoredConfig& stored)
         return plan;
     }
 
-    plan.action = SchemaAction::use_current;
     plan.record.refresh_minutes = stored.refresh_minutes;
+    if (stored.schema_version < kCurrentSchemaVersion) {
+        plan.action = SchemaAction::migrate_v1;
+        plan.write_required = true;
+        return plan;
+    }
+
+    if (!stored.carousel_random_present || stored.carousel_random > 1U) {
+        plan.action = SchemaAction::reject_corrupt;
+        return plan;
+    }
+
+    plan.action = SchemaAction::use_current;
+    plan.record.carousel_random = stored.carousel_random != 0U;
     return plan;
 }
 
@@ -117,6 +133,8 @@ constexpr const char* to_string(const SchemaAction action)
             return "use_current";
         case SchemaAction::migrate_v0:
             return "migrate_v0";
+        case SchemaAction::migrate_v1:
+            return "migrate_v1";
         case SchemaAction::reject_future:
             return "reject_future";
         case SchemaAction::reject_corrupt:

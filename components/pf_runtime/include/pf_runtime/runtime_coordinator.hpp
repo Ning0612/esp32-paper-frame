@@ -70,6 +70,7 @@ public:
     void update_carousel_status(
         std::uint32_t current_image_id,
         std::uint64_t next_due_ms);
+    void request_carousel_mode(bool random);
     // Re-publishes the imagefs partition's live used-byte count. Callers
     // must recompute this from a fresh esp_littlefs_info()/free_bytes()
     // query after a capacity-changing storage mutation (upload/remove) --

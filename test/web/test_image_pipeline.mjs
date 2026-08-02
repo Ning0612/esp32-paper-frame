@@ -71,6 +71,24 @@ function testEveryFitModeProducesTheRequestedDimensions() {
   assert.notDeepEqual(pixel(fill, 0, 0), [255, 255, 255, 255, 255]);
 }
 
+function testCropAnchorSelectsTheExpectedHorizontalWindow() {
+  const source = makeLabeledRaster(4, 2);
+  const left = pipeline.fitRaster(source, 2, 2, "crop", undefined, { x: 0, y: 0.5 });
+  const right = pipeline.fitRaster(source, 2, 2, "crop", undefined, { x: 1, y: 0.5 });
+  assert.deepEqual(pixel(left, 0, 0), pixel(source, 0, 0));
+  assert.deepEqual(pixel(left, 1, 0), pixel(source, 1, 0));
+  assert.deepEqual(pixel(right, 0, 0), pixel(source, 2, 0));
+  assert.deepEqual(pixel(right, 1, 0), pixel(source, 3, 0));
+}
+
+function testCoverAnchorSelectsTheExpectedVerticalWindow() {
+  const source = makeLabeledRaster(2, 4);
+  const top = pipeline.fitRaster(source, 2, 2, "cover", undefined, { x: 0.5, y: 0 });
+  const bottom = pipeline.fitRaster(source, 2, 2, "cover", undefined, { x: 0.5, y: 1 });
+  assert.deepEqual(pixel(top, 0, 0), pixel(source, 0, 0));
+  assert.deepEqual(pixel(bottom, 0, 0), pixel(source, 0, 2));
+}
+
 function testProcessOrderNormalizesExifBeforeUserOperations() {
   const source = makeLabeledRaster(2, 3);
   const result = pipeline.processRaster(source, {
@@ -90,6 +108,8 @@ function testInvalidInputsFailClosed() {
   assert.throws(() => pipeline.orientExif(makeLabeledRaster(1, 1), 9), RangeError);
   assert.throws(() => pipeline.fitRaster(makeLabeledRaster(1, 1), 2, 2, "unknown"), RangeError);
   assert.throws(() => pipeline.makeRaster(2, 2, new Uint8ClampedArray(3)), RangeError);
+  assert.throws(() => pipeline.normalizeCropPosition({ x: 2, y: 0.5 }), RangeError);
+  assert.throws(() => pipeline.normalizeCropPosition({ x: 0.5, y: -1 }), RangeError);
 }
 
 function testExifReaderExtractsJpegOrientationAndFailsClosed() {
@@ -116,7 +136,9 @@ testMirrorAndRotateAreSeparateOperations();
 testRepeatedButtonOperationsApplyOneTransformPerClick();
 testTransparentPixelsFlattenToWhite();
 testEveryFitModeProducesTheRequestedDimensions();
+testCropAnchorSelectsTheExpectedHorizontalWindow();
+testCoverAnchorSelectsTheExpectedVerticalWindow();
 testProcessOrderNormalizesExifBeforeUserOperations();
 testInvalidInputsFailClosed();
 testExifReaderExtractsJpegOrientationAndFailsClosed();
-console.log("image_pipeline: 8 tests passed");
+console.log("image_pipeline: 10 tests passed");

@@ -25,6 +25,7 @@ void test_blank_storage_initializes_defaults()
     TEST_ASSERT_EQUAL_STRING(
         pf_config::kDefaultTimezone,
         plan.record.timezone);
+    TEST_ASSERT_FALSE(plan.record.carousel_random);
 }
 
 void test_current_schema_is_used_without_migration()
@@ -36,6 +37,8 @@ void test_current_schema_is_used_without_migration()
     stored.refresh_minutes = 45;
     stored.timezone_present = true;
     pf_config::copy_timezone(stored.timezone, "Asia/Tokyo");
+    stored.carousel_random_present = true;
+    stored.carousel_random = 1U;
 
     const pf_config::StartupPlan plan =
         pf_config::make_startup_plan(stored);
@@ -46,6 +49,7 @@ void test_current_schema_is_used_without_migration()
     TEST_ASSERT_FALSE(plan.write_required);
     TEST_ASSERT_EQUAL_UINT32(45, plan.record.refresh_minutes);
     TEST_ASSERT_EQUAL_STRING("Asia/Tokyo", plan.record.timezone);
+    TEST_ASSERT_TRUE(plan.record.carousel_random);
 }
 
 void test_v0_migration_preserves_refresh_and_adds_timezone()
@@ -67,6 +71,28 @@ void test_v0_migration_preserves_refresh_and_adds_timezone()
     TEST_ASSERT_EQUAL_STRING(
         pf_config::kDefaultTimezone,
         plan.record.timezone);
+    TEST_ASSERT_FALSE(plan.record.carousel_random);
+}
+
+void test_v1_migration_preserves_existing_fields_and_defaults_random_off()
+{
+    pf_config::StoredConfig stored{};
+    stored.schema_present = true;
+    stored.schema_version = 1;
+    stored.refresh_present = true;
+    stored.refresh_minutes = 35;
+    stored.timezone_present = true;
+    pf_config::copy_timezone(stored.timezone, "Asia/Taipei");
+
+    const pf_config::StartupPlan plan =
+        pf_config::make_startup_plan(stored);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_config::SchemaAction::migrate_v1),
+        static_cast<int>(plan.action));
+    TEST_ASSERT_TRUE(plan.write_required);
+    TEST_ASSERT_EQUAL_UINT32(35, plan.record.refresh_minutes);
+    TEST_ASSERT_FALSE(plan.record.carousel_random);
 }
 
 void test_future_schema_is_rejected_without_write()
@@ -91,6 +117,8 @@ void test_incomplete_current_record_is_rejected_without_write()
     stored.schema_version = pf_config::kCurrentSchemaVersion;
     stored.refresh_present = true;
     stored.refresh_minutes = 30;
+    stored.timezone_present = true;
+    pf_config::copy_timezone(stored.timezone, "Asia/Taipei");
 
     const pf_config::StartupPlan plan =
         pf_config::make_startup_plan(stored);
@@ -126,6 +154,7 @@ int main(int, char**)
     RUN_TEST(test_blank_storage_initializes_defaults);
     RUN_TEST(test_current_schema_is_used_without_migration);
     RUN_TEST(test_v0_migration_preserves_refresh_and_adds_timezone);
+    RUN_TEST(test_v1_migration_preserves_existing_fields_and_defaults_random_off);
     RUN_TEST(test_future_schema_is_rejected_without_write);
     RUN_TEST(test_incomplete_current_record_is_rejected_without_write);
     RUN_TEST(test_invalid_v0_record_is_rejected_without_write);

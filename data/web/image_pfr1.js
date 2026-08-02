@@ -18,10 +18,8 @@
   const MAX_FILENAME_BYTES = 96;
   const FLAG_COMPRESSED = 0x0008;
   const DITHERING = Object.freeze({
-    nearest: 0,
     "floyd-steinberg": 1,
     atkinson: 2,
-    "bayer-4x4": 3,
   });
 
   // Raw DEFLATE (no zlib/gzip wrapper), matching the firmware's ROM miniz
@@ -116,7 +114,7 @@
     if ((flags & FLAG_COMPRESSED) !== 0) {
       throw new RangeError("flags must not set FLAG_COMPRESSED; it is managed by packPfr1");
     }
-    const ditheringName = settings.dithering || "nearest";
+    const ditheringName = settings.dithering || "floyd-steinberg";
     if (!Object.prototype.hasOwnProperty.call(DITHERING, ditheringName)) {
       throw new RangeError("unsupported dithering mode");
     }

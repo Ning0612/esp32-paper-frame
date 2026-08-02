@@ -36,7 +36,9 @@ void write_u32(std::vector<std::uint8_t>& output, const std::size_t offset,
 std::vector<std::uint8_t> make_file(
     const std::uint8_t orientation,
     const std::string& filename,
-    const std::uint8_t payload_byte = 0x11U)
+    const std::uint8_t payload_byte = 0x11U,
+    const std::uint8_t dithering =
+        static_cast<std::uint8_t>(pf_image::Dithering::nearest))
 {
     const std::uint16_t width = orientation == 0U ? 800U : 480U;
     const std::uint16_t height = orientation == 0U ? 440U : 760U;
@@ -56,7 +58,7 @@ std::vector<std::uint8_t> make_file(
     write_u16(output, 10U, height);
     output[12] = orientation;
     output[13] = 1U;
-    output[14] = static_cast<std::uint8_t>(pf_image::Dithering::nearest);
+    output[14] = dithering;
     output[15] = 0U;
     write_u32(output, 16U, static_cast<std::uint32_t>(payload_length));
     write_u16(output, 20U, static_cast<std::uint16_t>(filename.size()));
@@ -225,6 +227,21 @@ void test_valid_file_accepts_arbitrary_chunks_and_sinks_payload()
     TEST_ASSERT_EQUAL_UINT32(0U, sink.offsets.front());
     TEST_ASSERT_EQUAL_UINT8(0x11U, sink.bytes.front());
     TEST_ASSERT_EQUAL_UINT8(0x11U, sink.bytes.back());
+}
+
+void test_legacy_bayer_dithering_code_remains_readable()
+{
+    const auto file = make_file(
+        0U,
+        "legacy-bayer.pfr1",
+        0x11U,
+        static_cast<std::uint8_t>(pf_image::Dithering::bayer_4x4));
+    Pfr1Validator validator{};
+    TEST_ASSERT_TRUE(validator.feed(file.data(), file.size()));
+    TEST_ASSERT_TRUE(validator.finish());
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(pf_image::Dithering::bayer_4x4),
+        static_cast<std::uint8_t>(validator.header().dithering));
 }
 
 void test_portrait_dimensions_and_filename_are_preserved()
@@ -530,6 +547,7 @@ int main()
     UNITY_BEGIN();
     RUN_TEST(test_crc32_known_vector);
     RUN_TEST(test_valid_file_accepts_arbitrary_chunks_and_sinks_payload);
+    RUN_TEST(test_legacy_bayer_dithering_code_remains_readable);
     RUN_TEST(test_portrait_dimensions_and_filename_are_preserved);
     RUN_TEST(test_rejects_bad_header_and_reserved_fields);
     RUN_TEST(test_rejects_invalid_palette_filename_and_crc);

@@ -74,7 +74,7 @@ snapshot 或 result endpoint 取得。Display、storage 與 OTA 共享的臨界�
 - On-device smoke：boot、PSRAM、partition、AP/STA、mDNS、panel、ADC、OTA。
 - Fault injection：CRC 錯誤、空間不足、`.part`／`.bak` 殘留、BUSY timeout、
   Wi-Fi 密碼錯誤、DNS/API/TLS 失敗、sensor absent。
-- Browser：圖片轉換順序、四種 fit、四種 dithering、PFR1 golden vectors、
+- Browser：圖片轉換順序、四種 fit、兩種 dithering、PFR1 golden vectors、
   responsive layout、離線資產與登入/CSRF 流程。
 
 ### 3.3 每段標準檢查
@@ -231,8 +231,9 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 
 - G4 的 `docs/formats/PFR1.md` 與跨 C++/JavaScript golden vectors。
 - 瀏覽器載圖、EXIF orientation、透明白底、鏡像、旋轉、fit/crop、縮放。
-- Floyd–Steinberg、Atkinson、Bayer 4×4、nearest-color 六色量化 Web Worker。
+- Floyd–Steinberg、Atkinson 六色量化 Web Worker；Crop/Cover 預覽支援拖曳定位。
 - 原圖／處理後／六色／狀態列預覽與輸出尺寸、方向、大小提示。
+- 圖片頁可保存 Random／隨機輪播設定；來源圖片上限為 6,400 萬像素（檔案仍限 32 MB）。
 - JavaScript PFR1 packer 與韌體端 streaming parser/validator。
 
 固定轉換順序：
@@ -247,7 +248,7 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 驗收：
 
 - 同一 golden input 在 browser 與 firmware 得到相同 header、payload、CRC。
-- landscape/portrait、透明圖、EXIF、四種 fit 與四種 dithering 有測試。
+- landscape/portrait、透明圖、EXIF、四種 fit、兩種 dithering、裁切 anchor 與 Random 設定有測試。
 - 拒絕錯誤 magic/version/orientation/palette/dimensions/length/CRC/filename。
 - 瀏覽器只上傳受限制的 packed PFR1，不上傳任意大小 RGB framebuffer。
 

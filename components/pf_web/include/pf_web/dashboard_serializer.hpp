@@ -26,6 +26,7 @@ struct MaskedConfig {
     bool wifi_password_configured;
     bool management_password_configured;
     std::uint32_t refresh_minutes;
+    bool carousel_random;
     const char* timezone;
     bool weather_configured;
     bool weather_api_key_set;
@@ -828,7 +829,7 @@ inline SerializeResult serialize_masked_config(
         "{\"ok\":true,\"data\":{\"wifi\":{"
         "\"ssid_set\":%s,\"password_set\":%s},"
         "\"management_password_set\":%s,\"display\":{"
-        "\"refresh_minutes\":%s},\"time\":{"
+        "\"refresh_minutes\":%s,\"random\":%s},\"time\":{"
         "\"timezone\":\"%s\"},\"weather\":{"
         "\"configured\":%s,\"api_key_set\":%s,"
         "\"latitude_e6\":%ld,\"longitude_e6\":%ld,"
@@ -841,6 +842,7 @@ inline SerializeResult serialize_masked_config(
         config.wifi_password_configured ? "true" : "false",
         config.management_password_configured ? "true" : "false",
         refresh_value,
+        config.carousel_random ? "true" : "false",
         timezone,
         config.weather_configured ? "true" : "false",
         config.weather_api_key_set ? "true" : "false",

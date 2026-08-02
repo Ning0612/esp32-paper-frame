@@ -12,6 +12,7 @@
     landscape: Object.freeze({ orientation: 0, width: 800, height: 440 }),
     portrait: Object.freeze({ orientation: 1, width: 480, height: 760 }),
   });
+  const DEFAULT_CROP_POSITION = Object.freeze({ x: 0.5, y: 0.5 });
 
   function assertInteger(value, name) {
     if (!Number.isInteger(value) || value <= 0) {
@@ -35,6 +36,15 @@
       throw new RangeError("RGBA data length does not match raster dimensions");
     }
     return { width, height, data: pixels };
+  }
+
+  function validateRaster(raster) {
+    if (!raster || !Number.isInteger(raster.width) || raster.width <= 0 ||
+        !Number.isInteger(raster.height) || raster.height <= 0 ||
+        !raster.data || raster.data.length !== raster.width * raster.height * 4) {
+      throw new RangeError("invalid raster");
+    }
+    return raster;
   }
 
   function copyPixel(source, sourceIndex, destination, destinationIndex) {
@@ -115,7 +125,7 @@
   }
 
   function flattenOnWhite(raster, background) {
-    const source = makeRaster(raster.width, raster.height, raster.data);
+    const source = validateRaster(raster);
     const color = background || [255, 255, 255];
     if (!Array.isArray(color) || color.length !== 3 || color.some((value) =>
       !Number.isInteger(value) || value < 0 || value > 255)) {
@@ -129,11 +139,11 @@
       output[index + 2] = Math.round((source.data[index + 2] * alpha) + (color[2] * (1 - alpha)));
       output[index + 3] = 255;
     }
-    return makeRaster(source.width, source.height, output);
+    return { width: source.width, height: source.height, data: output };
   }
 
   function orientExif(raster, orientation) {
-    const source = makeRaster(raster.width, raster.height, raster.data);
+    const source = validateRaster(raster);
     if (!Number.isInteger(orientation) || orientation < 1 || orientation > 8) {
       throw new RangeError("EXIF orientation must be an integer from 1 to 8");
     }
@@ -183,11 +193,11 @@
         copyPixel(source.data, sourceIndex, output, destinationIndex);
       }
     }
-    return makeRaster(width, height, output);
+    return { width, height, data: output };
   }
 
   function mirror(raster, mirrorX, mirrorY) {
-    const source = makeRaster(raster.width, raster.height, raster.data);
+    const source = validateRaster(raster);
     if (!mirrorX && !mirrorY) {
       return source;
     }
@@ -201,11 +211,11 @@
         copyPixel(source.data, sourceIndex, output, destinationIndex);
       }
     }
-    return makeRaster(source.width, source.height, output);
+    return { width: source.width, height: source.height, data: output };
   }
 
   function rotate90Cw(raster) {
-    const source = makeRaster(raster.width, raster.height, raster.data);
+    const source = validateRaster(raster);
     const width = source.height;
     const height = source.width;
     const output = new Uint8ClampedArray(width * height * 4);
@@ -218,29 +228,61 @@
         copyPixel(source.data, sourceIndex, output, destinationIndex);
       }
     }
-    return makeRaster(width, height, output);
+    return { width, height, data: output };
   }
 
-  function cropCenter(raster, width, height) {
-    const source = makeRaster(raster.width, raster.height, raster.data);
+  function normalizeCropPosition(position) {
+    const value = position || DEFAULT_CROP_POSITION;
+    const x = value.x == null ? DEFAULT_CROP_POSITION.x : value.x;
+    const y = value.y == null ? DEFAULT_CROP_POSITION.y : value.y;
+    if (!Number.isFinite(x) || !Number.isFinite(y) ||
+        x < 0 || x > 1 || y < 0 || y > 1) {
+      throw new RangeError("crop position must contain x/y values from 0 to 1");
+    }
+    return { x, y };
+  }
+
+  function cropGeometry(raster, width, height) {
+    const source = validateRaster(raster);
+    assertInteger(width, "crop target width");
+    assertInteger(height, "crop target height");
+    const scale = Math.max(width / source.width, height / source.height);
+    const scaledWidth = Math.max(width, Math.round(source.width * scale));
+    const scaledHeight = Math.max(height, Math.round(source.height * scale));
+    return Object.freeze({
+      scale,
+      scaledWidth,
+      scaledHeight,
+      overflowX: scaledWidth - width,
+      overflowY: scaledHeight - height,
+    });
+  }
+
+  function cropRaster(raster, width, height, position) {
+    const source = validateRaster(raster);
     assertInteger(width, "crop width");
     assertInteger(height, "crop height");
     if (width > source.width || height > source.height) {
       throw new RangeError("crop cannot exceed source dimensions");
     }
-    const left = Math.floor((source.width - width) / 2);
-    const top = Math.floor((source.height - height) / 2);
+    const anchor = normalizeCropPosition(position);
+    const left = Math.floor((source.width - width) * anchor.x);
+    const top = Math.floor((source.height - height) * anchor.y);
     const output = new Uint8ClampedArray(width * height * 4);
     for (let y = 0; y < height; y += 1) {
       const sourceStart = (((top + y) * source.width) + left) * 4;
       const destinationStart = y * width * 4;
       output.set(source.data.subarray(sourceStart, sourceStart + (width * 4)), destinationStart);
     }
-    return makeRaster(width, height, output);
+    return { width, height, data: output };
+  }
+
+  function cropCenter(raster, width, height) {
+    return cropRaster(raster, width, height, DEFAULT_CROP_POSITION);
   }
 
   function resizeNearest(raster, width, height) {
-    const source = makeRaster(raster.width, raster.height, raster.data);
+    const source = validateRaster(raster);
     assertInteger(width, "resize width");
     assertInteger(height, "resize height");
     if (source.width === width && source.height === height) {
@@ -256,7 +298,7 @@
         copyPixel(source.data, sourceIndex, output, destinationIndex);
       }
     }
-    return makeRaster(width, height, output);
+    return { width, height, data: output };
   }
 
   function paintContain(raster, width, height, background) {
@@ -279,11 +321,11 @@
       const destinationStart = (((top + y) * width) + left) * 4;
       output.set(scaled.data.subarray(sourceStart, sourceStart + (scaledWidth * 4)), destinationStart);
     }
-    return makeRaster(width, height, output);
+    return { width, height, data: output };
   }
 
-  function fitRaster(raster, width, height, fit, background) {
-    const source = makeRaster(raster.width, raster.height, raster.data);
+  function fitRaster(raster, width, height, fit, background, cropPosition) {
+    const source = validateRaster(raster);
     assertInteger(width, "target width");
     assertInteger(height, "target height");
     if (!FIT_MODES.includes(fit)) {
@@ -295,14 +337,15 @@
     if (fit === "contain") {
       return paintContain(source, width, height, background);
     }
+    const anchor = normalizeCropPosition(cropPosition);
     if (fit === "cover") {
-      const scale = Math.max(width / source.width, height / source.height);
+      const geometry = cropGeometry(source, width, height);
       const scaled = resizeNearest(
         source,
-        Math.max(width, Math.round(source.width * scale)),
-        Math.max(height, Math.round(source.height * scale)),
+        geometry.scaledWidth,
+        geometry.scaledHeight,
       );
-      return cropCenter(scaled, width, height);
+      return cropRaster(scaled, width, height, anchor);
     }
     const targetAspect = width / height;
     const sourceAspect = source.width / source.height;
@@ -313,7 +356,7 @@
     } else if (sourceAspect < targetAspect) {
       cropHeight = Math.max(1, Math.round(source.width / targetAspect));
     }
-    return resizeNearest(cropCenter(source, cropWidth, cropHeight), width, height);
+    return resizeNearest(cropRaster(source, cropWidth, cropHeight, anchor), width, height);
   }
 
   function processRaster(raster, options) {
@@ -322,7 +365,9 @@
     const targetHeight = settings.targetHeight;
     assertInteger(targetWidth, "target width");
     assertInteger(targetHeight, "target height");
-    let output = flattenOnWhite(raster, settings.background);
+    let output = settings.skipFlatten
+      ? validateRaster(raster)
+      : flattenOnWhite(raster, settings.background);
     output = orientExif(output, settings.exifOrientation == null ? 1 : settings.exifOrientation);
     output = mirror(output, Boolean(settings.mirrorX), Boolean(settings.mirrorY));
     if (settings.rotate90Cw) {
@@ -334,18 +379,23 @@
       targetHeight,
       settings.fit || "contain",
       settings.background,
+      settings.cropPosition,
     );
   }
 
   return Object.freeze({
     FIT_MODES,
     ORIENTATION_PROFILES,
+    DEFAULT_CROP_POSITION,
     makeRaster,
     readExifOrientation,
     flattenOnWhite,
     orientExif,
     mirror,
     rotate90Cw,
+    normalizeCropPosition,
+    cropGeometry,
+    cropRaster,
     cropCenter,
     resizeNearest,
     fitRaster,

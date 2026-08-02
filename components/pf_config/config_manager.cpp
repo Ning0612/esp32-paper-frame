@@ -13,6 +13,7 @@ constexpr char kNamespace[] = "pf_config";
 constexpr char kSchemaKey[] = "schema_ver";
 constexpr char kRefreshMinutesKey[] = "refresh_min";
 constexpr char kTimezoneKey[] = "timezone";
+constexpr char kCarouselRandomKey[] = "carousel_random";
 constexpr char kNetworkNamespace[] = "pf_wifi";
 constexpr char kNetworkCredentialKey[] = "credentials";
 constexpr char kAuthenticationNamespace[] = "pf_auth";
@@ -27,7 +28,7 @@ esp_err_t initialize_nvs()
     return nvs_flash_init();
 }
 
-esp_err_t write_v1_record(
+esp_err_t write_current_record(
     const nvs_handle_t handle,
     const ConfigRecord& record)
 {
@@ -42,11 +43,34 @@ esp_err_t write_v1_record(
         return result;
     }
 
+    result = nvs_set_u8(
+        handle,
+        kCarouselRandomKey,
+        record.carousel_random ? 1U : 0U);
+    if (result != ESP_OK) {
+        return result;
+    }
+
     result = nvs_set_u32(handle, kSchemaKey, kCurrentSchemaVersion);
     if (result != ESP_OK) {
         return result;
     }
     return nvs_commit(handle);
+}
+
+esp_err_t read_optional_u8(
+    const nvs_handle_t handle,
+    const char* key,
+    bool& present,
+    std::uint8_t& value)
+{
+    const esp_err_t result = nvs_get_u8(handle, key, &value);
+    present = result == ESP_OK;
+    if (present || result == ESP_ERR_NVS_NOT_FOUND ||
+        result == ESP_ERR_NVS_TYPE_MISMATCH) {
+        return ESP_OK;
+    }
+    return result;
 }
 
 esp_err_t read_optional_u32(
@@ -118,11 +142,18 @@ StartupResult initialize()
             kRefreshMinutesKey,
             stored.refresh_present,
             stored.refresh_minutes);
-        if (result == ESP_OK && stored.schema_version == kCurrentSchemaVersion) {
+        if (result == ESP_OK && stored.schema_version >= 1U) {
             result = read_optional_timezone(
                 handle,
                 stored.timezone_present,
                 stored.timezone);
+        }
+        if (result == ESP_OK && stored.schema_version >= 2U) {
+            result = read_optional_u8(
+                handle,
+                kCarouselRandomKey,
+                stored.carousel_random_present,
+                stored.carousel_random);
         }
         if (result != ESP_OK) {
             nvs_close(handle);
@@ -132,7 +163,7 @@ StartupResult initialize()
 
     const StartupPlan plan = make_startup_plan(stored);
     if (plan.write_required) {
-        result = write_v1_record(handle, plan.record);
+        result = write_current_record(handle, plan.record);
     } else if (plan.action == SchemaAction::reject_future) {
         result = ESP_ERR_NOT_SUPPORTED;
     } else if (plan.action == SchemaAction::reject_corrupt) {
@@ -147,6 +178,27 @@ StartupResult initialize()
         result == ESP_OK,
         result == ESP_OK ? plan.record : ConfigRecord{},
     };
+}
+
+esp_err_t save_config(const ConfigRecord& record)
+{
+    if (!refresh_minutes_valid(record.refresh_minutes)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ConfigRecord validated = record;
+    if (!copy_timezone(validated.timezone, record.timezone)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle = 0;
+    esp_err_t result = nvs_open(kNamespace, NVS_READWRITE, &handle);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = write_current_record(handle, validated);
+    nvs_close(handle);
+    return result;
 }
 
 NetworkCredentialLoadResult load_network_credentials()

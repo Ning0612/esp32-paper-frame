@@ -24,6 +24,7 @@
 #include "pf_storage/storage_worker.hpp"
 #include "pf_web/access_policy.hpp"
 #include "pf_web/auth_form.hpp"
+#include "pf_web/carousel_config_form.hpp"
 #include "pf_web/dashboard_serializer.hpp"
 #include "pf_web/health_serializer.hpp"
 #include "pf_web/image_download_path.hpp"
@@ -129,6 +130,8 @@ constexpr std::size_t kWeatherConfigBodyCapacity = 512U;
 constexpr UBaseType_t kSensorConfigTaskPriority = 3U;
 constexpr std::uint32_t kSensorConfigTaskStackWords = 4096U;
 constexpr std::size_t kSensorConfigBodyCapacity = 160U;
+constexpr std::uint32_t kCarouselConfigTaskStackWords = 4096U;
+constexpr std::size_t kCarouselConfigBodyCapacity = 64U;
 
 HealthServerAccessConfig server_access_config{};
 
@@ -221,6 +224,20 @@ TaskHandle_t sensor_config_task_handle = nullptr;
 StackType_t* sensor_config_task_stack = nullptr;
 SemaphoreHandle_t sensor_config_mutex = nullptr;
 StaticSemaphore_t sensor_config_mutex_control{};
+
+struct CarouselConfigRequest {
+    httpd_req_t* request = nullptr;
+};
+
+QueueHandle_t carousel_config_queue = nullptr;
+StaticQueue_t carousel_config_queue_control{};
+std::uint8_t carousel_config_queue_storage[
+    sizeof(CarouselConfigRequest)]{};
+StaticTask_t carousel_config_task_control{};
+TaskHandle_t carousel_config_task_handle = nullptr;
+StackType_t* carousel_config_task_stack = nullptr;
+SemaphoreHandle_t carousel_config_mutex = nullptr;
+StaticSemaphore_t carousel_config_mutex_control{};
 
 esp_err_t start_deferred_task(
     const char* const task_name,
@@ -805,6 +822,20 @@ esp_err_t config_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"weather_config_busy\"}");
     }
 
+    bool carousel_random = false;
+    if (carousel_config_mutex == nullptr ||
+        xSemaphoreTake(
+            carousel_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        xSemaphoreGive(weather_config_mutex);
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
+    }
+    carousel_random = server_access_config.carousel_random;
+    xSemaphoreGive(carousel_config_mutex);
+
     const MaskedConfig config{
         .wifi_configured = server_access_config.wifi_configured,
         .wifi_password_configured =
@@ -812,6 +843,7 @@ esp_err_t config_handler(httpd_req_t* request)
         .management_password_configured =
             server_access_config.management_password_configured,
         .refresh_minutes = server_access_config.refresh_minutes,
+        .carousel_random = carousel_random,
         .timezone = server_access_config.timezone,
         .weather_configured = server_access_config.weather_configured,
         .weather_api_key_set =
@@ -866,6 +898,217 @@ esp_err_t config_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"config_serialization\"}");
     }
     return send_json(request, nullptr, response);
+}
+
+bool receive_weather_config_body(
+    httpd_req_t* request,
+    char* body,
+    std::size_t capacity,
+    std::size_t& received);
+
+esp_err_t process_carousel_config(
+    httpd_req_t* const request,
+    const char* const body,
+    const std::size_t received)
+{
+    CarouselConfigForm form{};
+    const CarouselConfigParseStatus parsed =
+        parse_carousel_config_form(body, received, form);
+    if (parsed != CarouselConfigParseStatus::ok) {
+        char response[112]{};
+        std::snprintf(
+            response,
+            sizeof(response),
+            "{\"ok\":false,\"error\":\"%s\"}",
+            to_string(parsed));
+        return send_json(
+            request,
+            "400 Bad Request",
+            response);
+    }
+    const bool random = form.random;
+
+    pf_config::ConfigRecord candidate{};
+    if (carousel_config_mutex == nullptr ||
+        xSemaphoreTake(
+            carousel_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
+    }
+    candidate.refresh_minutes = server_access_config.refresh_minutes;
+    const bool timezone_copied = pf_config::copy_timezone(
+        candidate.timezone,
+        server_access_config.timezone);
+    const bool previous_random = server_access_config.carousel_random;
+    xSemaphoreGive(carousel_config_mutex);
+    if (!timezone_copied || !pf_config::refresh_minutes_valid(candidate.refresh_minutes)) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"config_unavailable\"}");
+    }
+    if (carousel_config_mutex == nullptr ||
+        xSemaphoreTake(
+            carousel_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
+    }
+    server_access_config.carousel_random = form.random;
+    xSemaphoreGive(carousel_config_mutex);
+    candidate.carousel_random = random;
+
+    if (!pf_runtime::coordinator().lock_flash_display(
+            pdMS_TO_TICKS(10000U))) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"flash_busy\"}");
+    }
+    const esp_err_t saved = pf_config::save_config(candidate);
+    pf_runtime::coordinator().unlock_flash_display();
+    if (saved != ESP_OK) {
+        if (carousel_config_mutex != nullptr &&
+            xSemaphoreTake(
+                carousel_config_mutex,
+                pdMS_TO_TICKS(1000U)) == pdTRUE) {
+            server_access_config.carousel_random = previous_random;
+            xSemaphoreGive(carousel_config_mutex);
+        }
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"storage_unavailable\"}");
+    }
+    pf_runtime::coordinator().request_carousel_mode(random);
+    return send_json(
+        request,
+        nullptr,
+        random
+            ? "{\"ok\":true,\"data\":{\"saved\":true,\"random\":true}}"
+            : "{\"ok\":true,\"data\":{\"saved\":true,\"random\":false}}");
+}
+
+void carousel_config_task_entry(void* const context)
+{
+    (void)context;
+    while (true) {
+        CarouselConfigRequest queued{};
+        if (carousel_config_queue == nullptr ||
+            xQueueReceive(
+                carousel_config_queue,
+                &queued,
+                portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        char body[kCarouselConfigBodyCapacity]{};
+        std::size_t received = 0U;
+        esp_err_t response_result = ESP_OK;
+        if (queued.request == nullptr) {
+            continue;
+        }
+        if (!receive_weather_config_body(
+                queued.request,
+                body,
+                sizeof(body),
+                received)) {
+            response_result = send_json(
+                queued.request,
+                "400 Bad Request",
+                "{\"ok\":false,\"error\":\"body_receive_failed\"}");
+        } else {
+            response_result = process_carousel_config(
+                queued.request,
+                body,
+                received);
+        }
+        finish_async_upload_request(
+            queued.request,
+            response_result,
+            true);
+    }
+}
+
+esp_err_t start_carousel_config_task(const bool start_worker)
+{
+    if (carousel_config_queue == nullptr) {
+        carousel_config_queue = xQueueCreateStatic(
+            1U,
+            sizeof(CarouselConfigRequest),
+            carousel_config_queue_storage,
+            &carousel_config_queue_control);
+        if (carousel_config_queue == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    return start_worker
+               ? start_deferred_task(
+                     "pf_carousel_cfg",
+                     carousel_config_task_entry,
+                     kCarouselConfigTaskStackWords,
+                     carousel_config_task_handle,
+                     carousel_config_task_stack,
+                     carousel_config_task_control)
+               : ESP_OK;
+}
+
+esp_err_t carousel_config_post_handler(httpd_req_t* const request)
+{
+    httpd_req_t* async_request = nullptr;
+    if (httpd_req_async_handler_begin(request, &async_request) != ESP_OK) {
+        close_request_session(request);
+        return ESP_FAIL;
+    }
+    const auto send_async_error = [&](const char* const status,
+                                      const char* const body) {
+        const esp_err_t response_result = send_json(
+            async_request,
+            status,
+            body);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    };
+    const AccessContext access = current_access_context(async_request);
+    if (!access.authenticated || !access.csrf_valid) {
+        const esp_err_t response_result =
+            reject_management_request(async_request, access, true);
+        return finish_async_upload_request(
+            async_request,
+            response_result,
+            true);
+    }
+    if (start_carousel_config_task(true) != ESP_OK) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"carousel_config_unavailable\"}");
+    }
+    if (async_request->content_len <= 0 ||
+        static_cast<std::size_t>(async_request->content_len) >=
+            kCarouselConfigBodyCapacity) {
+        return send_async_error(
+            "413 Payload Too Large",
+            "{\"ok\":false,\"error\":\"invalid_body\"}");
+    }
+    if (carousel_config_queue == nullptr ||
+        uxQueueSpacesAvailable(carousel_config_queue) == 0U) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
+    }
+    const CarouselConfigRequest queued{async_request};
+    if (xQueueSend(carousel_config_queue, &queued, 0U) != pdTRUE) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
+    }
+    return ESP_OK;
 }
 
 bool receive_weather_config_body(
@@ -3060,6 +3303,12 @@ const httpd_uri_t kConfigRoute{
     .handler = config_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kConfigPostRoute{
+    .uri = "/api/v1/config",
+    .method = HTTP_POST,
+    .handler = carousel_config_post_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kEventsRoute{
     .uri = "/api/v1/events",
     .method = HTTP_GET,
@@ -3293,6 +3542,11 @@ esp_err_t start_health_server(
     if (sensor_config_mutex == nullptr) {
         return ESP_ERR_NO_MEM;
     }
+    carousel_config_mutex = xSemaphoreCreateMutexStatic(
+        &carousel_config_mutex_control);
+    if (carousel_config_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
 
     esp_err_t result = httpd_start(server, &configuration);
     if (result != ESP_OK) {
@@ -3328,12 +3582,19 @@ esp_err_t start_health_server(
         *server = nullptr;
         return result;
     }
+    result = start_carousel_config_task(false);
+    if (result != ESP_OK) {
+        httpd_stop(*server);
+        *server = nullptr;
+        return result;
+    }
 
     const httpd_uri_t* const routes[] = {
         &kHealthRoute,
         &kDeviceRoute,
         &kStatusRoute,
         &kConfigRoute,
+        &kConfigPostRoute,
         &kEventsRoute,
         &kRebootRoute,
         &kOtaStatusRoute,

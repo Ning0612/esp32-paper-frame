@@ -14,7 +14,10 @@ self.onmessage = function (event) {
       request.height,
       new Uint8ClampedArray(request.data),
     );
-    const result = PaperFrameQuantizer.quantize(raster, request.mode || "nearest");
+    const result = PaperFrameQuantizer.quantize(
+      raster,
+      request.mode || "floyd-steinberg",
+    );
     self.postMessage(
       {
         id: request.id,

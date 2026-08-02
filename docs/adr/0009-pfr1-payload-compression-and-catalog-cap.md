@@ -44,7 +44,9 @@ palette 只用到 16 種 nibble 值中的 6 種。分析發現兩個獨立但相
    dithering**，這剛好是壓縮效果最差的模式：error diffusion 刻意讓相鄰
    pixel 去相關化以模擬更多顏色，這對通用壓縮演算法是對抗性的。用本專案
    實際的 `image_quantizer.js` 對代表性合成圖片做的實測（Node
-   `zlib.deflateRawSync`，對照四種 dithering 模式）顯示：
+   `zlib.deflateRawSync`，對照當時四種 dithering 模式）顯示；其中
+   `nearest`/`bayer-4x4` 現在只保留為舊 PFR1 wire code 的讀取相容性，不再由
+   WebUI 產生：
    - `floyd-steinberg`/`atkinson`：deflate 只省 ~40–47%，RLE 甚至讓資料
      變大 190–254%。
    - `nearest`/`bayer-4x4`：deflate 可省 75–99%（沒有 error diffusion

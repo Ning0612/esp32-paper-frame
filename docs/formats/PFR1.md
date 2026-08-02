@@ -29,7 +29,7 @@ Header 的 byte offset 如下：
 | 10 | 2 | `height` | 橫向 `440`；直向 `760` |
 | 12 | 1 | `orientation` | `0=landscape`、`1=portrait` |
 | 13 | 1 | `palette` | `1=E6 native palette v1` |
-| 14 | 1 | `dithering` | `0=nearest`、`1=Floyd-Steinberg`、`2=Atkinson`、`3=Bayer 4×4` |
+| 14 | 1 | `dithering` | 現行 browser 輸出：`1=Floyd-Steinberg`、`2=Atkinson`；`0=nearest` 與 `3=Bayer 4×4` 為舊檔案相容值，韌體仍可讀取 |
 | 15 | 1 | `reserved` | 必須為 0 |
 | 16 | 4 | `payload_length` | 必須等於該尺寸的 packed byte 數 |
 | 20 | 2 | `filename_length` | 1–96 bytes；不是字元數 |
@@ -151,7 +151,7 @@ order、nibble 順序或 CRC 漂移：
 - profile：landscape `800×440`，`orientation=0`。
 - filename：ASCII `golden.pfr1`（11 bytes）。
 - flags：`mirror_x`（`0x0001`）。
-- dithering：`nearest`（`0`）。
+- dithering：`nearest`（`0`，舊檔案相容向量；目前 browser packer 不再產生此值）。
 - payload：176,000 bytes，全為 `0x11`（兩個 white native code）。
 - 完整檔案長度：176,043 bytes。
 - payload CRC32：`0xAF00B5BD`（header little-endian bytes `BD B5 00 AF`）。
@@ -177,7 +177,7 @@ payload，藉此交叉驗證雙方對 raw DEFLATE framing 的理解一致：
 - profile：landscape `800×440`，`orientation=0`。
 - filename：ASCII `golden-compressed.pfr1`（22 bytes）。
 - flags：`compressed`（`0x0008`）。
-- dithering：`nearest`（`0`）。
+- dithering：`nearest`（`0`，舊檔案相容向量）。
 - 來源（解壓縮後）payload：176,000 bytes，全為 `0x11`（兩個 white native
   code）——與未壓縮 golden vector 使用同一份參考內容。
 - 壓縮方式：raw DEFLATE（`zlib.deflateRawSync`，level 9，無 zlib/gzip

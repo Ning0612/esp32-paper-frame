@@ -341,8 +341,9 @@ Dithering 模式：
 
 * Floyd–Steinberg，預設。
 * Atkinson。
-* Bayer 4×4。
-* Nearest color，不抖動。
+
+Crop 與 Cover 的處理後預覽可用滑鼠／觸控拖曳圖片調整裁切位置，也可用方向鍵
+微調；預設位置為置中。來源圖片最多 6,400 萬像素，檔案大小仍限制為 32 MB。
 
 預覽必須同時顯示：
 

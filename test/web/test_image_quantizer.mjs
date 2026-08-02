@@ -25,13 +25,13 @@ function assertValidCodes(result) {
   assert.equal(result.data.length, result.width * result.height * 4);
 }
 
-function testNearestUsesE6PaletteAndTransparentWhite() {
+function testFloydSteinbergUsesE6PaletteAndTransparentWhite() {
   const source = pipeline.makeRaster(3, 1, new Uint8ClampedArray([
     255, 0, 0, 255,
     0, 0, 0, 0,
     0, 255, 0, 255,
   ]));
-  const result = quantizer.quantize(source, "nearest");
+  const result = quantizer.quantize(source, "floyd-steinberg");
   assert.deepEqual(Array.from(result.codes), [3, 1, 5]);
   assert.deepEqual(Array.from(result.data.slice(0, 4)), [255, 0, 0, 255]);
   assert.deepEqual(Array.from(result.data.slice(4, 8)), [255, 255, 255, 255]);
@@ -48,22 +48,24 @@ function testAllModesAreDeterministicAndProduceOnlyPalettePixels() {
   }
 }
 
-function testDitherModesCanPreserveLocalContrast() {
+function testOnlySupportedDitherModesAreExposed() {
   const source = makeGradient(8, 8);
-  const nearest = quantizer.quantize(source, "nearest");
-  for (const mode of ["floyd-steinberg", "atkinson", "bayer-4x4"]) {
+  assert.deepEqual(quantizer.MODES, ["floyd-steinberg", "atkinson"]);
+  const results = [];
+  for (const mode of quantizer.MODES) {
     const result = quantizer.quantize(source, mode);
     assertValidCodes(result);
-    assert.notDeepEqual(Array.from(result.codes), Array.from(nearest.codes), mode);
+    results.push(result);
   }
+  assert.notDeepEqual(Array.from(results[0].codes), Array.from(results[1].codes));
 }
 
 function testInvalidModeFailsClosed() {
   assert.throws(() => quantizer.quantize(makeGradient(1, 1), "rgb"), RangeError);
 }
 
-testNearestUsesE6PaletteAndTransparentWhite();
+testFloydSteinbergUsesE6PaletteAndTransparentWhite();
 testAllModesAreDeterministicAndProduceOnlyPalettePixels();
-testDitherModesCanPreserveLocalContrast();
+testOnlySupportedDitherModesAreExposed();
 testInvalidModeFailsClosed();
 console.log("image_quantizer: 4 tests passed");
