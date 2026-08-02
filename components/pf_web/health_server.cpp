@@ -203,8 +203,8 @@ StaticQueue_t weather_config_queue_control{};
 std::uint8_t weather_config_queue_storage[
     sizeof(WeatherConfigRequest)]{};
 StaticTask_t weather_config_task_control{};
-StackType_t weather_config_task_stack[
-    kWeatherConfigTaskStackWords]{};
+TaskHandle_t weather_config_task_handle = nullptr;
+StackType_t* weather_config_task_stack = nullptr;
 SemaphoreHandle_t weather_config_mutex = nullptr;
 StaticSemaphore_t weather_config_mutex_control{};
 
@@ -217,8 +217,8 @@ StaticQueue_t sensor_config_queue_control{};
 std::uint8_t sensor_config_queue_storage[
     sizeof(SensorConfigRequest)]{};
 StaticTask_t sensor_config_task_control{};
-StackType_t sensor_config_task_stack[
-    kSensorConfigTaskStackWords]{};
+TaskHandle_t sensor_config_task_handle = nullptr;
+StackType_t* sensor_config_task_stack = nullptr;
 SemaphoreHandle_t sensor_config_mutex = nullptr;
 StaticSemaphore_t sensor_config_mutex_control{};
 
@@ -1030,29 +1030,27 @@ void weather_config_task_entry(void* const context)
     }
 }
 
-esp_err_t start_weather_config_task()
+esp_err_t start_weather_config_task(const bool start_worker)
 {
-    if (weather_config_queue != nullptr) {
-        return ESP_OK;
+    if (weather_config_queue == nullptr) {
+        weather_config_queue = xQueueCreateStatic(
+            1U,
+            sizeof(WeatherConfigRequest),
+            weather_config_queue_storage,
+            &weather_config_queue_control);
+        if (weather_config_queue == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
     }
-    weather_config_queue = xQueueCreateStatic(
-        1U,
-        sizeof(WeatherConfigRequest),
-        weather_config_queue_storage,
-        &weather_config_queue_control);
-    if (weather_config_queue == nullptr ||
-        xTaskCreateStatic(
-            weather_config_task_entry,
-            "pf_weather_cfg",
-            kWeatherConfigTaskStackWords,
-            nullptr,
-            kWeatherConfigTaskPriority,
-            weather_config_task_stack,
-            &weather_config_task_control) == nullptr) {
-        weather_config_queue = nullptr;
-        return ESP_ERR_NO_MEM;
-    }
-    return ESP_OK;
+    return start_worker
+               ? start_deferred_task(
+                     "pf_weather_cfg",
+                     weather_config_task_entry,
+                     kWeatherConfigTaskStackWords,
+                     weather_config_task_handle,
+                     weather_config_task_stack,
+                     weather_config_task_control)
+               : ESP_OK;
 }
 
 esp_err_t weather_config_post_handler(httpd_req_t* const request)
@@ -1081,6 +1079,11 @@ esp_err_t weather_config_post_handler(httpd_req_t* const request)
             async_request,
             response_result,
             true);
+    }
+    if (start_weather_config_task(true) != ESP_OK) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"weather_config_unavailable\"}");
     }
     if (async_request->content_len <= 0 ||
         static_cast<std::size_t>(async_request->content_len) >=
@@ -1222,29 +1225,27 @@ void sensor_config_task_entry(void* const context)
     }
 }
 
-esp_err_t start_sensor_config_task()
+esp_err_t start_sensor_config_task(const bool start_worker)
 {
-    if (sensor_config_queue != nullptr) {
-        return ESP_OK;
+    if (sensor_config_queue == nullptr) {
+        sensor_config_queue = xQueueCreateStatic(
+            1U,
+            sizeof(SensorConfigRequest),
+            sensor_config_queue_storage,
+            &sensor_config_queue_control);
+        if (sensor_config_queue == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
     }
-    sensor_config_queue = xQueueCreateStatic(
-        1U,
-        sizeof(SensorConfigRequest),
-        sensor_config_queue_storage,
-        &sensor_config_queue_control);
-    if (sensor_config_queue == nullptr ||
-        xTaskCreateStatic(
-            sensor_config_task_entry,
-            "pf_sensor_cfg",
-            kSensorConfigTaskStackWords,
-            nullptr,
-            kSensorConfigTaskPriority,
-            sensor_config_task_stack,
-            &sensor_config_task_control) == nullptr) {
-        sensor_config_queue = nullptr;
-        return ESP_ERR_NO_MEM;
-    }
-    return ESP_OK;
+    return start_worker
+               ? start_deferred_task(
+                     "pf_sensor_cfg",
+                     sensor_config_task_entry,
+                     kSensorConfigTaskStackWords,
+                     sensor_config_task_handle,
+                     sensor_config_task_stack,
+                     sensor_config_task_control)
+               : ESP_OK;
 }
 
 esp_err_t sensor_config_post_handler(httpd_req_t* const request)
@@ -1273,6 +1274,11 @@ esp_err_t sensor_config_post_handler(httpd_req_t* const request)
             async_request,
             response_result,
             true);
+    }
+    if (start_sensor_config_task(true) != ESP_OK) {
+        return send_async_error(
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"sensor_config_unavailable\"}");
     }
     if (async_request->content_len <= 0 ||
         static_cast<std::size_t>(async_request->content_len) >=
@@ -3189,13 +3195,13 @@ esp_err_t start_health_server(
         *server = nullptr;
         return result;
     }
-    result = start_weather_config_task();
+    result = start_weather_config_task(false);
     if (result != ESP_OK) {
         httpd_stop(*server);
         *server = nullptr;
         return result;
     }
-    result = start_sensor_config_task();
+    result = start_sensor_config_task(false);
     if (result != ESP_OK) {
         httpd_stop(*server);
         *server = nullptr;
