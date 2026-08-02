@@ -1032,3 +1032,32 @@ display path 接入＋既有 bug 修正、目錄上限 48→96、瀏覽器端壓
 
 以上 3 項若在下一輪有硬體時仍未執行，必須繼續留在本檔案的待驗證清單，
 不得從交付說明中省略。
+
+## 2026-08-02 — PSRAM／flash cache-disable 交錯安全性：原始碼層級已驗證
+
+上方 2026-08-01 OTA 那筆紀錄提到「PSRAM 在 flash cache-disable 期間的
+存取安全性未經驗證」，當時只是 OTA 那次撤回的個案結論，沒有針對本專案
+其他已上線的 PSRAM 用法（PFR1 壓縮功能）做過對照審查。RAM 重構過程中
+補做了這個原始碼層級的追蹤，完整記錄見
+[ADR-0011](../adr/0011-psram-flash-cache-disable-safety.md)。
+
+結論：`pf_image_up`/`pf_image_mut`（上傳／mutation 寫入路徑）、
+carousel 顯示（`carousel_payload`/`carousel_status`/
+`carousel_inflate_*`）與開機復原（`recovery.cpp` 的 `read_image`）三條
+讀寫路徑都**不會**在 flash cache-disable 期間存取 PSRAM——三條路徑都
+先把資料經過 stack buffer 中轉（且各自所在的 task stack 已確認為
+internal DRAM），PSRAM scratch buffer 只在 `Pfr1Validator`／
+`Pfr1FrameDecoder` 內部被存取，且跟任何 flash I/O 呼叫在時間上不重疊；
+`esp_flash_write()`／`esp_flash_read()` 本身也有對稱的
+`esp_ptr_in_dram()` 防禦層兜底，**但這層防禦僅在本專案內部主 flash 走
+`SPI1_HOST`／memspi driver 這個實際硬體配置下成立**，不是所有 flash
+host 的通用保證（細節見 ADR-0011）。**不需要**把這些 PSRAM buffer 改回
+internal RAM。
+
+未做的部分（明確列為未涵蓋，不是遺漏）：cache-disable 視窗的精確時長
+（微秒等級）沒有用示波器/邏輯分析儀實測量測；連續壓縮上傳＋獨立
+checksum 核對的實機壓力測試也沒有執行。這兩項**維持在待驗證清單**，
+ADR-0011 的原始碼層級結論可以成立，但不能取代實機量測與壓力測試；若
+未來相關程式碼的資料流架構或 flash host 配置改變（例如 PSRAM 指標開始
+被直接傳給 `filesystem.write()`/`filesystem.read()`，或改用非
+SPI1_HOST 的 flash host），必須重新評估，不能直接沿用本結論。
