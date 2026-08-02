@@ -39,6 +39,18 @@ struct LoginResult {
     std::uint32_t hash_elapsed_ms = 0U;
 };
 
+enum class PasswordChangeStatus : std::uint8_t {
+    changed,
+    invalid_input,
+    authentication_failed,
+    busy,
+    unavailable,
+};
+
+struct PasswordChangeResult {
+    PasswordChangeStatus status = PasswordChangeStatus::unavailable;
+};
+
 struct RequestAuthentication {
     bool password_configured = false;
     bool authenticated = false;
@@ -60,6 +72,14 @@ public:
         const char* username,
         const char* password,
         bool setup_allowed,
+        std::uint64_t now_ms);
+
+    // Synchronous: verifies the current session and CSRF token, derives the
+    // replacement hash inline, commits it to NVS, and revokes the session.
+    PasswordChangeResult change_password(
+        const char* new_password,
+        const char* session_token,
+        const char* csrf_token,
         std::uint64_t now_ms);
 
     RequestAuthentication authenticate_request(
@@ -108,6 +128,23 @@ constexpr const char* to_string(const LoginStatus status)
         case LoginStatus::busy:
             return "busy";
         case LoginStatus::unavailable:
+            return "unavailable";
+    }
+    return "unavailable";
+}
+
+constexpr const char* to_string(const PasswordChangeStatus status)
+{
+    switch (status) {
+        case PasswordChangeStatus::changed:
+            return "changed";
+        case PasswordChangeStatus::invalid_input:
+            return "invalid_input";
+        case PasswordChangeStatus::authentication_failed:
+            return "authentication_failed";
+        case PasswordChangeStatus::busy:
+            return "busy";
+        case PasswordChangeStatus::unavailable:
             return "unavailable";
     }
     return "unavailable";

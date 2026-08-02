@@ -51,6 +51,16 @@ Secure Boot、Flash Encryption 與 NVS Encryption。
   `409`，前端顯示「請稍候再試」而非「密碼錯誤」——`AuthService` 用一個
   單一 mutex 涵蓋整段雜湊計算來避免併發覆寫，不使用 job queue。
 
+`POST /api/v1/auth/password` 供已登入管理員重設管理密碼：
+
+- body：`application/x-www-form-urlencoded`，欄位為
+  `new_password=<8–128 bytes>` 與 `confirm_password=<相同值>`。
+- 必須同時通過 session cookie 與 `X-CSRF-Token`；`401` 代表 session 無效，
+  `403` 代表缺少或錯誤的 CSRF，格式或兩次密碼不一致回 `400`。
+- PBKDF2 與 NVS commit 完成後回 `200`，撤銷目前 session 並清除 cookie；
+  response 不包含密碼或雜湊內容。雜湊操作與首次建密碼共用單一 mutex，忙碌時
+  回 `409`，flash/display lock 或 auth service 不可用時回 `503`。
+
 password、session token 與 CSRF 都不寫入 log；離開作用域時會清零保存這些
 值的固定大小 buffer。所有 auth response 使用 `no-store`。
 
@@ -80,6 +90,7 @@ node test\web\test_auth_ui_contract.mjs
 | --- | --- | --- |
 | `GET /api/v1/auth/status` | 永久公開 | 回 password/session 狀態；已有有效 session 時回目前 CSRF |
 | `POST /api/v1/auth/login` | 永久公開 | 同步登入或首次建密碼 |
+| `POST /api/v1/auth/password` | session + CSRF | 同步重設管理密碼並撤銷目前 session |
 | `POST /api/v1/auth/logout` | session + CSRF | 撤銷目前 session |
 | `GET /api/v1/wifi/scan` | bootstrap 例外或 session | 掃描 Wi-Fi |
 | `POST /api/v1/wifi/config` | bootstrap 例外或 session + CSRF | 保存 Wi-Fi credential |

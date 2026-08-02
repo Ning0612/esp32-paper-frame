@@ -7,9 +7,10 @@
 的請求非同步上傳到裝置 imagefs。
 
 「系統」view（Phase 8）顯示面板/網路/reboot reason/容量/版本/uptime/OTA
-狀態，並提供三個需要登入 + CSRF 的操作：重新啟動裝置、檢查 GitHub
-Releases 更新、立即下載並安裝更新；後兩者皆有 `window.confirm()`
-二次確認（唯讀的「檢查更新」除外）。OTA 只更新 app 韌體
+狀態，並提供四個系統操作：重新啟動裝置、重設管理密碼、檢查 GitHub
+Releases 更新、立即下載並安裝更新。其中重新啟動、重設密碼與立即更新
+需要登入 + CSRF；OTA 檢查是已登入的唯讀操作。需要 mutation 的操作皆有
+`window.confirm()` 或表單確認。OTA 只更新 app 韌體
 （`ota_0`/`ota_1`），webfs 更新仍是獨立的手動流程，見本檔「更新
 方式」一節；OTA 決策見
 [`docs/adr/0008-ota-github-releases-and-rollback.md`](adr/0008-ota-github-releases-and-rollback.md)。
@@ -30,6 +31,7 @@ API route、handler、access policy 與 WebUI 按鈕，細節見
 | `GET /api/v1/health` | 永久公開 | 最小健康狀態；只讀 runtime snapshot |
 | `GET /api/v1/auth/status` | 永久公開 | 管理密碼是否設定、目前 session 與 CSRF 狀態 |
 | `POST /api/v1/auth/login` | 登入／首次建密碼 | 非同步提交 PBKDF 驗證，不把密碼放進 URL 或 response |
+| `POST /api/v1/auth/password` | 已登入 + CSRF | 以兩個 form 欄位驗證並重設管理密碼；成功後撤銷 session |
 | `GET /api/v1/auth/login/status` | 登入流程 token | 取回一次性登入結果 |
 | `POST /api/v1/auth/logout` | 已登入 + CSRF | 撤銷目前 session |
 | `GET /api/v1/status` | 已登入 | 完整初版 runtime snapshot、容量與尚未提供功能的 `null` 狀態 |

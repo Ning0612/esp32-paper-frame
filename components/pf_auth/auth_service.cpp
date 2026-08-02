@@ -213,6 +213,107 @@ LoginResult AuthService::login(
     return result;
 }
 
+PasswordChangeResult AuthService::change_password(
+    const char* const new_password,
+    const char* const session_token,
+    const char* const csrf_token,
+    const std::uint64_t now_ms)
+{
+    PasswordChangeResult result{};
+    if (!password_valid(new_password)) {
+        result.status = PasswordChangeStatus::invalid_input;
+        return result;
+    }
+    if (!initialized_ ||
+        login_mutex_ == nullptr ||
+        state_mutex_ == nullptr) {
+        result.status = PasswordChangeStatus::unavailable;
+        return result;
+    }
+
+    MutexGuard login_guard(login_mutex_, 0U);
+    if (!login_guard.locked()) {
+        result.status = PasswordChangeStatus::busy;
+        return result;
+    }
+
+    SessionSecret decoded_session{};
+    SessionSecret decoded_csrf{};
+    const pf_config::SecureZeroGuard session_guard(decoded_session);
+    const pf_config::SecureZeroGuard csrf_guard(decoded_csrf);
+    if (!decode_secret(session_token, decoded_session) ||
+        !decode_secret(csrf_token, decoded_csrf)) {
+        result.status = PasswordChangeStatus::authentication_failed;
+        return result;
+    }
+    {
+        MutexGuard state_guard(state_mutex_, pdMS_TO_TICKS(50U));
+        if (!state_guard.locked()) {
+            result.status = PasswordChangeStatus::unavailable;
+            return result;
+        }
+        if (!password_configured_ ||
+            session_.authenticate(
+                &decoded_session,
+                now_ms,
+                false) != SessionCheck::valid ||
+            !session_.validate_csrf(&decoded_csrf)) {
+            result.status = PasswordChangeStatus::authentication_failed;
+            return result;
+        }
+    }
+
+    pf_config::ManagementPasswordHash candidate{};
+    const pf_config::SecureZeroGuard candidate_guard(candidate);
+    candidate.iterations = kDefaultPbkdf2Iterations;
+    esp_fill_random(candidate.salt, sizeof(candidate.salt));
+    if (!derive_password(
+            new_password,
+            candidate.salt,
+            sizeof(candidate.salt),
+            candidate.iterations,
+            candidate.hash,
+            sizeof(candidate.hash))) {
+        result.status = PasswordChangeStatus::unavailable;
+        return result;
+    }
+    candidate.crc32 = pf_config::management_password_crc32(candidate);
+
+    esp_err_t saved = ESP_ERR_INVALID_STATE;
+    if (runtime_ != nullptr) {
+        if (runtime_->lock_flash_display(0U)) {
+            saved = pf_config::save_management_password(candidate);
+            runtime_->unlock_flash_display();
+        } else {
+            saved = ESP_ERR_TIMEOUT;
+        }
+    }
+    if (saved != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "password_change_commit_failed=%s",
+            esp_err_to_name(saved));
+        result.status = PasswordChangeStatus::unavailable;
+        return result;
+    }
+
+    {
+        // NVS has already committed at this point. Do not return a false
+        // failure while leaving RAM and the durable password record out of
+        // sync; this mutex is internal and its holders use bounded work.
+        MutexGuard state_guard(state_mutex_, portMAX_DELAY);
+        if (!state_guard.locked()) {
+            result.status = PasswordChangeStatus::unavailable;
+            return result;
+        }
+        password_hash_ = candidate;
+        password_configured_ = true;
+        session_.revoke();
+    }
+    result.status = PasswordChangeStatus::changed;
+    return result;
+}
+
 LoginResult AuthService::perform_login(
     const char* const password,
     const bool setup_allowed,

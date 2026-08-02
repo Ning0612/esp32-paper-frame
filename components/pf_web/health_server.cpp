@@ -1892,6 +1892,111 @@ esp_err_t auth_login_handler(httpd_req_t* request)
     return send_json(request, nullptr, response);
 }
 
+esp_err_t auth_password_handler(httpd_req_t* request)
+{
+    const AccessContext access = current_access_context(request);
+    if (!access.authenticated || !access.csrf_valid) {
+        return reject_management_request(request, access, true);
+    }
+
+    char body[1024]{};
+    const pf_config::SecureZeroGuard body_guard(body);
+    std::size_t received = 0U;
+    const esp_err_t receive_result =
+        receive_auth_body(
+            request,
+            body,
+            sizeof(body),
+            received);
+    if (receive_result == ESP_ERR_INVALID_SIZE) {
+        return send_json(
+            request,
+            "413 Payload Too Large",
+            "{\"ok\":false,\"error\":\"invalid_body\"}");
+    }
+    if (receive_result == ESP_ERR_TIMEOUT) {
+        return send_json(
+            request,
+            "408 Request Timeout",
+            "{\"ok\":false,\"error\":\"body_timeout\"}");
+    }
+    if (receive_result != ESP_OK) {
+        return send_json(
+            request,
+            "400 Bad Request",
+            "{\"ok\":false,\"error\":\"body_receive_failed\"}");
+    }
+
+    PasswordResetForm form{};
+    const pf_config::SecureZeroGuard form_guard(form);
+    const AuthParseStatus parsed =
+        parse_password_reset_form(body, received, form);
+    if (parsed != AuthParseStatus::ok) {
+        char response[112]{};
+        std::snprintf(
+            response,
+            sizeof(response),
+            "{\"ok\":false,\"error\":\"%s\"}",
+            to_string(parsed));
+        return send_json(request, "400 Bad Request", response);
+    }
+
+    char session_token[pf_auth::kEncodedSecretCapacity]{};
+    char csrf_token[pf_auth::kEncodedSecretCapacity]{};
+    const pf_config::SecureZeroGuard session_guard(session_token);
+    const pf_config::SecureZeroGuard csrf_guard(csrf_token);
+    if (!request_session_token(request, session_token) ||
+        !request_csrf_token(request, csrf_token)) {
+        return send_json(
+            request,
+            "401 Unauthorized",
+            "{\"ok\":false,\"error\":\"authentication_required\"}");
+    }
+
+    const pf_auth::PasswordChangeResult changed =
+        pf_auth::auth_service().change_password(
+            form.new_password,
+            session_token,
+            csrf_token,
+            monotonic_ms());
+    switch (changed.status) {
+        case pf_auth::PasswordChangeStatus::invalid_input:
+            return send_json(
+                request,
+                "400 Bad Request",
+                "{\"ok\":false,\"error\":\"invalid_password\"}");
+        case pf_auth::PasswordChangeStatus::authentication_failed:
+            return send_json(
+                request,
+                "401 Unauthorized",
+                "{\"ok\":false,\"error\":\"authentication_required\"}");
+        case pf_auth::PasswordChangeStatus::busy:
+            return send_json(
+                request,
+                "409 Conflict",
+                "{\"ok\":false,\"error\":\"authentication_busy\"}");
+        case pf_auth::PasswordChangeStatus::unavailable:
+            return send_json(
+                request,
+                "503 Service Unavailable",
+                "{\"ok\":false,\"error\":\"authentication_unavailable\"}");
+        case pf_auth::PasswordChangeStatus::changed:
+            break;
+    }
+
+    if (httpd_resp_set_hdr(
+            request,
+            "Set-Cookie",
+            "pf_session=; Path=/; Max-Age=0; HttpOnly; "
+            "SameSite=Strict") != ESP_OK) {
+        return ESP_FAIL;
+    }
+    return send_json(
+        request,
+        nullptr,
+        "{\"ok\":true,\"data\":{\"authenticated\":false}}");
+}
+
 esp_err_t auth_logout_handler(httpd_req_t* request)
 {
     pf_auth::RequestAuthentication authentication =
@@ -3045,6 +3150,12 @@ const httpd_uri_t kAuthLoginRoute{
     .handler = auth_login_handler,
     .user_ctx = nullptr,
 };
+const httpd_uri_t kAuthPasswordRoute{
+    .uri = "/api/v1/auth/password",
+    .method = HTTP_POST,
+    .handler = auth_password_handler,
+    .user_ctx = nullptr,
+};
 const httpd_uri_t kAuthLogoutRoute{
     .uri = "/api/v1/auth/logout",
     .method = HTTP_POST,
@@ -3238,6 +3349,7 @@ esp_err_t start_health_server(
         &kWifiConfigStatusRoute,
         &kAuthStatusRoute,
         &kAuthLoginRoute,
+        &kAuthPasswordRoute,
         &kAuthLogoutRoute,
         &kImageListRoute,
         &kImageUploadRoute,

@@ -46,6 +46,11 @@
   const systemRefresh = $("#system-refresh");
   const systemReboot = $("#system-reboot");
   const systemRebootStatus = $("#system-reboot-status");
+  const systemPasswordResetForm = $("#system-password-reset-form");
+  const systemNewPassword = $("#system-new-password");
+  const systemConfirmPassword = $("#system-confirm-password");
+  const systemPasswordReset = $("#system-password-reset");
+  const systemPasswordResetStatus = $("#system-password-reset-status");
   const systemOtaCheck = $("#system-ota-check");
   const systemOtaUpdate = $("#system-ota-update");
   const systemOtaStatus = $("#system-ota-status");
@@ -1464,6 +1469,74 @@
   }
 
   systemRefresh.addEventListener("click", () => loadSystemStatus());
+
+  systemPasswordResetForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const newPassword = systemNewPassword.value;
+    const confirmPassword = systemConfirmPassword.value;
+    const newPasswordBytes = new TextEncoder().encode(newPassword).length;
+    if (newPasswordBytes < 8 || newPasswordBytes > 128) {
+      systemPasswordResetStatus.className = "save-status error";
+      systemPasswordResetStatus.textContent = "管理密碼長度必須是 8–128 bytes。";
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      systemPasswordResetStatus.className = "save-status error";
+      systemPasswordResetStatus.textContent = "兩次輸入的密碼不一致。";
+      systemConfirmPassword.focus();
+      return;
+    }
+    if (!csrfToken) {
+      showAuthForm(true);
+      return;
+    }
+    systemPasswordReset.disabled = true;
+    systemPasswordResetStatus.className = "save-status";
+    systemPasswordResetStatus.textContent = "正在安全更新密碼…";
+    try {
+      const response = await fetch("/api/v1/auth/password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: new URLSearchParams({
+          new_password: newPassword,
+          confirm_password: confirmPassword,
+        }).toString(),
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (response.status === 403) {
+        csrfToken = "";
+        showAuthForm(true);
+        return;
+      }
+      if (response.status === 409) throw new Error("busy");
+      if (response.status === 503) throw new Error("device_busy");
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "password_reset_failed");
+      systemPasswordResetStatus.className = "save-status success";
+      systemPasswordResetStatus.textContent = "管理密碼已更新，請稍候使用新密碼重新登入。";
+      systemNewPassword.value = "";
+      systemConfirmPassword.value = "";
+      csrfToken = "";
+      window.setTimeout(() => window.location.reload(), 1300);
+    } catch (error) {
+      systemPasswordResetStatus.className = "save-status error";
+      if (error && error.message === "busy") {
+        systemPasswordResetStatus.textContent = "已有另一個密碼操作進行中，請稍候再試。";
+      } else if (error && error.message === "device_busy") {
+        systemPasswordResetStatus.textContent = "裝置忙碌中（可能正在刷新面板），請稍後再試。";
+      } else {
+        systemPasswordResetStatus.textContent = "密碼更新失敗，請確認設定後再試一次。";
+      }
+    } finally {
+      systemPasswordReset.disabled = false;
+    }
+  });
 
   systemReboot.addEventListener("click", async () => {
     if (!csrfToken) return;

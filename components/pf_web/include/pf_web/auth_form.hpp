@@ -125,6 +125,97 @@ inline AuthParseStatus parse_auth_form(
     return AuthParseStatus::ok;
 }
 
+struct PasswordResetForm {
+    char new_password[kAuthPasswordCapacity]{};
+    char confirm_password[kAuthPasswordCapacity]{};
+};
+
+inline AuthParseStatus parse_password_reset_form(
+    const char* const body,
+    const std::size_t length,
+    PasswordResetForm& destination)
+{
+    if (body == nullptr || length == 0U) {
+        return AuthParseStatus::missing_field;
+    }
+
+    PasswordResetForm candidate{};
+    const pf_config::SecureZeroGuard candidate_guard(candidate);
+    bool new_password_seen = false;
+    bool confirm_password_seen = false;
+    std::size_t cursor = 0U;
+    while (cursor < length) {
+        const std::size_t field_start = cursor;
+        while (cursor < length && body[cursor] != '&') {
+            ++cursor;
+        }
+        const std::size_t field_end = cursor;
+        if (cursor < length) {
+            ++cursor;
+        }
+
+        std::size_t equals = field_start;
+        while (equals < field_end && body[equals] != '=') {
+            ++equals;
+        }
+        if (equals == field_end) {
+            return AuthParseStatus::bad_encoding;
+        }
+        const std::size_t name_length = equals - field_start;
+        const char* const value = body + equals + 1U;
+        const std::size_t value_length = field_end - equals - 1U;
+        FormDecodeStatus decoded = FormDecodeStatus::invalid_value;
+
+        if (name_length == 12U &&
+            std::memcmp(
+                body + field_start,
+                "new_password",
+                12U) == 0) {
+            if (new_password_seen) {
+                return AuthParseStatus::duplicate_field;
+            }
+            new_password_seen = true;
+            decoded = decode_form_value(
+                value,
+                value_length,
+                candidate.new_password);
+        } else if (
+            name_length == 16U &&
+            std::memcmp(
+                body + field_start,
+                "confirm_password",
+                16U) == 0) {
+            if (confirm_password_seen) {
+                return AuthParseStatus::duplicate_field;
+            }
+            confirm_password_seen = true;
+            decoded = decode_form_value(
+                value,
+                value_length,
+                candidate.confirm_password);
+        } else {
+            return AuthParseStatus::unknown_field;
+        }
+        if (decoded != FormDecodeStatus::ok) {
+            return decoded == FormDecodeStatus::bad_encoding
+                       ? AuthParseStatus::bad_encoding
+                       : AuthParseStatus::invalid_value;
+        }
+    }
+
+    if (!new_password_seen || !confirm_password_seen) {
+        return AuthParseStatus::missing_field;
+    }
+    if (!pf_auth::password_valid(candidate.new_password) ||
+        std::strcmp(
+            candidate.new_password,
+            candidate.confirm_password) != 0) {
+        return AuthParseStatus::invalid_value;
+    }
+    destination = candidate;
+    return AuthParseStatus::ok;
+}
+
 constexpr const char* to_string(const AuthParseStatus status)
 {
     switch (status) {

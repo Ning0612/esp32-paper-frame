@@ -29,6 +29,11 @@ for (const id of [
   "system-ota-check",
   "system-ota-update",
   "system-ota-status",
+  "system-password-reset-form",
+  "system-new-password",
+  "system-confirm-password",
+  "system-password-reset",
+  "system-password-reset-status",
   "system-reboot",
   "system-reboot-status",
   "system-events-list",
@@ -44,11 +49,14 @@ for (const route of [
   "/api/v1/system/ota/check",
   "/api/v1/system/ota/update",
   "/api/v1/events",
+  "/api/v1/auth/password",
 ]) {
   assert.ok(js.includes(route), `missing fetch of ${route}`);
 }
 assert.ok(js.includes('"X-CSRF-Token": csrfToken'));
 assert.ok(js.includes("loadSystemStatus"));
+assert.ok(html.includes('href="https://github.com/Ning0612/esp32-paper-frame"'));
+assert.ok(html.includes("Ning0612/esp32-paper-frame repo source"));
 
 // Removed 2026-08-01: on-hardware crash inside Espressif's WiFi blob when
 // forcing AP+STA combo mode while STA is already connected (see

@@ -354,6 +354,24 @@
                 </div>
                 <p id="system-ota-status" class="save-status" role="status" aria-live="assertive"></p>
               </section>
+              <section class="panel status-panel muted-panel password-reset-panel">
+                <div class="panel-heading compact">
+                  <div><span class="panel-no coral">S</span><h3>重設管理密碼</h3></div>
+                </div>
+                <p class="field-hint">密碼長度為 8–128 bytes；保存後目前 session 會失效，請使用新密碼重新登入。</p>
+                <form id="system-password-reset-form" novalidate>
+                  <label class="field">
+                    <span>新密碼</span>
+                    <input id="system-new-password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                  </label>
+                  <label class="field">
+                    <span>再次確認新密碼</span>
+                    <input id="system-confirm-password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                  </label>
+                  <button id="system-password-reset" class="primary-button" type="submit">更新管理密碼</button>
+                  <p id="system-password-reset-status" class="save-status" role="status" aria-live="assertive"></p>
+                </form>
+              </section>
               <section class="panel status-panel muted-panel">
                 <div class="panel-heading compact">
                   <div><span class="panel-no mint">R</span><h3>系統控制與最近事件</h3></div>
@@ -464,7 +482,7 @@
       </section>
     </div>
 
-    <footer><span>PaperFrame Management Console</span><span>所有資產皆離線內建</span><span>僅限可信任 LAN 或裝置 AP</span></footer>
+    <footer><a href="https://github.com/Ning0612/esp32-paper-frame" target="_blank" rel="noopener noreferrer">Ning0612/esp32-paper-frame repo source</a><span>PaperFrame Management Console</span><span>所有資產皆離線內建</span><span>僅限可信任 LAN 或裝置 AP</span></footer>
   </main>
 </body>
 </html>

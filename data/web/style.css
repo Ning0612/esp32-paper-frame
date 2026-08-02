@@ -200,6 +200,8 @@ h3 { font-size: 1.25rem; }
 .trust-note p { margin: 5px 0 0; color: var(--muted); line-height: 1.5; }
 
 footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 40px; border-top: 2px solid var(--line); padding-top: 13px; color: var(--muted); font: 700 .68rem/1.5 Consolas, monospace; }
+footer a { color: inherit; font-weight: 900; }
+footer a:hover, footer a:focus-visible { color: var(--ink); text-decoration-thickness: 2px; }
 
 @media (max-width: 860px) {
   .topbar { align-items: flex-start; flex-direction: column; }
