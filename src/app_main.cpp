@@ -45,6 +45,37 @@ constexpr std::size_t kExpectedPsramBytes = 8U * 1024U * 1024U;
 constexpr std::uint64_t kCarouselRetryMs = 1000U;
 constexpr std::size_t kCarouselPayloadBytes =
     pf_image::kPfr1MaxPayloadBytes;
+// Upper bound on how long the first real carousel image waits for NTP
+// time sync and one weather attempt before rendering anyway with
+// whatever is currently available. Measured from boot_ms, which is
+// captured right before the main loop starts (i.e. after core subsystem
+// init, not from device power-on) -- this bounds the wait itself, not
+// total time-from-power-on, matching the confirmed design: subsystem
+// init time is orthogonal to this budget.
+constexpr std::uint64_t kFirstImageReadyTimeoutMs = 60U * 1000U;
+
+bool first_image_ready_or_timed_out(
+    const std::uint64_t now_ms,
+    const std::uint64_t boot_ms)
+{
+    if (now_ms - boot_ms >= kFirstImageReadyTimeoutMs) {
+        return true;
+    }
+    pf_runtime::RuntimeSnapshot snapshot{};
+    if (!pf_runtime::coordinator().read_snapshot(snapshot)) {
+        return false;
+    }
+    if (snapshot.time_sync != pf_runtime::TimeSyncState::synced) {
+        return false;
+    }
+    // "Ready" means the guaranteed first weather attempt (WeatherWorker
+    // fetches once as soon as time sync completes) has resolved one way
+    // or the other -- a successful observation or a recorded failure
+    // (including an empty/invalid API key) both count; only "no attempt
+    // has completed yet" keeps this waiting.
+    return snapshot.weather.has_observation ||
+           snapshot.weather.last_failure != pf_weather::Failure::none;
+}
 
 struct CarouselShownState {
     std::uint32_t image_id = 0U;
@@ -812,6 +843,14 @@ extern "C" void app_main()
     pf_carousel::CarouselDecision active_carousel_decision{};
     std::uint32_t active_carousel_request_id = 0U;
     std::uint32_t active_blank_request_id = 0U;
+    // The first real (non-welcome) image after boot gets a bounded chance
+    // for NTP time sync and one weather attempt to resolve first, so it
+    // doesn't render with stale/unknown status-bar data for a whole
+    // carousel interval when both would have finished a few seconds
+    // later anyway. Welcome frames (empty library) are unaffected and
+    // still render immediately, as before.
+    bool first_real_image_pending = true;
+    const std::uint64_t boot_ms = monotonic_ms();
     pf_sensors::PresenceState previous_presence =
         pf_sensors::PresenceState::unknown;
     std::uint32_t previous_manual_activate_request_id = 0U;
@@ -1210,6 +1249,20 @@ extern "C" void app_main()
             }
         } else if (
             display_started &&
+            decision.kind == pf_carousel::DecisionKind::display_image &&
+            decision.reason != pf_carousel::DecisionReason::manual &&
+            first_real_image_pending &&
+            !first_image_ready_or_timed_out(now_ms, boot_ms)) {
+            // Not ready yet and still inside the timeout window: retry
+            // shortly without disturbing scheduler state (same pattern as
+            // the transient-failure retries below), instead of rendering
+            // the first real image before NTP/weather had a chance to
+            // resolve. A manual activate (user just picked an image in
+            // the WebUI) is deliberately exempt -- this gate exists for
+            // unattended startup, not to delay an explicit user action.
+            carousel.abandon(decision, now_ms + kCarouselRetryMs);
+        } else if (
+            display_started &&
             decision.kind == pf_carousel::DecisionKind::display_image) {
             pf_storage::CatalogEntry entry{};
             pf_display::FrameWriteLease frame =
@@ -1236,6 +1289,7 @@ extern "C" void app_main()
                 if (submit == pf_display::SubmitStatus::accepted) {
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
+                    first_real_image_pending = false;
                     // See the matching comment on the welcome-frame path
                     // above: only trigger on an accepted submission.
                     pf_weather::weather_worker().request_immediate_refresh();

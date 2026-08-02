@@ -44,3 +44,4 @@ NNNN-short-imperative-title.md
 - [ADR-0012：RAM 重構後重新拉高 PFC1 目錄容量上限至 64 筆](0012-raise-catalog-cap-after-ram-reclaim.md)（取代 ADR-0010 的 `kCatalogMaxEntries` 部分）
 - [ADR-0013：天氣圖示改用轉檔自第三方 OFL-1.1 素材的點陣圖](0013-weather-icon-bitmaps-from-third-party-ofl-source.md)（取代 ADR-0005「字型與圖示授權」的圖示部分）
 - [ADR-0014：天氣更新改為面板刷新觸發，WebUI 改用地圖選點](0014-weather-panel-refresh-cadence-and-map-picker.md)（取代 ADR-0005「Rate limit / 更新頻率」子決策與 location/language 欄位）
+- [ADR-0015：開機首張真實圖片等待 NTP／天氣就緒或逾時](0015-first-image-waits-for-ntp-and-weather.md)
