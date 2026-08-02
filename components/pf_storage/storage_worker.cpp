@@ -1,6 +1,7 @@
 #include "pf_storage/storage_worker.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include <memory>
@@ -42,6 +43,52 @@ void free_scratch_bytes(std::uint8_t* const scratch)
     delete[] scratch;
 #endif
 }
+
+// Boot-only, RAII-scoped storage for RecoveryWorkspace: deliberately
+// internal RAM (never PSRAM), see storage_worker.hpp's comment on why. Sized
+// well above CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL's threshold, so an explicit
+// MALLOC_CAP_INTERNAL request is required -- a plain `new` would let
+// ESP-IDF's default allocator place it in PSRAM instead.
+class TransientRecoveryWorkspace final {
+public:
+    TransientRecoveryWorkspace()
+    {
+#if defined(ESP_PLATFORM)
+        void* const raw = heap_caps_malloc(
+            sizeof(RecoveryWorkspace), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#else
+        void* const raw = std::malloc(sizeof(RecoveryWorkspace));
+#endif
+        if (raw != nullptr) {
+            workspace_ = new (raw) RecoveryWorkspace();
+        }
+    }
+
+    ~TransientRecoveryWorkspace()
+    {
+        if (workspace_ == nullptr) {
+            return;
+        }
+        workspace_->~RecoveryWorkspace();
+#if defined(ESP_PLATFORM)
+        heap_caps_free(workspace_);
+#else
+        std::free(workspace_);
+#endif
+    }
+
+    TransientRecoveryWorkspace(const TransientRecoveryWorkspace&) = delete;
+    TransientRecoveryWorkspace& operator=(
+        const TransientRecoveryWorkspace&) = delete;
+
+    RecoveryWorkspace* get() const
+    {
+        return workspace_;
+    }
+
+private:
+    RecoveryWorkspace* workspace_ = nullptr;
+};
 
 class OperationGuard final {
 public:
@@ -86,6 +133,8 @@ const char* to_string(const StorageWorkerError error)
             return "already_started";
         case StorageWorkerError::recovery_failed:
             return "recovery_failed";
+        case StorageWorkerError::recovery_workspace_alloc_failed:
+            return "recovery_workspace_alloc_failed";
     }
     return "invalid_argument";
 }
@@ -166,17 +215,29 @@ StorageWorkerResult StorageWorker::start()
     }
 
     allocate_inflate_scratch();
-    workspace_.inflate_buffers = inflate_buffers_;
+
+    // Transient: only needed for the synchronous recovery pass below, freed
+    // (via TransientRecoveryWorkspace's destructor) on every return path
+    // from this point on, including the early returns below.
+    TransientRecoveryWorkspace workspace_holder;
+    RecoveryWorkspace* const workspace = workspace_holder.get();
+    if (workspace == nullptr) {
+        last_result_.error = StorageWorkerError::recovery_workspace_alloc_failed;
+        catalog_available_ = false;
+        return last_result_;
+    }
+
+    workspace->inflate_buffers = inflate_buffers_;
     last_result_.recovery = recover_image_transactions(
         *filesystem_,
-        workspace_);
+        *workspace);
     if (!last_result_.recovery.ok()) {
         last_result_.error = StorageWorkerError::recovery_failed;
         catalog_available_ = false;
         return last_result_;
     }
     if (last_result_.recovery.has_catalog) {
-        catalog_ = workspace_.recovered;
+        catalog_ = workspace->recovered;
     } else if (!initialize_catalog(catalog_)) {
         last_result_.error = StorageWorkerError::recovery_failed;
         catalog_available_ = false;

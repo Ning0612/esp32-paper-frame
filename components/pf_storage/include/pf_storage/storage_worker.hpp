@@ -13,6 +13,15 @@ enum class StorageWorkerError : std::uint8_t {
     invalid_argument,
     already_started,
     recovery_failed,
+    // Distinct from recovery_failed: the transient RecoveryWorkspace
+    // allocation itself failed (needs a contiguous ~33.7 KB internal-RAM
+    // block at kCatalogMaxEntries=48) before recover_image_transactions()
+    // ever ran, so StorageWorkerResult::recovery stays default
+    // (RecoveryError::none) -- callers that want to log heap-diagnostic
+    // detail (largest free internal block, etc.) can key off this value
+    // specifically rather than guessing from a default-valued recovery
+    // field.
+    recovery_workspace_alloc_failed,
 };
 
 struct StorageWorkerResult {
@@ -149,7 +158,15 @@ public:
 
 private:
     StorageFileSystem* filesystem_ = nullptr;
-    RecoveryWorkspace workspace_{};
+    // RecoveryWorkspace (4 Catalog copies + a serialization buffer, ~33.7 KB
+    // at kCatalogMaxEntries=48) is deliberately NOT a permanent member: it is
+    // only ever used once, synchronously, inside start() (see recovery.cpp's
+    // recover_image_transactions()), before any HTTP route or other task
+    // exists. Keeping it permanently resident was the direct cause of the
+    // on-demand image-upload/mutation task-stack allocation failures
+    // recorded in docs/adr/0010-revert-catalog-cap-raise-ram-constraint.md.
+    // start() now allocates it transiently (internal RAM, RAII-freed before
+    // start() returns on every path) instead.
     StorageWorkerResult last_result_{};
     Catalog catalog_{};
     std::uint8_t catalog_buffer_[kCatalogMaxBytes]{};

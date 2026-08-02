@@ -484,6 +484,23 @@ extern "C" void app_main()
                 pf_storage::to_string(storage_startup.error),
                 pf_storage::to_string(storage_startup.recovery.error),
                 pf_storage::to_string(storage_startup.recovery.action));
+            if (storage_startup.error ==
+                pf_storage::StorageWorkerError::
+                    recovery_workspace_alloc_failed) {
+                // Distinguishes a boot-time transient allocation failure
+                // (needs a contiguous ~33.7 KB internal-RAM block at
+                // kCatalogMaxEntries=48) from every other startup failure,
+                // with the diagnostic detail that actually explains why:
+                // requested size versus the largest contiguous internal
+                // block actually available at that moment.
+                ESP_LOGE(
+                    kTag,
+                    "recovery_workspace_alloc_failed requested_bytes=%u "
+                    "internal_largest_free_block=%u",
+                    static_cast<unsigned>(sizeof(pf_storage::RecoveryWorkspace)),
+                    static_cast<unsigned>(
+                        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+            }
         } else {
             ESP_LOGI(
                 kTag,
