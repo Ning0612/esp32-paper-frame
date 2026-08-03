@@ -95,6 +95,7 @@ h3 { font-size: 1.25rem; }
 .panel-heading > div { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .panel-heading.compact { padding-bottom: 12px; }
 .panel-no { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border: 2px solid var(--line); background: var(--yellow); color: #171712; font: 900 1rem/1 Consolas, monospace; }
+.panel-no.auth-marker { width: 54px; font-size: .64rem; letter-spacing: .06em; }
 .panel-no.coral { background: var(--coral); color: #fff; }
 .panel-no.blue { background: var(--blue); color: #fff; }
 .panel-no.mint { background: var(--mint); }

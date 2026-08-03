@@ -58,6 +58,27 @@ assert.ok(js.includes('"X-CSRF-Token": csrfToken'));
 assert.ok(js.includes("loadSystemStatus"));
 assert.ok(html.includes('href="https://github.com/Ning0612/esp32-paper-frame"'));
 assert.ok(html.includes("Ning0612/esp32-paper-frame repo source"));
+const pageNumbers = [...html.matchAll(/<p class="eyebrow">(\d{2}) \/ /g)]
+  .map(([, number]) => number)
+  .sort();
+assert.deepEqual(pageNumbers, ["01", "02", "03", "04", "05", "06"]);
+assert.ok(html.includes("05 / ENVIRONMENT &amp; PRESENCE"));
+assert.ok(html.includes("06 / SYSTEM &amp; FIRMWARE"));
+for (const [label, headingMarkup] of [
+  ["A", "<h3>電子紙與輪播</h3>"], ["B", "<h3>容量與服務</h3>"], ["C", "<h3>後續模組</h3>"],
+  ["A", "<h3>附近網路</h3>"], ["B", "<h3>連線設定</h3>"],
+  ["A", "<h3>OpenWeatherMap</h3>"], ["B", "<h3>拖曳地圖選點</h3>"], ["C", "<h3>安全狀態</h3>"],
+  ["A", "<h3>感測器設定</h3>"], ["B", "<h3>即時讀值</h3>"],
+  ["A", "<h3>面板與刷新</h3>"], ["B", "<h3>網路</h3>"], ["C", "<h3>容量與版本</h3>"],
+  ["D", "<h3>OTA 韌體更新</h3>"], ["E", "<h3>重設管理密碼</h3>"], ["F", "<h3>系統控制與最近事件</h3>"],
+  ["A", "<h3>轉換設定</h3>"], ["B", "<h3>PFR1 輸出</h3>"],
+  ["C", "<h3 id=\"image-carousel-settings-title\">輪播設定</h3>"],
+  ["D", "<h3 id=\"image-library-title\">裝置圖片庫</h3>"],
+]) {
+  assert.ok(html.includes(`>${label}</span>${headingMarkup}`), `missing panel label ${label} for ${headingMarkup}`);
+}
+assert.ok(html.includes('class="panel-no auth-marker coral">AUTH</span>'));
+assert.ok(css.includes(".panel-no.auth-marker { width: 54px;"));
 assert.equal((html.match(/class="system-action-group"/g) || []).length, 2);
 assert.ok(css.includes(".system-action-group {"));
 assert.ok(css.includes(".system-action-group .primary-button { width: auto; margin-top: 0; }"));
