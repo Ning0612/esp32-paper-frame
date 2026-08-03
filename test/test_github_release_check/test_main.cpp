@@ -99,6 +99,15 @@ void test_response_not_starting_with_object_is_not_ok()
     TEST_ASSERT_FALSE(result.ok);
 }
 
+void test_value_matching_key_text_does_not_abort_the_scan()
+{
+    // A string *value* that happens to equal "tag_name" must not be
+    // mistaken for the key and abort the scan before the real field.
+    const auto result = extract("{\"name\":\"tag_name\",\"tag_name\":\"v3.0.0\"}");
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_EQUAL_STRING("v3.0.0", result.tag_name);
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -114,5 +123,6 @@ int main(int, char**)
     RUN_TEST(test_overlong_tag_name_is_rejected_not_truncated_silently);
     RUN_TEST(test_null_and_empty_input_are_not_ok);
     RUN_TEST(test_response_not_starting_with_object_is_not_ok);
+    RUN_TEST(test_value_matching_key_text_does_not_abort_the_scan);
     return UNITY_END();
 }

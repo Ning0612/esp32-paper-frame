@@ -1224,3 +1224,70 @@ bytes 47.4%，RAM 106,080 / 327,680 bytes 32.4%）、`pio test -e native`
 當機」，**沒有**用肉眼確認 9 種天氣圖示、狀態列文字在實體面板上的實際
 視覺呈現——這正是第 499–501 行記錄的既有風險項，本輪未縮小範圍，仍待
 補齊（需要有天氣資料可顯示、且有人在裝置前用肉眼核對面板畫面）。
+
+### 2026-08-03 — 第一個 GitHub Release（v0.8.0）發布後，實機「檢查更新」必然失敗：真實 bug 與修正
+
+發布 `v0.8.0` release 後，使用者在實機 WebUI 按「檢查更新」回報
+`檢查失敗`／`最新版本：unknown`。根因調查：`curl` 實際取得的
+`GET /repos/<owner>/<repo>/releases/latest` 回應長度為 **11285
+bytes**，遠超過 `OtaWorker::github_response_buffer_` 的 8192-byte
+容量；`tag_name` 欄位實際出現在第 1533 byte（在被截斷的範圍內，本可
+正確解析），但舊版 `check_for_update()` 邏輯是「只要回應被截斷就直接
+判定 `check_failed`」，完全沒有先嘗試解析 `tag_name`——也就是說，只要
+release 的 assets 數量或說明文字讓回應超過 8192 bytes（這個 repo的第
+一個 release 就已經超過），「檢查更新」在真機上永遠回報失敗，跟網路
+或版本狀態無關。
+
+修正（`components/pf_ota/ota_worker_esp_idf.cpp`）：改成先嘗試
+`extract_tag_name()`，只有在解析失敗（`tag.ok == false`）時才依
+`github_response_truncated_` 決定要記錄「截斷」還是「欄位缺失／格式
+錯誤」；只要 `tag_name` 在截斷前已完整解析出來，即使回應其餘部分
+（`assets`／`body`）被截斷也視為成功，因為這兩個大欄位在 GitHub 回應
+中原本就排在 `tag_name` 之後。
+
+`codex-cowork` 審查（`gpt-5.6-luna`／`xhigh`）確認這個重排序本身安全
+（`extract_tag_name` 只有讀到完整 closing quote 才會回傳
+`ok=true`，截斷只會導致 `ok=false`，不會取得部分／損毀的 tag），但
+額外發現一個**與本次修正無關的既有 parser bug**：任何 top-level 字串
+都會被當成候選 key 比對，若某欄位的**值**恰好等於 `"tag_name"`（例如
+`{"name":"tag_name","tag_name":"v1.2.3"}`），會誤判為 key、發現後面
+不是 `:` 就直接中止整個掃描，永遠掃不到真正的欄位。已一併修正
+（`github_release_check.hpp` 新增 `prev_significant` 追蹤最近一個
+結構字元，只有前一個字元是 `{`／`,` 時才視為 key 候選），並補上
+`test_value_matching_key_text_does_not_abort_the_scan` 回歸測試。
+
+**殘留風險（已評估，決定不修改程式碼，僅記錄）**：GitHub release JSON
+的欄位順序（`tag_name` 排在 `assets`／`body` 之前）不是 API 正式契約
+保證的行為，只是目前實測與 GitHub 公開 schema 多年來的實際順序；若
+未來 GitHub 調整欄位順序把 `tag_name` 排到 8192-byte prefix 之外，會
+重新出現 false negative。加大 buffer 只能降低機率、不能根治，且目前
+專案對 OTA task 的靜態記憶體佔用已經很謹慎（見 2026-08-01 段落的
+task stack／PSRAM 放置討論），不打算為此臆測性風險加大配置。若未來
+真的觀察到欄位順序改變導致的 `check_failed`，才需要改成累進式掃描
+（不管 buffer 容量為何持續讀到抓到 `tag_name` 為止）。
+
+同一批修正也處理了使用者回報的第二個問題：WebUI 按下「檢查更新」後
+只會顯示「已送出檢查要求，稍後重新整理查看結果」，且只排一次
+3 秒後的 `setTimeout`，若 GitHub API 呼叫接近 10 秒逾時上限，畫面會
+停在舊狀態直到使用者手動重新整理。改成呼叫既有的
+`startSystemOtaPoll()`（沿用「立即更新」流程本來就有的 3 秒輪詢，
+上限 200 次≈10 分鐘），並將 `loadSystemStatus()` 判斷是否停止輪詢的
+條件從「只看 `update_state`」擴大為「`check_state === checking` 或
+`update_state` 為 downloading/writing 都視為進行中」。`codex-cowork`
+再指出兩個 Medium 競態並已修正：(1) 輪詢期間較舊的 `loadSystemStatus()`
+非同步回應可能晚到，用過期資料覆寫較新操作的狀態、或誤停剛啟動的
+新輪詢——加入 request generation token（`systemOtaStatusRequestId`），
+只有最新一次呼叫可以套用結果；(2) 離開 System 頁再返回時，若當下仍在
+`checking`／`downloading`，原本只呼叫一次 `loadSystemStatus()` 不會
+恢復輪詢，畫面會停住直到手動整理——改成同一段邏輯只要偵測到仍在進行
+中且 `systemOtaPollTimer` 目前是 `null` 就自動呼叫
+`startSystemOtaPoll()` 恢復輪詢。
+
+**驗證**：`pio run`／`pio test -e native`（297 cases，含新增的
+`test_value_matching_key_text_does_not_abort_the_scan`）全綠；
+`node --check data/web/ui.js` 與 `test/web/test_system_ui_contract.mjs`
+通過。使用者在真機上重新驗證，「檢查更新」正確顯示「已是最新／最新
+版本 v0.8.0」（裝置當時韌體與 release 版本相同）。**真正的「立即更新」
+端到端流程（下載、寫入、自動重開機、rollback 確認）仍未實機驗證**，
+待下一個 release（`v0.8.1`，已同步把 `kFirmwareVersion` 對齊）發布後
+測試。

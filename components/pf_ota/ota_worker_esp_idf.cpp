@@ -271,19 +271,20 @@ void OtaWorker::check_for_update()
         }
         return;
     }
-    if (github_response_truncated_) {
-        ESP_LOGW(kTag, "ota_check_response_truncated");
-        if (runtime_ != nullptr) {
-            runtime_->update_ota_check_status(
-                pf_runtime::OtaCheckState::check_failed, "", epoch_s);
-        }
-        return;
-    }
-
     const GithubTagExtractResult tag =
         extract_tag_name(github_response_buffer_, github_response_length_);
     if (!tag.ok) {
-        ESP_LOGW(kTag, "ota_check_tag_name_missing_or_malformed");
+        // A truncated response is only a problem if it cut off before the
+        // top-level "tag_name" field itself: GitHub's release JSON places
+        // tag_name well before the large trailing fields ("assets", "body")
+        // that routinely push real responses past this fixed-size buffer,
+        // so truncation there is expected and harmless. Only report
+        // truncation as the cause once parsing has actually failed.
+        if (github_response_truncated_) {
+            ESP_LOGW(kTag, "ota_check_response_truncated");
+        } else {
+            ESP_LOGW(kTag, "ota_check_tag_name_missing_or_malformed");
+        }
         if (runtime_ != nullptr) {
             runtime_->update_ota_check_status(
                 pf_runtime::OtaCheckState::check_failed, "", epoch_s);

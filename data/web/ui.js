@@ -123,6 +123,7 @@
   let imageLibraryRevision = 0;
   let systemOtaPollTimer = null;
   let systemOtaPollAttemptsRemaining = 0;
+  let systemOtaStatusRequestId = 0;
   let imageLibraryImages = [];
   const maxSourceBytes = 32 * 1024 * 1024;
   const maxSourcePixels = 64 * 1024 * 1024;
@@ -1715,6 +1716,7 @@
   }
 
   async function loadSystemStatus() {
+    const requestId = ++systemOtaStatusRequestId;
     systemOtaStatus.textContent = "";
     try {
       const [deviceResponse, statusResponse, otaResponse, eventsResponse] = await Promise.all([
@@ -1724,16 +1726,34 @@
         fetch("/api/v1/events", { cache: "no-store" }),
       ]);
       if (statusResponse.status === 401) {
-        showAuthForm(true);
+        if (requestId === systemOtaStatusRequestId) showAuthForm(true);
         return;
       }
 
-      const devicePayload = await deviceResponse.json();
+      // Parse every body before the one staleness check below: awaiting
+      // json() separately per response (as before) left several more gaps
+      // where a newer loadSystemStatus() call, or a check/update POST,
+      // could start and finish while this call was still parsing --
+      // batching the parses means only a single point-in-time check is
+      // needed before any DOM write or polling decision.
+      const [devicePayload, statusPayload, otaPayload, eventsPayload] = await Promise.all([
+        deviceResponse.json(),
+        statusResponse.json(),
+        otaResponse.json(),
+        eventsResponse.json(),
+      ]);
+
+      // A newer loadSystemStatus() call (poll tick, manual refresh, or a
+      // fresh check/update click) has started since this one began -- its
+      // response is stale and must not overwrite newer state or stop a
+      // polling timer started for a more recent operation. Nothing below
+      // this point awaits again, so this is the only check needed.
+      if (requestId !== systemOtaStatusRequestId) return;
+
       if (deviceResponse.ok && devicePayload.data) {
         $("#system-firmware-version").textContent = devicePayload.data.firmware || "未知";
       }
 
-      const statusPayload = await statusResponse.json();
       if (statusResponse.ok && statusPayload.data) {
         const data = statusPayload.data;
         const display = data.display || {};
@@ -1755,7 +1775,6 @@
           ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
       }
 
-      const otaPayload = await otaResponse.json();
       if (otaResponse.ok && otaPayload.data) {
         const ota = otaPayload.data;
         const checkLabels = { unknown: "未知", checking: "檢查中", up_to_date: "已是最新", update_available: "有新版本", check_failed: "檢查失敗" };
@@ -1770,20 +1789,34 @@
         // failure; only "failed" state is an actual OTA failure.
         $("#system-ota-error").textContent = ota.last_error || "—";
         systemOtaUpdate.disabled = ota.check_state !== "update_available";
-        // Stop polling once the update reaches a terminal state: idle
-        // means nothing was ever started, ready_pending_reboot means the
-        // device is about to disconnect on its own, failed is a real
-        // stop. Only downloading/writing keep polling alive.
-        if (ota.update_state !== "downloading" && ota.update_state !== "writing") {
+        // Keep polling alive while either operation is in flight: "checking"
+        // for a version check, downloading/writing for an update. Terminal
+        // states (idle, up_to_date, check_failed, ready_pending_reboot,
+        // failed) stop it. Also *resume* polling here -- not just start it
+        // -- so navigating away from the System page and back while a check
+        // or update is still running (which stops the timer, see
+        // resumeSystemOtaPollTimer's currentView guard) picks the timer
+        // back up instead of leaving the view stuck showing stale state
+        // until a manual refresh. This deliberately calls
+        // resumeSystemOtaPollTimer(), not startSystemOtaPoll(): resuming
+        // must not reset the ~10-minute attempts budget, or a device stuck
+        // forever in "checking"/"writing" would let this branch keep
+        // re-arming a fresh 200-tick budget indefinitely every time it's
+        // observed, defeating the cap entirely.
+        const checkInFlight = ota.check_state === "checking";
+        const updateInFlight = ota.update_state === "downloading" || ota.update_state === "writing";
+        if (checkInFlight || updateInFlight) {
+          if (!systemOtaPollTimer) resumeSystemOtaPollTimer();
+        } else {
           stopSystemOtaPoll();
         }
       }
 
-      const eventsPayload = await eventsResponse.json();
       if (eventsResponse.ok && eventsPayload.data) {
         renderSystemEvents(eventsPayload.data.events);
       }
     } catch (error) {
+      if (requestId !== systemOtaStatusRequestId) return;
       systemOtaStatus.className = "save-status error";
       systemOtaStatus.textContent = "無法讀取系統狀態；請確認仍連著 PaperFrame。";
     }
@@ -1796,13 +1829,17 @@
     }
   }
 
-  function startSystemOtaPoll() {
+  // Restarts the poll interval WITHOUT resetting the remaining-attempts
+  // budget, so re-entering loadSystemStatus while an operation is still in
+  // flight (e.g. returning to the System page after the timer stopped due
+  // to currentView !== "system") resumes polling rather than leaving the
+  // view stuck, but can never extend the ~10-minute overall cap that
+  // startSystemOtaPoll() below establishes for a *new* operation -- once
+  // the budget reaches zero it stays stopped for good, no matter how many
+  // times this is called, until a genuinely new check/update request goes
+  // through startSystemOtaPoll() again.
+  function resumeSystemOtaPollTimer() {
     stopSystemOtaPoll();
-    // Bounded: an OTA download/write is expected to finish well within a
-    // few minutes (see OtaWorker::kUpdateOverallDeadlineMs); this stops
-    // polling on its own after ~10 minutes even if something wedges,
-    // rather than polling forever in a background tab.
-    systemOtaPollAttemptsRemaining = 200;
     systemOtaPollTimer = setInterval(() => {
       if (systemOtaPollAttemptsRemaining-- <= 0 || currentView !== "system") {
         stopSystemOtaPoll();
@@ -1810,6 +1847,21 @@
       }
       loadSystemStatus();
     }, 3000);
+  }
+
+  function startSystemOtaPoll() {
+    // A brand new check/update request supersedes any GET already in
+    // flight from an earlier poll tick or manual refresh -- bump the
+    // generation so that response, whenever it lands, is recognized as
+    // stale and can never stop (or otherwise act on behalf of) the polling
+    // timer being started here for the new request.
+    ++systemOtaStatusRequestId;
+    // Bounded: an OTA download/write is expected to finish well within a
+    // few minutes (see OtaWorker::kUpdateOverallDeadlineMs); this stops
+    // polling on its own after ~10 minutes even if something wedges,
+    // rather than polling forever in a background tab.
+    systemOtaPollAttemptsRemaining = 200;
+    resumeSystemOtaPollTimer();
   }
 
   systemRefresh.addEventListener("click", () => loadSystemStatus());
@@ -1929,8 +1981,8 @@
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "ota_check_failed");
       systemOtaStatus.className = "save-status success";
-      systemOtaStatus.textContent = "已送出檢查要求，稍後重新整理查看結果。";
-      setTimeout(loadSystemStatus, 3000);
+      systemOtaStatus.textContent = "正在檢查更新…";
+      startSystemOtaPoll();
     } catch (error) {
       systemOtaStatus.className = "save-status error";
       systemOtaStatus.textContent = `檢查失敗：${error.message || "請稍後重試"}`;

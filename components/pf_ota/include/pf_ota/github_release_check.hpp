@@ -49,9 +49,21 @@ constexpr GithubTagExtractResult extract_tag_name(
     ++cursor;
 
     int depth = 1;
+    // Tracks the last structural character seen ('{', '[', '}', ']', ':',
+    // or ',') so a depth-1 string can be told apart from a *key* at that
+    // depth: JSON object keys are always immediately preceded by '{' (the
+    // first member) or ',' (a later member), while a string *value* is
+    // preceded by ':'. Without this, a value that happens to equal
+    // "tag_name" (e.g. {"name":"tag_name","tag_name":"v1.2.3"}) would be
+    // mistaken for the key, seen not to be followed by ':', and abort the
+    // whole scan before ever reaching the real field.
+    char prev_significant = '{';
     while (cursor < length && depth > 0) {
         const char current = json[cursor];
         if (current == '"') {
+            const bool at_key_position =
+                depth == 1 &&
+                (prev_significant == '{' || prev_significant == ',');
             const std::size_t quote = cursor;
             ++cursor;
             bool escaped = false;
@@ -70,7 +82,7 @@ constexpr GithubTagExtractResult extract_tag_name(
             }
             const std::size_t string_end = cursor;
 
-            bool key_matches = depth == 1 &&
+            bool key_matches = at_key_position &&
                                 (string_end - quote) == kKeyLength + 2U;
             if (key_matches) {
                 for (std::size_t index = 0U; index < kKeyLength; ++index) {
@@ -130,8 +142,12 @@ constexpr GithubTagExtractResult extract_tag_name(
         }
         if (current == '{' || current == '[') {
             ++depth;
+            prev_significant = current;
         } else if (current == '}' || current == ']') {
             --depth;
+            prev_significant = current;
+        } else if (current == ':' || current == ',') {
+            prev_significant = current;
         }
         ++cursor;
     }
