@@ -17,7 +17,8 @@
 1. 依 board manifest 的 VID:PID `303A:1001` 自動選擇 ESP32-S3 native USB，
    不會選到板載 CH343 或其他 USB serial device；
 2. 以 esptool `usb_reset` 讓正在執行的 app 進入 ROM download mode；
-3. 只擦寫 `ota_0` 的 app image（目前 offset `0x10000`）；
+3. 讀取 `otadata`，依 ESP-IDF bootloader 的 `ota_seq` 規則選出目前啟動的
+   `ota_N`，只擦寫該 app image；不再假設固定 offset `0x10000`；
 4. 保留 bootloader、partition table、OTA metadata、NVS、`webfs` 與
    `imagefs`，完成 hash 驗證後 hard reset。
 
@@ -26,8 +27,9 @@
 RGB demo、native USB 被停用，或 app 已損壞到無法接受 `usb_reset`，才改用
 下方「首次或復原時進入 ROM」流程。
 
-此命令是 Phase 8 正式 OTA 導入前的開發流程；開始切換 active OTA slot 後，
-必須改由 OTA contract 選擇非執行中 slot，不得直接沿用固定的 `0x10000`。
+這個 app-only 開發流程會更新目前啟動中的 slot，讓重置後直接執行剛編譯的
+韌體；正式 OTA 更新仍須由 OTA contract 寫入非執行中的 slot，不能把這個
+開發 uploader 當成正式 OTA 實作。
 
 ## 日常開發：韌體＋webfs 一起更新
 
@@ -155,9 +157,10 @@ if ($LASTEXITCODE -ne 0) {
 ```
 
 目前開發 partition table 的 `ota_0` 位於 `0x10000`、大小 `0x280000`，
-`ota_1` 位於 `0x290000`。2026-07-30 實測 OTA metadata 為 sequence 1、
-state `VALID`，所以 active app 是 `ota_0`。在 OTA 功能導入前，可先備份
-整個 active slot，再只改寫 app：
+`ota_1` 位於 `0x290000`。日常命令會自動讀取 OTA metadata；以下低階範例
+仍以 `ota_0` 為例，只有在讀取結果確認 `ota_0` 是 active app 時才可照做。
+若 active slot 是 `ota_1`，必須把範例中的 `ota_0`／`0x10000` 換成
+`ota_1`／`0x290000`：
 
 ```powershell
 $backup = Join-Path $env:TEMP "paperframe-ota0-backup-$flashRunId.bin"
@@ -207,9 +210,8 @@ if ($LASTEXITCODE -ne 0) {
 時，app-only 操作完成後要拔除 GPIO0/GPIO46 接地線並短按 `RST`；若使用
 `--before usb-reset`，則依命令的 `--after` 行為 reset。
 
-若 OTA metadata 不再是上述
-sequence/state，停止並重新判定 active slot；不得把 `0x10000` 當作永久
-固定的 OTA 更新位置。Phase 8 導入正式 OTA 後，更新應走 OTA contract，
+若 OTA metadata 無法判定 active slot，停止並重新讀取／診斷；不得把
+`0x10000` 當作永久固定的 OTA 更新位置。正式 OTA 更新應走 OTA contract，
 不得直接覆寫 running slot。
 
 一般 app-only 燒錄不得改寫：

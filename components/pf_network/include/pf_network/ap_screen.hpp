@@ -12,6 +12,24 @@ inline constexpr std::size_t kApScreenSsidCapacity = 33U;
 inline constexpr std::size_t kApScreenPasswordCapacity = 65U;
 inline constexpr std::size_t kWifiQrCapacity = 160U;
 inline constexpr std::size_t kWebQrCapacity = 48U;
+inline constexpr std::uint64_t kApModeImageTimeoutMs =
+    5U * 60U * 1000U;
+
+inline bool should_hold_access_point_screen(
+    const bool ap_mode,
+    const bool has_displayable_image,
+    const std::uint64_t now_ms,
+    const std::uint64_t ap_mode_started_ms)
+{
+    if (!ap_mode) {
+        return false;
+    }
+    if (!has_displayable_image) {
+        return true;
+    }
+    return now_ms < ap_mode_started_ms ||
+           now_ms - ap_mode_started_ms < kApModeImageTimeoutMs;
+}
 
 struct AccessPointScreenPayload {
     char ssid[kApScreenSsidCapacity]{};

@@ -14,6 +14,7 @@
 #include "esp_timer.h"
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "pf_auth/auth_service.hpp"
 #include "pf_carousel/scheduler.hpp"
@@ -101,7 +102,31 @@ struct AccessPointPresenterContext {
     bool display_started = false;
     bool payload_valid = false;
     pf_network::AccessPointScreenPayload last_payload{};
+    StaticSemaphore_t display_submission_mutex_control{};
+    SemaphoreHandle_t display_submission_mutex = nullptr;
 };
+
+bool try_lock_carousel_submission_gate(
+    AccessPointPresenterContext& presenter)
+{
+    if (presenter.display_submission_mutex == nullptr ||
+        xSemaphoreTake(presenter.display_submission_mutex, 0) != pdTRUE) {
+        return false;
+    }
+
+    pf_runtime::RuntimeSnapshot snapshot{};
+    const bool snapshot_read =
+        pf_runtime::coordinator().read_snapshot(snapshot);
+    const bool ap_mode =
+        snapshot_read &&
+        (snapshot.wifi == pf_runtime::WifiState::starting_ap ||
+         snapshot.wifi == pf_runtime::WifiState::provisioning);
+    if (!snapshot_read || ap_mode) {
+        xSemaphoreGive(presenter.display_submission_mutex);
+        return false;
+    }
+    return true;
+}
 
 HardwareProfile log_hardware_profile()
 {
@@ -376,15 +401,27 @@ esp_err_t present_access_point_screen(
         return ESP_OK;
     }
 
+    if (presenter->display_submission_mutex == nullptr ||
+        xSemaphoreTake(
+            presenter->display_submission_mutex,
+            portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    const auto release_submission_gate = [&]() {
+        xSemaphoreGive(presenter->display_submission_mutex);
+    };
+
     pf_display::FrameWriteLease frame =
         pf_display::display_task().try_acquire_frame();
     if (!frame.valid()) {
+        release_submission_gate();
         return ESP_ERR_TIMEOUT;
     }
     if (!pf_network::render_access_point_screen(
             frame.data(),
             frame.size(),
             payload)) {
+        release_submission_gate();
         return ESP_FAIL;
     }
     const std::uint32_t request_id =
@@ -394,6 +431,7 @@ esp_err_t present_access_point_screen(
             request_id,
             frame);
     if (submitted != pf_display::SubmitStatus::accepted) {
+        release_submission_gate();
         return ESP_ERR_TIMEOUT;
     }
 
@@ -410,6 +448,7 @@ esp_err_t present_access_point_screen(
                     kTag,
                     "provisioning_screen_ready request=%" PRIu32,
                     request_id);
+                release_submission_gate();
                 return ESP_OK;
             }
             ESP_LOGE(
@@ -419,6 +458,7 @@ esp_err_t present_access_point_screen(
                 request_id,
                 static_cast<unsigned>(result.display_outcome),
                 static_cast<unsigned>(result.driver_stage));
+            release_submission_gate();
             return ESP_FAIL;
         }
         vTaskDelay(pdMS_TO_TICKS(100U));
@@ -710,6 +750,9 @@ extern "C" void app_main()
     AccessPointPresenterContext ap_presenter{
         .display_started = display_started,
     };
+    ap_presenter.display_submission_mutex =
+        xSemaphoreCreateMutexStatic(
+            &ap_presenter.display_submission_mutex_control);
     const esp_err_t network_service_result =
         network_stack_result == ESP_OK &&
                 runtime_result == ESP_OK
@@ -881,9 +924,13 @@ extern "C" void app_main()
     // for NTP time sync and one weather attempt to resolve first, so it
     // doesn't render with stale/unknown status-bar data for a whole
     // carousel interval when both would have finished a few seconds
-    // later anyway. Welcome frames (empty library) are unaffected and
-    // still render immediately, as before.
+    // later anyway. Outside the AP display hold below, welcome frames
+    // (empty library) still render immediately, as before.
     bool first_real_image_pending = true;
+    bool ap_mode_active = false;
+    bool ap_mode_ready = false;
+    std::uint64_t ap_mode_started_ms = 0U;
+    bool ap_screen_hold_active = false;
     const std::uint64_t boot_ms = monotonic_ms();
     pf_sensors::PresenceState previous_presence =
         pf_sensors::PresenceState::unknown;
@@ -987,12 +1034,16 @@ extern "C" void app_main()
         if (active_blank_request_id != 0U) {
             return true;
         }
+        if (!try_lock_carousel_submission_gate(ap_presenter)) {
+            return false;
+        }
         pf_display::FrameWriteLease blank_frame =
             pf_display::display_task().try_acquire_frame();
         if (!blank_frame.valid() ||
             !pf_carousel::render_blank_frame(
                 blank_frame.data(), blank_frame.size())) {
             ESP_LOGW(kTag, "presence_away_blank_frame_unavailable");
+            xSemaphoreGive(ap_presenter.display_submission_mutex);
             return false;
         }
         const std::uint32_t blank_request_id =
@@ -1001,6 +1052,7 @@ extern "C" void app_main()
             pf_display::display_task().try_submit_refresh(
                 blank_request_id, blank_frame);
         if (blank_submit != pf_display::SubmitStatus::accepted) {
+            xSemaphoreGive(ap_presenter.display_submission_mutex);
             ESP_LOGW(
                 kTag,
                 "presence_away_blank_submit_failed status=%u",
@@ -1012,6 +1064,7 @@ extern "C" void app_main()
             kTag,
             "presence_away_blank_queued request=%" PRIu32,
             blank_request_id);
+        xSemaphoreGive(ap_presenter.display_submission_mutex);
         return true;
     };
 
@@ -1027,6 +1080,36 @@ extern "C" void app_main()
         pf_runtime::RuntimeSnapshot presence_snapshot{};
         const bool presence_snapshot_read =
             pf_runtime::coordinator().read_snapshot(presence_snapshot);
+        if (presence_snapshot_read) {
+            const bool ap_mode =
+                presence_snapshot.wifi ==
+                    pf_runtime::WifiState::starting_ap ||
+                presence_snapshot.wifi ==
+                    pf_runtime::WifiState::provisioning;
+            const bool ap_ready =
+                presence_snapshot.wifi ==
+                pf_runtime::WifiState::provisioning;
+            if (ap_mode && !ap_mode_active) {
+                ap_mode_active = true;
+                ap_mode_ready = ap_ready;
+                ap_mode_started_ms = ap_ready ? now_ms : 0U;
+                if (ap_ready) {
+                    ESP_LOGI(kTag, "ap_mode_display_window_started");
+                } else {
+                    ESP_LOGI(kTag, "ap_mode_display_waiting_for_ready");
+                }
+            } else if (ap_mode && ap_ready && !ap_mode_ready) {
+                ap_mode_ready = true;
+                ap_mode_started_ms = now_ms;
+                ESP_LOGI(kTag, "ap_mode_display_window_started");
+            } else if (!ap_mode && ap_mode_active) {
+                ap_mode_active = false;
+                ap_mode_ready = false;
+                ap_mode_started_ms = 0U;
+                ap_screen_hold_active = false;
+                ESP_LOGI(kTag, "ap_mode_display_window_ended");
+            }
+        }
         if (presence_snapshot_read &&
             presence_snapshot.presence != previous_presence) {
             const pf_sensors::PresenceState current_presence =
@@ -1041,7 +1124,12 @@ extern "C" void app_main()
             pending_presence_away_blank = false;
             if (current_presence == pf_sensors::PresenceState::away &&
                 display_started) {
-                pending_presence_away_blank = !submit_presence_away_blank();
+                if (ap_mode_active) {
+                    pending_presence_away_blank = true;
+                } else {
+                    pending_presence_away_blank =
+                        !submit_presence_away_blank();
+                }
             } else if (current_presence ==
                        pf_sensors::PresenceState::present) {
                 // Returning from away or unknown: redraw immediately and
@@ -1049,7 +1137,11 @@ extern "C" void app_main()
                 // carousel decision is still in flight, force_immediate
                 // refuses to mutate scheduler state (by contract); defer
                 // and retry once that decision completes, below.
-                if (carousel.force_immediate(now_ms)) {
+                if (ap_mode_active) {
+                    // AP instructions own the panel until the AP grace
+                    // window ends; presence must not blank or reschedule it.
+                    pending_presence_force_immediate = false;
+                } else if (carousel.force_immediate(now_ms)) {
                     ESP_LOGI(kTag, "presence_return_deadline_reset");
                 } else {
                     pending_presence_force_immediate = true;
@@ -1192,10 +1284,13 @@ extern "C" void app_main()
 
         // Guild.md 4.9: pause carousel advancement while away (an
         // in-flight decision above still gets its completion processed;
-        // this only stops new work from being issued). previous_presence
-        // is the last successfully observed presence (see the snapshot
-        // read above), not necessarily this tick's value.
-        if (previous_presence != pf_sensors::PresenceState::away) {
+        // this only stops new work from being issued). AP mode is the
+        // explicit exception because its connection page owns the panel
+        // until its image grace window is released. previous_presence is
+        // the last successfully observed presence (see the snapshot read
+        // above), not necessarily this tick's value.
+        if (previous_presence != pf_sensors::PresenceState::away ||
+            ap_mode_active) {
         std::size_t carousel_item_count = 0U;
         if (storage_worker.ready()) {
             CarouselCatalogContext catalog_context{
@@ -1212,6 +1307,43 @@ extern "C" void app_main()
                 continue;
             }
             carousel_item_count = catalog_context.count;
+        }
+
+        bool has_displayable_image = false;
+        for (std::size_t index = 0U;
+             index < carousel_item_count;
+             ++index) {
+            if (carousel_items[index].enabled &&
+                carousel_items[index].valid) {
+                has_displayable_image = true;
+                break;
+            }
+        }
+        const bool hold_ap_screen =
+            ap_mode_active &&
+            (!ap_mode_ready ||
+             pf_network::should_hold_access_point_screen(
+                 true,
+                 has_displayable_image,
+                 now_ms,
+                 ap_mode_started_ms));
+        if (hold_ap_screen) {
+            ap_screen_hold_active = true;
+            // The network task has already rendered the AP instructions.
+            // Keep the panel on that page while the AP has no usable image,
+            // or until the five-minute grace window expires when one exists.
+            vTaskDelay(pdMS_TO_TICKS(1000U));
+            continue;
+        }
+        if (ap_mode_active && ap_mode_ready &&
+            ap_screen_hold_active) {
+            if (active_blank_request_id != 0U || carousel.in_flight() ||
+                !carousel.force_immediate(now_ms)) {
+                vTaskDelay(pdMS_TO_TICKS(1000U));
+                continue;
+            }
+            ap_screen_hold_active = false;
+            ESP_LOGI(kTag, "ap_mode_display_window_expired");
         }
 
         // A WebUI "activate this image" request only persists the new
@@ -1256,12 +1388,18 @@ extern "C" void app_main()
         if (display_started &&
             decision.kind ==
                 pf_carousel::DecisionKind::display_welcome) {
-            pf_display::FrameWriteLease frame =
-                pf_display::display_task().try_acquire_frame();
-            if (frame.valid() &&
-                pf_carousel::render_welcome_frame(
-                    frame.data(),
-                    frame.size())) {
+            if (!try_lock_carousel_submission_gate(ap_presenter)) {
+                carousel.abandon(decision, now_ms + kCarouselRetryMs);
+                ESP_LOGW(
+                    kTag,
+                    "carousel_welcome_submission_gate_busy");
+            } else {
+                pf_display::FrameWriteLease frame =
+                    pf_display::display_task().try_acquire_frame();
+                if (frame.valid() &&
+                    pf_carousel::render_welcome_frame(
+                        frame.data(),
+                        frame.size())) {
                 // Overlay the status bar onto the welcome frame's top
                 // rows (the same 800x40 band image_frame.hpp composes
                 // into) so date/weather show up even before any images
@@ -1303,13 +1441,15 @@ extern "C" void app_main()
                         "carousel_welcome_submit_deferred status=%u",
                         static_cast<unsigned>(submit));
                 }
-            } else {
-                carousel.abandon(
-                    decision,
-                    now_ms + kCarouselRetryMs);
-                ESP_LOGW(
-                    kTag,
-                    "carousel_welcome_frame_unavailable");
+                } else {
+                    carousel.abandon(
+                        decision,
+                        now_ms + kCarouselRetryMs);
+                    ESP_LOGW(
+                        kTag,
+                        "carousel_welcome_frame_unavailable");
+                }
+                xSemaphoreGive(ap_presenter.display_submission_mutex);
             }
         } else if (
             display_started &&
@@ -1328,22 +1468,29 @@ extern "C" void app_main()
         } else if (
             display_started &&
             decision.kind == pf_carousel::DecisionKind::display_image) {
-            pf_storage::CatalogEntry entry{};
-            pf_display::FrameWriteLease frame =
-                pf_display::display_task().try_acquire_frame();
-            if (frame.valid() && carousel_payload != nullptr &&
-                carousel_status != nullptr &&
-                storage_worker.find_catalog_entry_by_id(
-                    decision.image_id,
-                    entry) &&
-                render_carousel_image(
-                    storage_worker,
-                    entry,
-                    carousel_payload,
-                    carousel_status,
-                    frame.data(),
-                    frame.size(),
-                    &carousel_inflate_buffers)) {
+            if (!try_lock_carousel_submission_gate(ap_presenter)) {
+                carousel.abandon(decision, now_ms + kCarouselRetryMs);
+                ESP_LOGW(
+                    kTag,
+                    "carousel_image_submission_gate_busy id=%" PRIu32,
+                    decision.image_id);
+            } else {
+                pf_storage::CatalogEntry entry{};
+                pf_display::FrameWriteLease frame =
+                    pf_display::display_task().try_acquire_frame();
+                if (frame.valid() && carousel_payload != nullptr &&
+                    carousel_status != nullptr &&
+                    storage_worker.find_catalog_entry_by_id(
+                        decision.image_id,
+                        entry) &&
+                    render_carousel_image(
+                        storage_worker,
+                        entry,
+                        carousel_payload,
+                        carousel_status,
+                        frame.data(),
+                        frame.size(),
+                        &carousel_inflate_buffers)) {
                 const std::uint32_t request_id =
                     pf_runtime::coordinator().allocate_request_id();
                 const pf_display::SubmitStatus submit =
@@ -1374,14 +1521,16 @@ extern "C" void app_main()
                         decision.image_id,
                         static_cast<unsigned>(submit));
                 }
-            } else {
-                carousel.abandon(
-                    decision,
-                    now_ms + kCarouselRetryMs);
-                ESP_LOGW(
-                    kTag,
-                    "carousel_image_frame_unavailable id=%" PRIu32,
-                    decision.image_id);
+                } else {
+                    carousel.abandon(
+                        decision,
+                        now_ms + kCarouselRetryMs);
+                    ESP_LOGW(
+                        kTag,
+                        "carousel_image_frame_unavailable id=%" PRIu32,
+                        decision.image_id);
+                }
+                xSemaphoreGive(ap_presenter.display_submission_mutex);
             }
         } else if (
             decision.kind != pf_carousel::DecisionKind::wait) {
@@ -1389,7 +1538,7 @@ extern "C" void app_main()
                 decision,
                 now_ms + kCarouselRetryMs);
         }
-        }  // previous_presence != away
+        }  // carousel runs unless away outside AP mode
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

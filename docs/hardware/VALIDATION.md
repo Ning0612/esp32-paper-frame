@@ -343,8 +343,10 @@ runtime snapshot；Internet 不可用不會把已連線 STA 切回 provisioning 
   STA credential。
 
 第一次實機整合在 Wi-Fi 射頻啟動與電子紙 welcome 同時刷新時觸發
-brownout。依產品狀態規則修正為 provisioning／offline retry 暫停 carousel，
-只有 `wifi=connected` 才排入圖片刷新；重新燒錄後連續監看 30 秒未再重啟。
+brownout。這項歷史競態目前以 AP presenter／carousel／presence blank 的
+submission gate 序列化處理；AP page 在空圖片庫時持續接管面板，有圖片則
+在 AP ready 後保留 5 分鐘再恢復圖片。重新燒錄後連續監看 30 秒未再重啟的
+舊結果不等同於本次 AP grace policy 的實機驗證。
 AP 專用引導畫面、portal、credential 儲存與 STA 成功路徑仍屬後續 Phase 3
 commit，不在本段宣稱完成。Windows WLAN 掃描因系統 Location 權限關閉而
 無法從主機列舉 SSID；AP 啟動證據來自 ESP-IDF mode、DHCP 與 service log。
@@ -1358,3 +1360,46 @@ rollback` 成功訊息（使用者只回報版本已切換，未附上這行 log
 
 兩個修正（`CONFIG_LWIP_MAX_SOCKETS=16`、`buffer_size`/`buffer_size_tx`
 =4096）與新增的 heap headroom 診斷 log 隨 `v0.8.2` 一併發布。
+
+### 2026-08-03 — AP Mode 電子紙顯示 grace policy：僅完成 host/build 驗證
+
+本次修正補足固定 SSID `PaperFrame-Setup-XXXX` 所需的小寫 `t`／`u` 字型，
+並將 AP 顯示行為固定為：空圖片庫持續顯示 AP page；有 `enabled` 且未損毀
+圖片時，從 `wifi=provisioning` 的 AP ready 狀態起等待 5 分鐘後才排入
+carousel。AP presenter 與其他 display producer 共享 submission gate，
+presence away 期間不會在 AP page 上執行白屏。
+
+驗證結果：
+
+- `.\\.venv\\Scripts\\pio.exe test -e native`：300/300 通過；AP screen
+  timing/payload tests 6/6 通過。
+- `.\\.venv\\Scripts\\pio.exe run -e paperframe-s3`：成功；RAM 106,688
+  bytes（32.6%），Flash 1,249,861 bytes（47.7%）。
+
+尚未完成實機驗證：SSID 實際像素可讀性、AP page 與 Wi-Fi 啟動的併發刷新、
+5 分鐘切換時序、presence 例外及低 DMA heap guard 下的 AP 啟動結果。
+
+### 2026-08-03 — PlatformIO app upload 改為依 active OTA slot 寫入
+
+先前 `tools/platformio_native_usb_upload.py` 只保留 esptool flags，PlatformIO
+最後固定把 firmware 寫到 `0x10000`（`ota_0`）。本機從 `otadata` 讀到 sequence
+1 與 2 後確認裝置實際由 `0x290000`（`ota_1`）開機，因此舊流程會成功驗證
+hash，卻仍執行舊 slot 的韌體。
+
+現已新增 `tools/platformio_active_ota_upload.py`：PlatformIO app-only upload
+先讀取 `0xd000` 的 0x2000-byte OTA metadata，驗證 ESP-IDF CRC、排除
+`INVALID`／`ABORTED` entry，再依最高 `ota_seq` 對應 partition CSV 的
+`ota_N` offset 寫入。metadata 無法判定時會 fail closed，不會盲寫 `ota_0`；
+`webfs`、`imagefs`、NVS 與 partition table 仍不在寫入範圍。
+
+驗證結果：
+
+- wrapper parser 的 synthetic OTA metadata test 通過，包含 `ota_1` 選擇、CRC
+  及 invalid state 排除。
+- `\.venv\Scripts\python.exe -m py_compile` 通過；`pio run -e paperframe-s3`
+  build 通過（RAM 106,688 bytes／32.6%，Flash 1,249,861 bytes／47.7%）。
+- 使用不存在的 `COM99` 執行 PlatformIO upload command smoke，確認實際呼叫
+  wrapper 並先嘗試讀 metadata；因預期無此連接埠而失敗，未對硬體寫入。
+- 目前實機曾以手動 esptool 將相同 firmware 寫入 active `ota_1`，重開機 log
+  確認載入 `0x290000` 且版本為 `v0.8.2`；本次 wrapper 沒有再次對 COM10
+  執行實際寫入。

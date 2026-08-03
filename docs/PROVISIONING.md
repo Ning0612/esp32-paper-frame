@@ -26,6 +26,13 @@ Recovery AP 登入流程見
 - AP radio 只有在電子紙 command 回報 `refreshed_and_slept` 後才啟動；顯示
   失敗時延後 AP start 並重試。
 - payload 未變時跳過重複電子紙刷新。
+- AP page 是 provisioning 期間的電子紙 owner：圖片庫沒有 `enabled` 且未
+  損毀的圖片時持續顯示 AP page，不提交 welcome frame；若有可顯示圖片，
+  從 AP 狀態進入 `provisioning`（AP radio ready）起等待 5 分鐘，期限到達
+  後才讓 carousel 排入圖片。AP 期間新增圖片會在下一輪 catalog 讀取時
+  被納入；超過 5 分鐘才新增時可立即排入。AP presenter、carousel 與
+  presence blank submit 透過同一 submission gate 序列化，避免 AP page 被
+  後續 frame race 覆蓋。
 - WebUI URL 固定為 `http://192.168.4.1/`；HTML、CSS、JavaScript 與 favicon
   全部來自 `webfs`，不依賴 CDN。
 

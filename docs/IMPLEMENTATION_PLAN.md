@@ -188,6 +188,10 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - AP 顯示 command 與離線 provisioning WebUI；scan 結果去重、排序及過濾。
 - AP 畫面 payload 包含 SSID、password、`192.168.4.1`、操作步驟、
   Wi-Fi/WebUI QR code 與裝置尾碼；內容未變時不得重複刷新。
+- provisioning AP ready 後，若圖片庫沒有可顯示圖片則持續保留 AP 畫面；
+  有圖片時保留 5 分鐘 grace window，再恢復 carousel。AP presenter、
+  carousel 與 presence blank submission 必須序列化，避免 welcome/image
+  frame 覆蓋 AP 畫面或與 Wi-Fi 啟動競態。
 - 至少 8 字元密碼、強雜湊、單一 server-side session、30 分鐘 idle、
   24 小時 absolute expiry 與 CSRF。
 - 共用 `style.css`／`ui.js`／favicon、login 與 responsive navigation shell。
@@ -202,6 +206,9 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 - 空白 NVS 進入 AP；有效憑證進 STA；錯誤密碼 timeout 後回 AP。
 - AP 畫面有 golden payload test；相同內容不刷新。credential 以交易方式
   保存，成功 response 後約 1 秒 reboot，連線失敗可再次進 AP。
+- AP 畫面在空圖片庫時維持顯示；有可顯示圖片時，自 AP ready 起 5 分鐘後
+  才切換圖片，且不可被 welcome frame、presence blank 或 concurrent
+  display submit 提前覆蓋。
 - DNS、weather 或 Internet 錯誤只改變 Internet 狀態，不進 AP。
 - credential 不出現在 URL、log、response、snapshot 或診斷包。
 - `<8` 字元密碼被拒絕；fake-clock 測試涵蓋 30 分鐘 idle 與 24 小時

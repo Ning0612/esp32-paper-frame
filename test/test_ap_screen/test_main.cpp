@@ -1,4 +1,5 @@
 #include <cstring>
+#include <limits>
 
 #include <unity.h>
 
@@ -69,6 +70,48 @@ void test_same_payload_suppresses_redundant_refresh()
             second));
 }
 
+void test_ap_screen_stays_until_image_timeout_when_image_exists()
+{
+    constexpr std::uint64_t ap_started_ms = 1000U;
+
+    TEST_ASSERT_EQUAL_UINT64(
+        5U * 60U * 1000U,
+        pf_network::kApModeImageTimeoutMs);
+
+    TEST_ASSERT_TRUE(
+        pf_network::should_hold_access_point_screen(
+            true,
+            true,
+            ap_started_ms + pf_network::kApModeImageTimeoutMs - 1U,
+            ap_started_ms));
+    TEST_ASSERT_FALSE(
+        pf_network::should_hold_access_point_screen(
+            true,
+            true,
+            ap_started_ms + pf_network::kApModeImageTimeoutMs,
+            ap_started_ms));
+}
+
+void test_ap_screen_stays_forever_without_a_displayable_image()
+{
+    TEST_ASSERT_TRUE(
+        pf_network::should_hold_access_point_screen(
+            true,
+            false,
+            std::numeric_limits<std::uint64_t>::max(),
+            0U));
+}
+
+void test_ap_screen_policy_is_inactive_outside_ap_mode()
+{
+    TEST_ASSERT_FALSE(
+        pf_network::should_hold_access_point_screen(
+            false,
+            false,
+            0U,
+            0U));
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -77,5 +120,8 @@ int main(int, char**)
     RUN_TEST(test_ap_screen_payload_has_stable_golden_values);
     RUN_TEST(test_qr_payload_escapes_wifi_reserved_characters);
     RUN_TEST(test_same_payload_suppresses_redundant_refresh);
+    RUN_TEST(test_ap_screen_stays_until_image_timeout_when_image_exists);
+    RUN_TEST(test_ap_screen_stays_forever_without_a_displayable_image);
+    RUN_TEST(test_ap_screen_policy_is_inactive_outside_ap_mode);
     return UNITY_END();
 }

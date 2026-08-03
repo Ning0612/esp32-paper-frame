@@ -1,3 +1,5 @@
+import os
+
 from SCons.Script import COMMAND_LINE_TARGETS
 
 Import("env")
@@ -18,7 +20,21 @@ if "upload" in targets and env.subst("$UPLOAD_PROTOCOL") == "esptool":
         ) from error
 
     # PlatformIO's ESP-IDF uploader appends the bootloader, partition table, and
-    # initial OTA metadata after the flash-size value. The app image and its
-    # partition offset are appended separately by UPLOADCMD, so retaining this
-    # prefix makes routine uploads app-only.
+    # initial OTA metadata after the flash-size value. The wrapper retains this
+    # prefix as app-only esptool flags, reads otadata, and appends the active
+    # partition offset and firmware image at upload time.
     env.Replace(UPLOADERFLAGS=upload_flags[: flash_size_index + 2])
+    wrapper = os.path.join(
+        env.subst("$PROJECT_DIR"),
+        "tools",
+        "platformio_active_ota_upload.py",
+    )
+    env.Replace(
+        UPLOADCMD=(
+            '"$PYTHONEXE" "{wrapper}" '
+            '--uploader "$UPLOADER" '
+            '--source "$SOURCE" '
+            '--partition-table "$PARTITIONS_TABLE_CSV" '
+            '-- $UPLOADERFLAGS'
+        ).format(wrapper=wrapper)
+    )

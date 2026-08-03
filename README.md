@@ -52,8 +52,8 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 ```
 
 標準 upload 會依 VID:PID `303A:1001` 自動選擇 ESP32-S3 native USB，以
-`usb_reset` 進入 ROM、只更新目前開發用 app offset，完成後自動重置。首次、
-RGB demo 或 app 損壞無法自動 reset 時，才需在 reset 同時拉低
+`usb_reset` 進入 ROM，讀取 `otadata` 後更新目前啟動的 OTA app slot，完成後
+自動重置。首次、RGB demo 或 app 損壞無法自動 reset 時，才需在 reset 同時拉低
 GPIO0、GPIO46。完整安全步驟、app-only slot 限制與測試後恢復方式見
 [ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)。
 
