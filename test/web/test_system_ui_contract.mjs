@@ -4,6 +4,9 @@ import fs from "node:fs";
 const html = fs.readFileSync("data/web/index.html", "utf8");
 const css = fs.readFileSync("data/web/style.css", "utf8");
 const js = fs.readFileSync("data/web/ui.js", "utf8");
+const navigationStart = html.indexOf('<nav id="top-navigation"');
+const navigationEnd = html.indexOf("</nav>", navigationStart);
+const navigation = html.slice(navigationStart, navigationEnd);
 
 assert.ok(html.includes('data-view="system"'));
 assert.ok(!html.includes('class="nav-link future"'), "system nav must no longer be the disabled placeholder");
@@ -64,6 +67,16 @@ const pageNumbers = [...html.matchAll(/<p class="eyebrow">(\d{2}) \/ /g)]
 assert.deepEqual(pageNumbers, ["01", "02", "03", "04", "05", "06"]);
 assert.ok(html.includes("05 / ENVIRONMENT &amp; PRESENCE"));
 assert.ok(html.includes("06 / SYSTEM &amp; FIRMWARE"));
+const navigationPages = [...navigation.matchAll(/data-view="([^"]+)"[^>]*>([^<]+) <span>(\d{2})<\/span><\/button>/g)]
+  .map(([, view, label, number]) => [view, label.trim(), number]);
+assert.deepEqual(navigationPages, [
+  ["dashboard", "總覽", "01"],
+  ["wifi", "Wi‑Fi", "02"],
+  ["weather", "天氣", "03"],
+  ["image", "圖片", "04"],
+  ["environment", "環境", "05"],
+  ["system", "系統", "06"],
+]);
 for (const [label, headingMarkup] of [
   ["A", "<h3>電子紙與輪播</h3>"], ["B", "<h3>容量與服務</h3>"], ["C", "<h3>後續模組</h3>"],
   ["A", "<h3>附近網路</h3>"], ["B", "<h3>連線設定</h3>"],
