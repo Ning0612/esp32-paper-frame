@@ -143,6 +143,8 @@ h3 { font-size: 1.25rem; }
 .field select { width: 100%; min-height: 46px; border: 2px solid var(--line); border-radius: 0; background: var(--surface-strong); color: var(--ink); padding: 9px 11px; outline: none; font: inherit; }
 .field select:focus { box-shadow: 0 0 0 3px var(--yellow); }
 .image-transform-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 19px; }
+.system-action-group { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 19px; }
+.system-action-group .primary-button { width: auto; margin-top: 0; }
 .image-output-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .transform-button { min-height: 46px; padding: 9px 10px; background: var(--surface-strong); color: var(--ink); box-shadow: 3px 3px 0 var(--line); }
 .image-crop-controls { margin-top: 19px; padding: 12px 13px 10px; border: 2px solid var(--line); background: color-mix(in srgb, var(--surface-strong) 78%, var(--yellow)); }

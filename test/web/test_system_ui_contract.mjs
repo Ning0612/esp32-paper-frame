@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const html = fs.readFileSync("data/web/index.html", "utf8");
+const css = fs.readFileSync("data/web/style.css", "utf8");
 const js = fs.readFileSync("data/web/ui.js", "utf8");
 
 assert.ok(html.includes('data-view="system"'));
@@ -57,6 +58,9 @@ assert.ok(js.includes('"X-CSRF-Token": csrfToken'));
 assert.ok(js.includes("loadSystemStatus"));
 assert.ok(html.includes('href="https://github.com/Ning0612/esp32-paper-frame"'));
 assert.ok(html.includes("Ning0612/esp32-paper-frame repo source"));
+assert.equal((html.match(/class="system-action-group"/g) || []).length, 2);
+assert.ok(css.includes(".system-action-group {"));
+assert.ok(css.includes(".system-action-group .primary-button { width: auto; margin-top: 0; }"));
 
 // Removed 2026-08-01: on-hardware crash inside Espressif's WiFi blob when
 // forcing AP+STA combo mode while STA is already connected (see

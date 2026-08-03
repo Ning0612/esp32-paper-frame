@@ -348,7 +348,7 @@
                   <div><dt>進度</dt><dd id="system-ota-progress">—</dd></div>
                   <div><dt>訊息</dt><dd id="system-ota-error">—</dd></div>
                 </dl>
-                <div class="image-transform-buttons" role="group" aria-label="OTA 操作">
+                <div class="system-action-group" role="group" aria-label="OTA 操作">
                   <button id="system-ota-check" class="plain-button transform-button" type="button">檢查更新</button>
                   <button id="system-ota-update" class="primary-button transform-button" type="button" disabled>立即更新</button>
                 </div>
@@ -376,7 +376,9 @@
                 <div class="panel-heading compact">
                   <div><span class="panel-no mint">R</span><h3>系統控制與最近事件</h3></div>
                 </div>
-                <button id="system-reboot" class="plain-button" type="button">重新啟動裝置</button>
+                <div class="system-action-group">
+                  <button id="system-reboot" class="plain-button" type="button">重新啟動裝置</button>
+                </div>
                 <p id="system-reboot-status" class="save-status" role="status" aria-live="assertive"></p>
                 <div id="system-events-list" class="image-library-list" aria-live="polite" aria-label="最近的診斷事件"></div>
               </section>
