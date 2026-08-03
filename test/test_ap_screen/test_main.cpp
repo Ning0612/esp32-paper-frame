@@ -4,6 +4,7 @@
 #include <unity.h>
 
 #include "pf_network/ap_screen.hpp"
+#include "pf_network/detail/ap_screen_font.hpp"
 
 extern "C" void setUp() {}
 extern "C" void tearDown() {}
@@ -46,6 +47,51 @@ void test_qr_payload_escapes_wifi_reserved_characters()
     TEST_ASSERT_EQUAL_STRING(
         "WIFI:T:WPA;S:Lab\\;2;P:pass\\:word;;",
         payload.wifi_qr);
+}
+
+void test_ap_screen_font_has_all_lowercase_letters()
+{
+    constexpr std::uint8_t kExpected[26][5] = {
+        {0x20, 0x54, 0x54, 0x54, 0x78},
+        {0x7F, 0x48, 0x44, 0x44, 0x38},
+        {0x38, 0x44, 0x44, 0x44, 0x20},
+        {0x38, 0x44, 0x44, 0x48, 0x7F},
+        {0x38, 0x54, 0x54, 0x54, 0x18},
+        {0x08, 0x7E, 0x09, 0x01, 0x02},
+        {0x0C, 0x52, 0x52, 0x52, 0x3E},
+        {0x7F, 0x08, 0x04, 0x04, 0x78},
+        {0x00, 0x44, 0x7D, 0x40, 0x00},
+        {0x20, 0x40, 0x44, 0x3D, 0x00},
+        {0x7F, 0x10, 0x28, 0x44, 0x00},
+        {0x00, 0x41, 0x7F, 0x40, 0x00},
+        {0x7C, 0x04, 0x18, 0x04, 0x78},
+        {0x7C, 0x08, 0x04, 0x04, 0x78},
+        {0x38, 0x44, 0x44, 0x44, 0x38},
+        {0x7C, 0x14, 0x14, 0x14, 0x08},
+        {0x08, 0x14, 0x14, 0x18, 0x7C},
+        {0x7C, 0x08, 0x04, 0x04, 0x08},
+        {0x48, 0x54, 0x54, 0x54, 0x20},
+        {0x08, 0x3E, 0x48, 0x48, 0x20},
+        {0x3C, 0x40, 0x40, 0x40, 0x3C},
+        {0x1C, 0x20, 0x40, 0x20, 0x1C},
+        {0x3C, 0x40, 0x30, 0x40, 0x3C},
+        {0x44, 0x28, 0x10, 0x28, 0x44},
+        {0x0C, 0x50, 0x50, 0x50, 0x3C},
+        {0x44, 0x64, 0x54, 0x4C, 0x44},
+    };
+    const std::uint8_t* const fallback =
+        pf_network::detail::access_point_glyph_for('?');
+    for (std::size_t index = 0U; index < 26U; ++index) {
+        const char value = static_cast<char>('a' + index);
+        const std::uint8_t* const glyph =
+            pf_network::detail::access_point_glyph_for(value);
+        TEST_ASSERT_NOT_NULL(glyph);
+        TEST_ASSERT_TRUE(glyph != fallback);
+
+        for (std::size_t column = 0U; column < 5U; ++column) {
+            TEST_ASSERT_EQUAL_HEX8(kExpected[index][column], glyph[column]);
+        }
+    }
 }
 
 void test_same_payload_suppresses_redundant_refresh()
@@ -119,6 +165,7 @@ int main(int, char**)
     UNITY_BEGIN();
     RUN_TEST(test_ap_screen_payload_has_stable_golden_values);
     RUN_TEST(test_qr_payload_escapes_wifi_reserved_characters);
+    RUN_TEST(test_ap_screen_font_has_all_lowercase_letters);
     RUN_TEST(test_same_payload_suppresses_redundant_refresh);
     RUN_TEST(test_ap_screen_stays_until_image_timeout_when_image_exists);
     RUN_TEST(test_ap_screen_stays_forever_without_a_displayable_image);

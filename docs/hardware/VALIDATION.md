@@ -1403,3 +1403,11 @@ hash，卻仍執行舊 slot 的韌體。
 - 目前實機曾以手動 esptool 將相同 firmware 寫入 active `ota_1`，重開機 log
   確認載入 `0x290000` 且版本為 `v0.8.2`；本次 wrapper 沒有再次對 COM10
   執行實際寫入。
+
+### 2026-08-03 — AP Mode 專用字型補齊完整小寫英文字母
+
+AP Mode 的 5×7 專用字型已從原本只涵蓋實際 SSID 所需的小寫字母，補齊為
+完整 `a`–`z` 26 個小寫 glyph；既有 `A`–`Z`、`0`–`9` 與必要標點維持不變。
+host test 逐一查詢 renderer 共用的 glyph table，使用 `abcdefghijklmnopqrstuvwxyz`
+確認每個字母的 5×7 bitmap 都符合預期，且不是 `?` fallback；ESP32-S3 build
+另確認 AP renderer 的實際編譯連結路徑使用同一份 table。
