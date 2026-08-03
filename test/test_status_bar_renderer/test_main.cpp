@@ -67,7 +67,7 @@ void test_unsynced_time_renders_placeholder_not_epoch_date()
     TEST_ASSERT_TRUE(region_has_non_white(view, 0U, 60U, 0U, 40U));
 }
 
-void test_unavailable_weather_leaves_icon_region_blank()
+void test_unavailable_weather_leaves_weather_group_blank()
 {
     StatusBuffer buffer = make_white_buffer();
     PackedFramebufferView view{
@@ -86,7 +86,26 @@ void test_unavailable_weather_leaves_icon_region_blank()
 
     TEST_ASSERT_TRUE(pf_display::render_status_bar(content, view));
     TEST_ASSERT_FALSE(
-        region_has_non_white(view, 700U, 800U, 0U, 40U));
+        region_has_non_white(view, 250U, 550U, 0U, 40U));
+    TEST_ASSERT_TRUE(
+        region_has_non_white(view, 650U, 800U, 0U, 40U));
+}
+
+void test_weather_icon_uses_two_pixel_vertical_insets()
+{
+    TEST_ASSERT_EQUAL_UINT32(40U, pf_display::kStatusBarHeight);
+    TEST_ASSERT_EQUAL_UINT32(36U, pf_display::kStatusBarWeatherIconSize);
+    TEST_ASSERT_EQUAL_UINT32(
+        2U,
+        (pf_display::kStatusBarHeight -
+         pf_display::kStatusBarWeatherIconSize) /
+            2U);
+}
+
+void test_status_bar_text_scales_are_larger_but_fit_by_orientation()
+{
+    TEST_ASSERT_EQUAL_UINT32(4U, pf_display::kStatusBarLandscapeTextScale);
+    TEST_ASSERT_EQUAL_UINT32(3U, pf_display::kStatusBarPortraitTextScale);
 }
 
 void test_weekday_abbreviations_are_english()
@@ -125,11 +144,11 @@ void test_weather_moves_to_the_right_when_indoor_values_are_unavailable()
 
     TEST_ASSERT_TRUE(pf_display::render_status_bar(content, view));
     TEST_ASSERT_TRUE(
-        region_has_non_white(view, 700U, 800U, 0U, 40U));
+        region_has_non_white(view, 350U, 450U, 0U, 40U));
     TEST_ASSERT_TRUE(
-        region_has_non_white(view, 300U, 500U, 0U, 40U));
+        region_has_non_white(view, 640U, 800U, 0U, 40U));
     TEST_ASSERT_FALSE(
-        region_has_non_white(view, 180U, 250U, 0U, 40U));
+        region_has_non_white(view, 250U, 350U, 0U, 40U));
 }
 
 void test_online_indoor_values_keep_weather_left_and_indoor_right()
@@ -161,9 +180,9 @@ void test_online_indoor_values_keep_weather_left_and_indoor_right()
 
     TEST_ASSERT_TRUE(pf_display::render_status_bar(content, view));
     TEST_ASSERT_TRUE(
-        region_has_non_white(view, 165U, 250U, 0U, 40U));
+        region_has_non_white(view, 250U, 360U, 0U, 40U));
     TEST_ASSERT_TRUE(
-        region_has_non_white(view, 690U, 800U, 0U, 40U));
+        region_has_non_white(view, 700U, 800U, 0U, 40U));
 }
 
 void test_portrait_layout_uses_compact_scale_and_keeps_right_values()
@@ -199,6 +218,8 @@ void test_portrait_layout_uses_compact_scale_and_keeps_right_values()
 
     TEST_ASSERT_TRUE(pf_display::render_status_bar(content, view));
     TEST_ASSERT_TRUE(
+        region_has_non_white(view, 0U, 170U, 12U, 15U));
+    TEST_ASSERT_TRUE(
         region_has_non_white(view, 180U, 300U, 0U, 40U));
     TEST_ASSERT_TRUE(
         region_has_non_white(view, 400U, 480U, 0U, 40U));
@@ -221,7 +242,47 @@ void test_portrait_layout_uses_compact_scale_and_keeps_right_values()
     TEST_ASSERT_TRUE(
         region_has_non_white(no_indoor_view, 180U, 300U, 0U, 40U));
     TEST_ASSERT_FALSE(
-        region_has_non_white(no_indoor_view, 120U, 170U, 0U, 40U));
+        region_has_non_white(no_indoor_view, 170U, 210U, 0U, 40U));
+}
+
+void test_portrait_long_content_falls_back_without_overlapping_groups()
+{
+    PortraitStatusBuffer buffer{};
+    buffer.fill(
+        static_cast<std::uint8_t>(
+            (pf_display::native_code(Color::white) << 4U) |
+            pf_display::native_code(Color::white)));
+    PackedFramebufferView view{
+        buffer.data(),
+        buffer.size(),
+        pf_display::kPortraitImageWidth,
+        pf_display::kStatusBarHeight};
+
+    StatusBarContent content{};
+    content.time_valid = true;
+    content.year = 2026;
+    content.month = 8;
+    content.day = 3;
+    content.iso_weekday = 1;
+    content.weather_available = true;
+    content.weather_stale = true;
+    content.temperature_rounded = -40;
+    std::strncpy(content.icon_code, "01d", sizeof(content.icon_code) - 1U);
+    content.device_ip_available = true;
+    std::strncpy(
+        content.device_ip,
+        "255.255.255.255",
+        sizeof(content.device_ip) - 1U);
+    content.indoor_available = true;
+    content.indoor_temperature_rounded = -40;
+    content.indoor_humidity_rounded = 100;
+
+    TEST_ASSERT_TRUE(pf_display::render_status_bar(content, view));
+    // The preferred portrait scale is 3 (15px high), but this longest valid
+    // combination must fall back to scale 2 so the date group remains clear
+    // of the 12px-to-14px band used by scale 3 text.
+    TEST_ASSERT_FALSE(region_has_non_white(view, 0U, 120U, 12U, 15U));
+    TEST_ASSERT_TRUE(region_has_non_white(view, 0U, 120U, 15U, 25U));
 }
 
 void test_stale_weather_draws_marker_that_fresh_weather_does_not()
@@ -271,11 +332,14 @@ int main(int, char**)
 {
     UNITY_BEGIN();
     RUN_TEST(test_unsynced_time_renders_placeholder_not_epoch_date);
-    RUN_TEST(test_unavailable_weather_leaves_icon_region_blank);
+    RUN_TEST(test_unavailable_weather_leaves_weather_group_blank);
+    RUN_TEST(test_weather_icon_uses_two_pixel_vertical_insets);
+    RUN_TEST(test_status_bar_text_scales_are_larger_but_fit_by_orientation);
     RUN_TEST(test_weekday_abbreviations_are_english);
     RUN_TEST(test_weather_moves_to_the_right_when_indoor_values_are_unavailable);
     RUN_TEST(test_online_indoor_values_keep_weather_left_and_indoor_right);
     RUN_TEST(test_portrait_layout_uses_compact_scale_and_keeps_right_values);
+    RUN_TEST(test_portrait_long_content_falls_back_without_overlapping_groups);
     RUN_TEST(test_stale_weather_draws_marker_that_fresh_weather_does_not);
     RUN_TEST(test_render_status_bar_rejects_invalid_view);
     return UNITY_END();

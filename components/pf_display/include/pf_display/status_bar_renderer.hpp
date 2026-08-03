@@ -12,6 +12,14 @@
 namespace pf_display {
 
 inline constexpr std::size_t kDeviceIpCapacity = 16U;
+inline constexpr std::size_t kStatusBarWeatherIconSize = 36U;
+inline constexpr std::size_t kStatusBarLandscapeTextScale = 4U;
+inline constexpr std::size_t kStatusBarPortraitTextScale = 3U;
+inline constexpr std::size_t kStatusBarMinimumTextScale = 2U;
+
+static_assert(
+    kStatusBarHeight >= kStatusBarWeatherIconSize + 4U,
+    "the weather icon must retain a two-pixel vertical inset");
 
 inline const char* weekday_abbreviation(const std::uint8_t iso_weekday)
 {
@@ -77,20 +85,19 @@ inline bool render_status_bar(
     view.fill(Color::white);
 
     // Portrait status bars are only 480px wide. The compact scale keeps the
-    // date/weather, centered IP, and optional indoor values in three distinct
-    // regions without changing the fixed 40px status-bar height.
+    // four information groups readable while the content-width-based layout
+    // below gives every gap between adjacent groups the same size.
     const bool compact = view.width() < 640U;
-    const std::size_t text_scale = compact ? 2U : 3U;
+    const std::size_t preferred_text_scale =
+        compact ? kStatusBarPortraitTextScale : kStatusBarLandscapeTextScale;
     const std::size_t margin = compact ? 3U : 4U;
-    const std::size_t group_gap = compact ? 3U : 4U;
-    const std::size_t icon_size = compact ? 24U : 32U;
+    const std::size_t content_gap = compact ? 3U : 4U;
     const std::size_t bar_height =
         view.height() < kStatusBarHeight ? view.height() : kStatusBarHeight;
-    const std::size_t text_pixel_height = kGlyphHeight * text_scale;
-    const std::size_t text_y =
-        bar_height > text_pixel_height
-            ? (bar_height - text_pixel_height) / 2U
-            : 0U;
+    const std::size_t icon_size =
+        bar_height < kStatusBarWeatherIconSize
+            ? bar_height
+            : kStatusBarWeatherIconSize;
 
     char date_text[32]{};
     if (content.time_valid) {
@@ -118,42 +125,115 @@ inline bool render_status_bar(
         std::snprintf(date_text, sizeof(date_text), "----");
     }
 
-    const long width = static_cast<long>(view.width());
-    const long date_x = static_cast<long>(margin);
-    const long date_width = static_cast<long>(text_width(
-        std::strlen(date_text), text_scale));
-    draw_text(
-        view,
-        static_cast<std::size_t>(date_x),
-        text_y,
-        date_text,
-        Color::black,
-        text_scale);
-
-    long left_end = date_x + date_width;
+    char temperature_text[16]{};
     if (content.weather_available) {
-        // Keep the weather group beside the date when indoor values are
-        // available. Otherwise the right-hand slot reserved for indoor
-        // values becomes the weather slot, leaving the date uncluttered.
-        char temperature_text[16]{};
         std::snprintf(
             temperature_text,
             sizeof(temperature_text),
             "%d^",
             content.temperature_rounded);
-        const long temperature_width = static_cast<long>(text_width(
-            std::strlen(temperature_text), text_scale));
-        const long weather_width =
-            static_cast<long>(icon_size) + static_cast<long>(group_gap) +
-            temperature_width +
-            (content.weather_stale
-                 ? static_cast<long>(group_gap) +
-                       static_cast<long>(text_width(1U, text_scale))
-                 : 0L);
-        const long icon_x =
-            content.indoor_available
-                ? left_end + static_cast<long>(group_gap)
-                : width - static_cast<long>(margin) - weather_width;
+    }
+
+    char ip_text[kDeviceIpCapacity]{};
+    if (content.device_ip_available && content.device_ip[0] != '\0') {
+        std::memcpy(ip_text, content.device_ip, sizeof(ip_text));
+        ip_text[sizeof(ip_text) - 1U] = '\0';
+    } else {
+        std::snprintf(ip_text, sizeof(ip_text), "---.---.---.---");
+    }
+
+    char indoor_text[24]{};
+    if (content.indoor_available) {
+        std::snprintf(
+            indoor_text,
+            sizeof(indoor_text),
+            "%d^ %d%%",
+            content.indoor_temperature_rounded,
+            content.indoor_humidity_rounded);
+    }
+
+    const std::size_t group_count =
+        2U + (content.weather_available ? 1U : 0U) +
+        (content.indoor_available ? 1U : 0U);
+    const long width = static_cast<long>(view.width());
+    const long inner_width = width > static_cast<long>(margin * 2U)
+        ? width - static_cast<long>(margin * 2U)
+        : 0L;
+
+    struct GroupWidths {
+        std::size_t date = 0U;
+        std::size_t temperature = 0U;
+        std::size_t stale = 0U;
+        std::size_t weather = 0U;
+        std::size_t ip = 0U;
+        std::size_t indoor = 0U;
+        std::size_t total = 0U;
+    };
+    const auto widths_for_scale = [&](const std::size_t scale) {
+        GroupWidths widths{};
+        widths.date = text_width(std::strlen(date_text), scale);
+        widths.temperature = content.weather_available
+            ? text_width(std::strlen(temperature_text), scale)
+            : 0U;
+        widths.stale = content.weather_available && content.weather_stale
+            ? text_width(1U, scale)
+            : 0U;
+        widths.weather = content.weather_available
+            ? icon_size + content_gap + widths.temperature +
+                  (content.weather_stale
+                       ? content_gap + widths.stale
+                       : 0U)
+            : 0U;
+        widths.ip = text_width(std::strlen(ip_text), scale);
+        widths.indoor = content.indoor_available
+            ? text_width(std::strlen(indoor_text), scale)
+            : 0U;
+        widths.total = widths.date + widths.weather + widths.ip +
+            widths.indoor;
+        return widths;
+    };
+
+    // Prefer the larger text size, but retain the compact size when a
+    // portrait frame contains the longest valid combination of all groups.
+    std::size_t text_scale = preferred_text_scale;
+    const std::size_t minimum_text_scale = compact
+        ? kStatusBarMinimumTextScale
+        : kStatusBarLandscapeTextScale;
+    GroupWidths widths = widths_for_scale(text_scale);
+    while (widths.total > static_cast<std::size_t>(inner_width) &&
+           text_scale > minimum_text_scale) {
+        --text_scale;
+        widths = widths_for_scale(text_scale);
+    }
+
+    const std::size_t text_pixel_height = kGlyphHeight * text_scale;
+    const std::size_t text_y =
+        bar_height > text_pixel_height
+            ? (bar_height - text_pixel_height) / 2U
+            : 0U;
+    const std::size_t date_width = widths.date;
+    const std::size_t temperature_width = widths.temperature;
+    const std::size_t weather_width = widths.weather;
+    const std::size_t ip_width = widths.ip;
+    const long equal_gap =
+        group_count > 1U && inner_width > static_cast<long>(widths.total)
+            ? (inner_width - static_cast<long>(widths.total)) /
+                  static_cast<long>(group_count - 1U)
+            : 0L;
+    long cursor_x = static_cast<long>(margin);
+
+    draw_text(
+        view,
+        cursor_x < 0L ? 0U : static_cast<std::size_t>(cursor_x),
+        text_y,
+        date_text,
+        Color::black,
+        text_scale);
+    cursor_x += static_cast<long>(date_width);
+
+    if (content.weather_available) {
+        cursor_x += equal_gap;
+        const long icon_x = cursor_x;
         const long icon_y =
             (static_cast<long>(bar_height) - static_cast<long>(icon_size)) /
             2L;
@@ -169,7 +249,7 @@ inline bool render_status_bar(
         // `^` is the firmware's one-byte degree-mark glyph.
         const long temperature_x =
             icon_x + static_cast<long>(icon_size) +
-            static_cast<long>(group_gap);
+            static_cast<long>(content_gap);
         draw_text(
             view,
             temperature_x < 0L ? 0U : static_cast<std::size_t>(temperature_x),
@@ -177,10 +257,11 @@ inline bool render_status_bar(
             temperature_text,
             Color::black,
             text_scale);
-        left_end = temperature_x + temperature_width;
 
         if (content.weather_stale) {
-            const long stale_x = left_end + static_cast<long>(group_gap);
+            const long stale_x = temperature_x +
+                static_cast<long>(temperature_width) +
+                static_cast<long>(content_gap);
             draw_text(
                 view,
                 stale_x < 0L ? 0U : static_cast<std::size_t>(stale_x),
@@ -188,58 +269,30 @@ inline bool render_status_bar(
                 "*",
                 Color::red,
                 text_scale);
-            left_end = stale_x + static_cast<long>(text_width(1U, text_scale));
         }
 
-        if (!content.indoor_available) {
-            left_end = date_x + date_width;
-        }
+        cursor_x += static_cast<long>(weather_width);
     }
 
-    char ip_text[kDeviceIpCapacity]{};
-    if (content.device_ip_available && content.device_ip[0] != '\0') {
-        std::memcpy(ip_text, content.device_ip, sizeof(ip_text));
-        ip_text[sizeof(ip_text) - 1U] = '\0';
-    } else {
-        std::snprintf(ip_text, sizeof(ip_text), "---.---.---.---");
-    }
-    const long ip_width = static_cast<long>(text_width(
-        std::strlen(ip_text), text_scale));
-    const long ip_x = width > ip_width ? (width - ip_width) / 2L : 0L;
+    cursor_x += equal_gap;
     draw_text(
         view,
-        ip_x < 0L ? 0U : static_cast<std::size_t>(ip_x),
+        cursor_x < 0L ? 0U : static_cast<std::size_t>(cursor_x),
         text_y,
         ip_text,
         Color::black,
         text_scale);
+    cursor_x += static_cast<long>(ip_width);
 
     if (content.indoor_available) {
-        char indoor_text[24]{};
-        std::snprintf(
+        cursor_x += equal_gap;
+        draw_text(
+            view,
+            cursor_x < 0L ? 0U : static_cast<std::size_t>(cursor_x),
+            text_y,
             indoor_text,
-            sizeof(indoor_text),
-            "%d^ %d%%",
-            content.indoor_temperature_rounded,
-            content.indoor_humidity_rounded);
-        const long indoor_width = static_cast<long>(text_width(
-            std::strlen(indoor_text), text_scale));
-        const long indoor_x =
-            width - static_cast<long>(margin) - indoor_width;
-        // At the real 800px/480px widths this region always fits. If a
-        // synthetic narrower view is supplied, omit the optional sensor
-        // values rather than drawing over the centered IP or wrapping.
-        if (indoor_x >= 0L &&
-            indoor_x > ip_x + ip_width + static_cast<long>(group_gap) &&
-            indoor_x > left_end + static_cast<long>(group_gap)) {
-            draw_text(
-                view,
-                static_cast<std::size_t>(indoor_x),
-                text_y,
-                indoor_text,
-                Color::black,
-                text_scale);
-        }
+            Color::black,
+            text_scale);
     }
 
     return true;
