@@ -132,7 +132,28 @@ inline bool render_status_bar(
 
     long left_end = date_x + date_width;
     if (content.weather_available) {
-        const long icon_x = left_end + static_cast<long>(group_gap);
+        // Keep the weather group beside the date when indoor values are
+        // available. Otherwise the right-hand slot reserved for indoor
+        // values becomes the weather slot, leaving the date uncluttered.
+        char temperature_text[16]{};
+        std::snprintf(
+            temperature_text,
+            sizeof(temperature_text),
+            "%d^",
+            content.temperature_rounded);
+        const long temperature_width = static_cast<long>(text_width(
+            std::strlen(temperature_text), text_scale));
+        const long weather_width =
+            static_cast<long>(icon_size) + static_cast<long>(group_gap) +
+            temperature_width +
+            (content.weather_stale
+                 ? static_cast<long>(group_gap) +
+                       static_cast<long>(text_width(1U, text_scale))
+                 : 0L);
+        const long icon_x =
+            content.indoor_available
+                ? left_end + static_cast<long>(group_gap)
+                : width - static_cast<long>(margin) - weather_width;
         const long icon_y =
             (static_cast<long>(bar_height) - static_cast<long>(icon_size)) /
             2L;
@@ -146,17 +167,9 @@ inline bool render_status_bar(
         }
 
         // `^` is the firmware's one-byte degree-mark glyph.
-        char temperature_text[16]{};
-        std::snprintf(
-            temperature_text,
-            sizeof(temperature_text),
-            "%d^",
-            content.temperature_rounded);
         const long temperature_x =
             icon_x + static_cast<long>(icon_size) +
             static_cast<long>(group_gap);
-        const long temperature_width = static_cast<long>(text_width(
-            std::strlen(temperature_text), text_scale));
         draw_text(
             view,
             temperature_x < 0L ? 0U : static_cast<std::size_t>(temperature_x),
@@ -176,6 +189,10 @@ inline bool render_status_bar(
                 Color::red,
                 text_scale);
             left_end = stale_x + static_cast<long>(text_width(1U, text_scale));
+        }
+
+        if (!content.indoor_available) {
+            left_end = date_x + date_width;
         }
     }
 

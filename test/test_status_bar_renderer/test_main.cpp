@@ -98,7 +98,7 @@ void test_weekday_abbreviations_are_english()
     TEST_ASSERT_NULL(pf_display::weekday_abbreviation(0U));
 }
 
-void test_available_weather_and_ip_are_drawn_in_left_and_center_regions()
+void test_weather_moves_to_the_right_when_indoor_values_are_unavailable()
 {
     StatusBuffer buffer = make_white_buffer();
     PackedFramebufferView view{
@@ -125,12 +125,14 @@ void test_available_weather_and_ip_are_drawn_in_left_and_center_regions()
 
     TEST_ASSERT_TRUE(pf_display::render_status_bar(content, view));
     TEST_ASSERT_TRUE(
-        region_has_non_white(view, 165U, 250U, 0U, 40U));
+        region_has_non_white(view, 700U, 800U, 0U, 40U));
     TEST_ASSERT_TRUE(
         region_has_non_white(view, 300U, 500U, 0U, 40U));
+    TEST_ASSERT_FALSE(
+        region_has_non_white(view, 180U, 250U, 0U, 40U));
 }
 
-void test_online_indoor_values_are_drawn_on_the_right()
+void test_online_indoor_values_keep_weather_left_and_indoor_right()
 {
     StatusBuffer buffer = make_white_buffer();
     PackedFramebufferView view{
@@ -150,11 +152,16 @@ void test_online_indoor_values_are_drawn_on_the_right()
         content.device_ip,
         "192.168.1.20",
         sizeof(content.device_ip) - 1U);
+    content.weather_available = true;
+    content.temperature_rounded = 27;
+    std::strncpy(content.icon_code, "01d", sizeof(content.icon_code) - 1U);
     content.indoor_available = true;
     content.indoor_temperature_rounded = 28;
     content.indoor_humidity_rounded = 52;
 
     TEST_ASSERT_TRUE(pf_display::render_status_bar(content, view));
+    TEST_ASSERT_TRUE(
+        region_has_non_white(view, 165U, 250U, 0U, 40U));
     TEST_ASSERT_TRUE(
         region_has_non_white(view, 690U, 800U, 0U, 40U));
 }
@@ -195,6 +202,26 @@ void test_portrait_layout_uses_compact_scale_and_keeps_right_values()
         region_has_non_white(view, 180U, 300U, 0U, 40U));
     TEST_ASSERT_TRUE(
         region_has_non_white(view, 400U, 480U, 0U, 40U));
+
+    PortraitStatusBuffer no_indoor_buffer{};
+    no_indoor_buffer.fill(
+        static_cast<std::uint8_t>(
+            (pf_display::native_code(Color::white) << 4U) |
+            pf_display::native_code(Color::white)));
+    PackedFramebufferView no_indoor_view{
+        no_indoor_buffer.data(),
+        no_indoor_buffer.size(),
+        pf_display::kPortraitImageWidth,
+        pf_display::kStatusBarHeight};
+    content.indoor_available = false;
+    TEST_ASSERT_TRUE(
+        pf_display::render_status_bar(content, no_indoor_view));
+    TEST_ASSERT_TRUE(
+        region_has_non_white(no_indoor_view, 400U, 480U, 0U, 40U));
+    TEST_ASSERT_TRUE(
+        region_has_non_white(no_indoor_view, 180U, 300U, 0U, 40U));
+    TEST_ASSERT_FALSE(
+        region_has_non_white(no_indoor_view, 120U, 170U, 0U, 40U));
 }
 
 void test_stale_weather_draws_marker_that_fresh_weather_does_not()
@@ -246,8 +273,8 @@ int main(int, char**)
     RUN_TEST(test_unsynced_time_renders_placeholder_not_epoch_date);
     RUN_TEST(test_unavailable_weather_leaves_icon_region_blank);
     RUN_TEST(test_weekday_abbreviations_are_english);
-    RUN_TEST(test_available_weather_and_ip_are_drawn_in_left_and_center_regions);
-    RUN_TEST(test_online_indoor_values_are_drawn_on_the_right);
+    RUN_TEST(test_weather_moves_to_the_right_when_indoor_values_are_unavailable);
+    RUN_TEST(test_online_indoor_values_keep_weather_left_and_indoor_right);
     RUN_TEST(test_portrait_layout_uses_compact_scale_and_keeps_right_values);
     RUN_TEST(test_stale_weather_draws_marker_that_fresh_weather_does_not);
     RUN_TEST(test_render_status_bar_rejects_invalid_view);
