@@ -139,10 +139,12 @@ void test_runtime_queues_and_snapshot()
         observed.manual_activate_request_id);
 
     const std::uint32_t sequence_before_mode_request = observed.sequence;
-    runtime.request_carousel_mode(true);
+    runtime.request_carousel_mode(true, 45U);
     TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
     TEST_ASSERT_TRUE(observed.carousel_random);
     TEST_ASSERT_TRUE(observed.carousel_mode_request_random);
+    TEST_ASSERT_EQUAL_UINT32(45U, observed.carousel_mode_request_refresh_minutes);
+    TEST_ASSERT_EQUAL_UINT32(45U, observed.carousel_refresh_minutes);
     TEST_ASSERT_EQUAL_UINT32(1U, observed.carousel_mode_request_id);
     TEST_ASSERT_EQUAL_UINT32(
         sequence_before_mode_request + 1U, observed.sequence);

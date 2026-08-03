@@ -62,6 +62,7 @@ public:
     bool configure(const CarouselConfig config)
     {
         if (config.interval_minutes < pf_config::kMinimumRefreshMinutes ||
+            config.interval_minutes > pf_config::kMaximumRefreshMinutes ||
             (config.mode != CarouselMode::sequential &&
              config.mode != CarouselMode::random) ||
             in_flight_) {

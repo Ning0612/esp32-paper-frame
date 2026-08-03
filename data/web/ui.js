@@ -99,6 +99,7 @@
   const imageLibraryList = $("#image-library-list");
   const imageCarouselForm = $("#image-carousel-form");
   const imageCarouselRandom = $("#image-carousel-random");
+  const imageCarouselRefreshMinutes = $("#image-carousel-refresh-minutes");
   const imageCarouselSave = $("#image-carousel-save");
   const imageCarouselStatus = $("#image-carousel-status");
 
@@ -126,7 +127,11 @@
   const maxSourceBytes = 32 * 1024 * 1024;
   const maxSourcePixels = 64 * 1024 * 1024;
   const maxWorkingPixels = 4 * 1024 * 1024;
+  const minCarouselRefreshMinutes = 10;
+  const defaultCarouselRefreshMinutes = 30;
+  const maxCarouselRefreshMinutes = 24 * 60;
   const scriptReloadPromises = new Map();
+  imageCarouselRefreshMinutes.value = String(defaultCarouselRefreshMinutes);
 
   function loadScriptOnce(path) {
     if (scriptReloadPromises.has(path)) {
@@ -1028,11 +1033,16 @@
         return;
       }
       const display = payload.data && payload.data.display;
-      if (!response.ok || !display || typeof display.random !== "boolean") {
+      const refreshMinutes = display && Number(display.refresh_minutes);
+      if (!response.ok || !display || typeof display.random !== "boolean" ||
+        !Number.isInteger(refreshMinutes) ||
+        refreshMinutes < minCarouselRefreshMinutes ||
+        refreshMinutes > maxCarouselRefreshMinutes) {
         throw new Error(payload.error || "carousel_config_failed");
       }
       imageCarouselRandom.checked = display.random;
-      imageCarouselStatus.textContent = display.random ? "目前為隨機輪播。" : "目前依圖片庫排序輪播。";
+      imageCarouselRefreshMinutes.value = String(refreshMinutes);
+      imageCarouselStatus.textContent = `${display.random ? "目前為隨機輪播" : "目前依圖片庫排序輪播"}，每 ${refreshMinutes} 分鐘。`;
     } catch (error) {
       imageCarouselStatus.className = "save-status error";
       imageCarouselStatus.textContent = `輪播設定讀取失敗：${error.message || "請稍後重試"}`;
@@ -1042,6 +1052,18 @@
   imageCarouselForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!csrfToken) return;
+    if (!imageCarouselForm.checkValidity()) {
+      imageCarouselForm.reportValidity();
+      return;
+    }
+    const refreshMinutes = Number(imageCarouselRefreshMinutes.value);
+    if (!Number.isInteger(refreshMinutes) ||
+      refreshMinutes < minCarouselRefreshMinutes ||
+      refreshMinutes > maxCarouselRefreshMinutes) {
+      imageCarouselStatus.className = "save-status error";
+      imageCarouselStatus.textContent = `輪播間隔必須介於 ${minCarouselRefreshMinutes} 分鐘與 24 小時。`;
+      return;
+    }
     imageCarouselSave.disabled = true;
     imageCarouselStatus.className = "save-status";
     imageCarouselStatus.textContent = "正在保存輪播設定…";
@@ -1052,7 +1074,10 @@
           "Content-Type": "application/x-www-form-urlencoded",
           "X-CSRF-Token": csrfToken,
         },
-        body: new URLSearchParams({ random: imageCarouselRandom.checked ? "true" : "false" }).toString(),
+        body: new URLSearchParams({
+          random: imageCarouselRandom.checked ? "true" : "false",
+          refresh_minutes: String(refreshMinutes),
+        }).toString(),
       });
       const payload = await response.json();
       if (response.status === 401) {
@@ -1061,7 +1086,7 @@
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "carousel_save_failed");
       imageCarouselStatus.className = "save-status success";
-      imageCarouselStatus.textContent = imageCarouselRandom.checked ? "已開啟隨機輪播。" : "已關閉隨機輪播。";
+      imageCarouselStatus.textContent = `${imageCarouselRandom.checked ? "已開啟隨機輪播" : "已關閉隨機輪播"}，間隔 ${refreshMinutes} 分鐘。`;
       await loadImageCarouselConfig();
     } catch (error) {
       imageCarouselStatus.className = "save-status error";

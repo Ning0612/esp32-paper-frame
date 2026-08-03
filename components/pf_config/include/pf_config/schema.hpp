@@ -7,7 +7,8 @@ namespace pf_config {
 
 inline constexpr std::uint32_t kCurrentSchemaVersion = 2;
 inline constexpr std::uint32_t kDefaultRefreshMinutes = 30;
-inline constexpr std::uint32_t kMinimumRefreshMinutes = 5;
+inline constexpr std::uint32_t kMinimumRefreshMinutes = 10;
+inline constexpr std::uint32_t kMaximumRefreshMinutes = 24U * 60U;
 inline constexpr std::size_t kTimezoneCapacity = 48;
 inline constexpr char kDefaultTimezone[] = "Asia/Taipei";
 
@@ -46,7 +47,8 @@ struct StartupPlan {
 
 constexpr bool refresh_minutes_valid(const std::uint32_t value)
 {
-    return value >= kMinimumRefreshMinutes;
+    return value >= kMinimumRefreshMinutes &&
+           value <= kMaximumRefreshMinutes;
 }
 
 inline bool copy_timezone(

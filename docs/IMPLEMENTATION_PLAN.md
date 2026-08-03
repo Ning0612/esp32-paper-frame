@@ -158,7 +158,7 @@ snapshot 或 result endpoint 取得。Display、storage 與 OTA 共享的臨界�
 - 六色 palette v1、packed 4-bit pixel primitive 與 golden vector tests。
 - 橫向 800×440、直向 480×760 renderer，以及邏輯畫面到面板資料的旋轉。
 - DisplayTask command/result contract、BUSY timeout、refresh 後 sleep。
-- 30 分鐘預設／5 分鐘下限的輪播核心；空圖庫 welcome/status frame。
+- 30 分鐘預設／10 分鐘至 24 小時範圍的輪播核心；空圖庫 welcome/status frame。
 
 驗收：
 
@@ -460,7 +460,7 @@ status`、events、reboot 三項交付物維持不變。
 - [x] 完成 G2 pin map 與 G3 display driver 決策後開始 Phase 2。
 - [x] `epd7in3e` driver 通過 host/build 與實機六色 pattern 驗證；refresh
   時間、panel sleep 電流與 forced-BUSY 隔離治具仍列為硬體待驗證項。
-- [x] 完成 Phase 2 renderer、DisplayTask owner contract、30 分鐘／5 分鐘
+- [x] 完成 Phase 2 renderer、DisplayTask owner contract、30 分鐘／10 分鐘至 24 小時
   輪播核心與空圖庫 welcome frame；catalog-backed 圖片載入、離線輪播與
   橫直向 PFR1 framebuffer 組合已在 Phase 5 接入。
 - [ ] Phase 3：AP／STA 純狀態機、provisioning portal、credential transaction、

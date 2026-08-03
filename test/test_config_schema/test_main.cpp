@@ -146,6 +146,18 @@ void test_invalid_v0_record_is_rejected_without_write()
     TEST_ASSERT_FALSE(plan.write_required);
 }
 
+void test_refresh_interval_bounds_are_inclusive()
+{
+    TEST_ASSERT_TRUE(pf_config::refresh_minutes_valid(
+        pf_config::kMinimumRefreshMinutes));
+    TEST_ASSERT_TRUE(pf_config::refresh_minutes_valid(
+        pf_config::kMaximumRefreshMinutes));
+    TEST_ASSERT_FALSE(pf_config::refresh_minutes_valid(
+        pf_config::kMinimumRefreshMinutes - 1U));
+    TEST_ASSERT_FALSE(pf_config::refresh_minutes_valid(
+        pf_config::kMaximumRefreshMinutes + 1U));
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -158,5 +170,6 @@ int main(int, char**)
     RUN_TEST(test_future_schema_is_rejected_without_write);
     RUN_TEST(test_incomplete_current_record_is_rejected_without_write);
     RUN_TEST(test_invalid_v0_record_is_rejected_without_write);
+    RUN_TEST(test_refresh_interval_bounds_are_inclusive);
     return UNITY_END();
 }

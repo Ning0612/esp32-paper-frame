@@ -36,7 +36,7 @@ API route、handler、access policy 與 WebUI 按鈕，細節見
 | `POST /api/v1/auth/logout` | 已登入 + CSRF | 撤銷目前 session |
 | `GET /api/v1/status` | 已登入 | 完整初版 runtime snapshot、容量與尚未提供功能的 `null` 狀態 |
 | `GET /api/v1/config` | 已登入 | 遮蔽後設定；秘密只回傳 `*_set` 布林值 |
-| `POST /api/v1/config` | 已登入 + CSRF | 以 `random=true|false` 非同步保存隨機輪播設定 |
+| `POST /api/v1/config` | 已登入 + CSRF | 以 `random=true|false&refresh_minutes=10..1440` 非同步保存輪播模式與間隔 |
 | `GET /api/v1/weather/config` | 已登入 | 天氣／NTP 設定；API key 只回傳 `api_key_set` |
 | `POST /api/v1/weather/config` | 已登入 + CSRF | 以 form body 保存天氣／NTP 設定 |
 | `GET /api/v1/wifi/scan` | 首次 provisioning AP 或已登入 | 掃描結果 |
@@ -64,9 +64,10 @@ snapshot；handler 不等待顯示器、網路、NVS 或 filesystem。
 後尚未完成任何一次刷新）時回 `null`，成功輪播後才是真實圖片 id 與距下次
 刷新的毫秒數。
 
-圖片頁的 `GET /api/v1/config` 會在 `data.display.random` 回傳目前輪播模式；
+圖片頁的 `GET /api/v1/config` 會在 `data.display.random` 回傳目前輪播模式，並在
+`data.display.refresh_minutes` 回傳目前間隔（10–1440 分鐘，預設 30 分鐘）；
 `POST /api/v1/config` 的寫入在 deferred worker 執行，完成 NVS 保存後才向
-RuntimeCoordinator 發出模式變更請求，carousel 正在刷新時會等安全時機套用。
+RuntimeCoordinator 發出模式與間隔變更請求，carousel 正在刷新時會等安全時機套用。
 
 ## Phase 4 圖片處理管線
 
@@ -103,8 +104,9 @@ node --check data\web\image_pipeline.js
 圖片頁接受來源檔案最多 32 MB、最多 6,400 萬像素；超過面板輸出所需的來源
 尺寸仍由瀏覽器在本機縮放，處理過程不會把原始 RGB framebuffer 上傳到裝置。
 
-圖片庫的「Random／隨機輪播」可由圖片頁開關，設定保存於裝置並在安全時機套用到
-carousel scheduler；關閉時依圖片庫排序輪播。
+圖片庫的「Random／隨機輪播」與「輪播間隔」可由圖片頁設定；間隔限制為 10 分鐘至
+24 小時，設定保存於裝置並在安全時機套用到 carousel scheduler；關閉隨機時依圖片庫
+排序輪播。
 
 `data/web/image_pfr1.js` 將固定 profile 的 quantized result 打包成
 `application/vnd.paperframe.pfr1`，重用同一組 filename、flags、dithering、

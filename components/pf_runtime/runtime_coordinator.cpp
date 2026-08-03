@@ -478,7 +478,9 @@ void RuntimeCoordinator::request_manual_carousel_activation(
     portEXIT_CRITICAL(&snapshot_lock_);
 }
 
-void RuntimeCoordinator::request_carousel_mode(const bool random)
+void RuntimeCoordinator::request_carousel_mode(
+    const bool random,
+    const std::uint32_t refresh_minutes)
 {
     portENTER_CRITICAL(&snapshot_lock_);
     ++snapshot_.carousel_mode_request_id;
@@ -486,7 +488,9 @@ void RuntimeCoordinator::request_carousel_mode(const bool random)
         ++snapshot_.carousel_mode_request_id;
     }
     snapshot_.carousel_random = random;
+    snapshot_.carousel_refresh_minutes = refresh_minutes;
     snapshot_.carousel_mode_request_random = random;
+    snapshot_.carousel_mode_request_refresh_minutes = refresh_minutes;
     ++snapshot_.sequence;
     portEXIT_CRITICAL(&snapshot_lock_);
 }

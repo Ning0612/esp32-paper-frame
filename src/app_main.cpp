@@ -1164,7 +1164,7 @@ extern "C" void app_main()
             !carousel.in_flight()) {
             const bool mode_changed = carousel.configure(
                 pf_carousel::CarouselConfig{
-                    refresh_minutes,
+                    presence_snapshot.carousel_mode_request_refresh_minutes,
                     presence_snapshot.carousel_mode_request_random
                         ? pf_carousel::CarouselMode::random
                         : pf_carousel::CarouselMode::sequential,

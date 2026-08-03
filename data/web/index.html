@@ -482,7 +482,10 @@
               </div>
               <form id="image-carousel-form" novalidate>
                 <label class="manual-toggle"><input id="image-carousel-random" type="checkbox"><span>Random／隨機輪播</span></label>
-                <p class="field-hint">開啟後以隨機順序輪播有效圖片；關閉時依圖片庫排序輪播。設定會保存於裝置，重開機後仍保留。</p>
+                <div class="image-option-grid">
+                  <label class="field"><span>輪播間隔（分鐘）</span><input id="image-carousel-refresh-minutes" type="number" min="10" max="1440" step="1" inputmode="numeric" required></label>
+                </div>
+                <p class="field-hint">可設定 10 分鐘至 24 小時（1440 分鐘）；設定會保存於裝置，重開機後仍保留。</p>
                 <button id="image-carousel-save" class="primary-button" type="submit">儲存輪播設定</button>
                 <p id="image-carousel-status" class="save-status" role="status" aria-live="polite">正在等待設定資料…</p>
               </form>

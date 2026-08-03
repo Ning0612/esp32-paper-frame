@@ -37,21 +37,25 @@ void complete_success(
         scheduler.complete(decision, true, completed_at_ms));
 }
 
-void test_default_interval_and_hard_minimum_are_enforced()
+void test_default_interval_and_hard_bounds_are_enforced()
 {
     CarouselScheduler scheduler;
     TEST_ASSERT_EQUAL_UINT32(30U, scheduler.interval_minutes());
 
     TEST_ASSERT_FALSE(scheduler.configure(
-        CarouselConfig{4U, CarouselMode::sequential, 1U}));
+        CarouselConfig{9U, CarouselMode::sequential, 1U}));
     TEST_ASSERT_EQUAL_UINT32(30U, scheduler.interval_minutes());
 
     TEST_ASSERT_TRUE(scheduler.configure(
-        CarouselConfig{5U, CarouselMode::random, 7U}));
-    TEST_ASSERT_EQUAL_UINT32(5U, scheduler.interval_minutes());
+        CarouselConfig{1440U, CarouselMode::random, 7U}));
+    TEST_ASSERT_EQUAL_UINT32(1440U, scheduler.interval_minutes());
     TEST_ASSERT_EQUAL(
         static_cast<int>(CarouselMode::random),
         static_cast<int>(scheduler.mode()));
+
+    TEST_ASSERT_FALSE(scheduler.configure(
+        CarouselConfig{1441U, CarouselMode::sequential, 1U}));
+    TEST_ASSERT_EQUAL_UINT32(1440U, scheduler.interval_minutes());
 }
 
 void test_empty_library_displays_welcome_once()
@@ -168,7 +172,7 @@ void test_disabled_or_invalid_items_are_never_selected()
 void test_random_mode_avoids_immediate_repeat_when_an_alternative_exists()
 {
     CarouselScheduler scheduler(
-        CarouselConfig{5U, CarouselMode::random, 0x12345678U});
+        CarouselConfig{10U, CarouselMode::random, 0x12345678U});
     const CarouselItem items[] = {item(11U), item(22U), item(33U)};
 
     const CarouselDecision first = scheduler.poll(0U, items, 3U);
@@ -182,7 +186,7 @@ void test_random_mode_avoids_immediate_repeat_when_an_alternative_exists()
 void test_random_mode_with_two_items_selects_the_only_alternative()
 {
     CarouselScheduler scheduler(
-        CarouselConfig{5U, CarouselMode::random, 0x87654321U});
+        CarouselConfig{10U, CarouselMode::random, 0x87654321U});
     const CarouselItem items[] = {item(71U), item(72U)};
 
     const CarouselDecision first = scheduler.poll(0U, items, 2U);
@@ -196,7 +200,7 @@ void test_random_mode_with_two_items_selects_the_only_alternative()
 void test_failed_manual_display_retries_only_after_full_interval()
 {
     CarouselScheduler scheduler(
-        CarouselConfig{5U, CarouselMode::sequential, 1U});
+        CarouselConfig{10U, CarouselMode::sequential, 1U});
     const CarouselItem items[] = {item(1U), item(2U)};
     const CarouselDecision first = scheduler.poll(0U, items, 2U);
     complete_success(scheduler, first, 1U);
@@ -209,13 +213,13 @@ void test_failed_manual_display_retries_only_after_full_interval()
         static_cast<int>(DecisionKind::wait),
         static_cast<int>(
             scheduler.poll(
-                100U + (5U * kMinuteMs) - 1U,
+                100U + (10U * kMinuteMs) - 1U,
                 items,
                 2U)
                 .kind));
 
     const CarouselDecision retry =
-        scheduler.poll(100U + (5U * kMinuteMs), items, 2U);
+        scheduler.poll(100U + (10U * kMinuteMs), items, 2U);
     TEST_ASSERT_EQUAL_UINT32(2U, retry.image_id);
     TEST_ASSERT_EQUAL(
         static_cast<int>(DecisionReason::manual),
@@ -402,7 +406,7 @@ void tearDown()
 int main(int, char**)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_default_interval_and_hard_minimum_are_enforced);
+    RUN_TEST(test_default_interval_and_hard_bounds_are_enforced);
     RUN_TEST(test_empty_library_displays_welcome_once);
     RUN_TEST(test_sequential_rotation_waits_a_full_interval_after_completion);
     RUN_TEST(test_unseen_images_are_selected_before_already_shown_images);

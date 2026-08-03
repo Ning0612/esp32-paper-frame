@@ -22,7 +22,7 @@ for (const id of [
   "image-library-refresh", "image-library-status", "image-library-list",
   "image-processed-card", "image-crop-hint", "image-crop-controls", "image-crop-zoom",
   "image-crop-zoom-value", "image-crop-zoom-hint", "image-carousel-form",
-  "image-carousel-random", "image-carousel-save", "image-carousel-status",
+  "image-carousel-random", "image-carousel-refresh-minutes", "image-carousel-save", "image-carousel-status",
 ]) {
   assert.ok(html.includes(`id="${id}"`), id);
 }
@@ -70,6 +70,9 @@ assert.ok(ui.includes("pointerup"));
 assert.ok(ui.includes("pointercancel"));
 assert.ok(ui.includes('fetch("/api/v1/config"'));
 assert.ok(ui.includes('fetch("/api/v1/config", {'));
+assert.ok(html.includes('id="image-carousel-refresh-minutes" type="number" min="10" max="1440"'));
+assert.ok(ui.includes('refresh_minutes: String(refreshMinutes)'));
+assert.ok(ui.includes('const defaultCarouselRefreshMinutes = 30;'));
 assert.ok(ui.includes("64 * 1024 * 1024"));
 assert.ok(html.includes('value="floyd-steinberg"'));
 assert.ok(html.includes('value="atkinson"'));

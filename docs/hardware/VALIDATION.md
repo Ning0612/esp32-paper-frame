@@ -290,7 +290,7 @@ Phase 2 DisplayTask 已整合為正式 app 的唯一 panel/SPI owner。Frame dat
 
 ### 2026-07-30 — Phase 2 carousel welcome lifecycle 實機通過
 
-輪播核心固定 30 分鐘預設與 5 分鐘硬下限，支援順序／隨機、新圖片
+輪播核心固定 30 分鐘預設、10 分鐘至 24 小時設定範圍，支援順序／隨機、新圖片
 `shown_once` 優先、手動選擇保持完整週期，以及 invalid/disabled 圖片排除。
 空圖庫只排入一次內建 welcome/status frame；完成後不週期性重刷相同畫面。
 實際 catalog 與 PFR1 frame source 依計畫在 Phase 4–5 接入。

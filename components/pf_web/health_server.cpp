@@ -823,6 +823,7 @@ esp_err_t config_handler(httpd_req_t* request)
     }
 
     bool carousel_random = false;
+    std::uint32_t carousel_refresh_minutes = 0U;
     if (carousel_config_mutex == nullptr ||
         xSemaphoreTake(
             carousel_config_mutex,
@@ -834,6 +835,7 @@ esp_err_t config_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
     }
     carousel_random = server_access_config.carousel_random;
+    carousel_refresh_minutes = server_access_config.refresh_minutes;
     xSemaphoreGive(carousel_config_mutex);
 
     const MaskedConfig config{
@@ -842,7 +844,7 @@ esp_err_t config_handler(httpd_req_t* request)
             server_access_config.wifi_password_configured,
         .management_password_configured =
             server_access_config.management_password_configured,
-        .refresh_minutes = server_access_config.refresh_minutes,
+        .refresh_minutes = carousel_refresh_minutes,
         .carousel_random = carousel_random,
         .timezone = server_access_config.timezone,
         .weather_configured = server_access_config.weather_configured,
@@ -938,29 +940,20 @@ esp_err_t process_carousel_config(
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
     }
-    candidate.refresh_minutes = server_access_config.refresh_minutes;
+    candidate.refresh_minutes = form.refresh_minutes_seen
+                                   ? form.refresh_minutes
+                                   : server_access_config.refresh_minutes;
     const bool timezone_copied = pf_config::copy_timezone(
         candidate.timezone,
         server_access_config.timezone);
-    const bool previous_random = server_access_config.carousel_random;
     xSemaphoreGive(carousel_config_mutex);
-    if (!timezone_copied || !pf_config::refresh_minutes_valid(candidate.refresh_minutes)) {
+    if (!timezone_copied ||
+        !pf_config::refresh_minutes_valid(candidate.refresh_minutes)) {
         return send_json(
             request,
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"config_unavailable\"}");
     }
-    if (carousel_config_mutex == nullptr ||
-        xSemaphoreTake(
-            carousel_config_mutex,
-            pdMS_TO_TICKS(1000U)) != pdTRUE) {
-        return send_json(
-            request,
-            "503 Service Unavailable",
-            "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
-    }
-    server_access_config.carousel_random = form.random;
-    xSemaphoreGive(carousel_config_mutex);
     candidate.carousel_random = random;
 
     if (!pf_runtime::coordinator().lock_flash_display(
@@ -973,25 +966,39 @@ esp_err_t process_carousel_config(
     const esp_err_t saved = pf_config::save_config(candidate);
     pf_runtime::coordinator().unlock_flash_display();
     if (saved != ESP_OK) {
-        if (carousel_config_mutex != nullptr &&
-            xSemaphoreTake(
-                carousel_config_mutex,
-                pdMS_TO_TICKS(1000U)) == pdTRUE) {
-            server_access_config.carousel_random = previous_random;
-            xSemaphoreGive(carousel_config_mutex);
-        }
         return send_json(
             request,
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"storage_unavailable\"}");
     }
-    pf_runtime::coordinator().request_carousel_mode(random);
+    if (carousel_config_mutex == nullptr ||
+        xSemaphoreTake(
+            carousel_config_mutex,
+            pdMS_TO_TICKS(1000U)) != pdTRUE) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
+    }
+    server_access_config.refresh_minutes = candidate.refresh_minutes;
+    server_access_config.carousel_random = random;
+    xSemaphoreGive(carousel_config_mutex);
+
+    pf_runtime::coordinator().request_carousel_mode(
+        random,
+        candidate.refresh_minutes);
+    char response[128]{};
+    std::snprintf(
+        response,
+        sizeof(response),
+        "{\"ok\":true,\"data\":{\"saved\":true,\"random\":%s,"
+        "\"refresh_minutes\":%lu}}",
+        random ? "true" : "false",
+        static_cast<unsigned long>(candidate.refresh_minutes));
     return send_json(
         request,
         nullptr,
-        random
-            ? "{\"ok\":true,\"data\":{\"saved\":true,\"random\":true}}"
-            : "{\"ok\":true,\"data\":{\"saved\":true,\"random\":false}}");
+        response);
 }
 
 void carousel_config_task_entry(void* const context)

@@ -161,9 +161,11 @@ struct RuntimeSnapshot {
     std::uint32_t carousel_refresh_minutes = 0;
     bool carousel_random = false;
     // A non-zero request id means the WebUI has requested a new carousel
-    // mode. The app_main carousel owner applies it once no refresh is in flight.
+    // mode and interval. The app_main carousel owner applies them once no
+    // refresh is in flight.
     std::uint32_t carousel_mode_request_id = 0U;
     bool carousel_mode_request_random = false;
+    std::uint32_t carousel_mode_request_refresh_minutes = 0U;
     // Current device IPv4 address. Empty means the active network interface
     // does not have an address yet; the display renders an explicit
     // placeholder instead of fabricating one.
