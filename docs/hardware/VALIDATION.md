@@ -1291,3 +1291,70 @@ task stack／PSRAM 放置討論），不打算為此臆測性風險加大配置�
 端到端流程（下載、寫入、自動重開機、rollback 確認）仍未實機驗證**，
 待下一個 release（`v0.8.1`，已同步把 `kFirmwareVersion` 對齊）發布後
 測試。
+
+### 2026-08-03（續）— `v0.8.1` 實機「立即更新」：兩個真正的根因，逐一修正後成功
+
+`v0.8.1` 發布後，使用者在真機上按「立即更新」，回報 `https_error`，
+console log 顯示 `esp-tls: Failed to create socket (family 2 socktype 1
+protocol 0)`。用臨時把 `kFirmwareVersion` 改回 `v0.8.0`（不 commit，
+純本地燒錄）反覆重現＋加診斷 log 的方式定位，兩輪都是真正的根因，不是
+臆測：
+
+**根因 1：`CONFIG_LWIP_MAX_SOCKETS=10`（ESP-IDF 預設值）在多個 client
+同時搶 socket 額度時不夠用。** 在 `update_now()` 加入
+`heap_caps_get_free_size`／`heap_caps_get_largest_free_block` 診斷 log
+後重現，實測數字：`update_now_start`／`before_esp_https_ota_begin`／
+`ota_update_begin_failed` 三個時間點的 `internal_largest`／
+`dma_largest`（最大連續可用區塊）**完全相同、全程 31744 bytes 沒變過**
+——直接排除記憶體不足的可能（`socket()` 需要的記憶體遠小於這個數字）。
+`components/pf_web/health_server.cpp` 的 httpd 自己就保留
+`max_open_sockets = 7`，扣掉之後全系統只剩 3 個 socket 額度要分給
+mDNS、SNTP、weather worker，以及這次 OTA client（且 OTA 這次還需要
+連續開 2-3 個連線，因為 GitHub release 下載網址是同主機再跨主機的
+多段 redirect，見下方根因 2）；WebUI 的 OTA 狀態輪詢又會每 3 秒用
+`Promise.all` 同時開 4 個平行連線。把 `sdkconfig.defaults` 的
+`CONFIG_LWIP_MAX_SOCKETS` 從 10 提高到 16 後，`Failed to create socket`
+不再出現，redirect chain 順利完成到第 3 段 TLS handshake。
+
+**根因 2：`esp_http_client_config_t::buffer_size_tx` 預設 512 bytes，
+裝不下 GitHub release asset 的簽章網址。** 根因 1 修正後改出現
+`HTTP_CLIENT: Out of buffer`／`esp_https_ota: Failed to open HTTP
+connection: ESP_FAIL`。查 ESP-IDF `esp_http_client.c` 原始碼確認
+這行 log 來自組「送出去的 request line」（`GET <path?query>
+HTTP/1.1`）時的 buffer，由 `buffer_size_tx` 控制，**不是**一開始猜測
+的收訊 buffer（`buffer_size`，第一次只改這個沒有解決問題）。實測
+GitHub redirect 到 `release-assets.githubusercontent.com` 的目標網址
+（Azure Blob SAS URL，含長 JWT）：path+query 883 bytes，完整 request
+line 896 bytes，遠超過 512 bytes 預設值。把 `buffer_size` 與
+`buffer_size_tx` 都設為 2048 bytes 後（heap 餘裕早已證實充足，
+>85 KB free、31 KB 最大連續區塊，加大這兩個 buffer 成本可忽略）
+問題解決，**實機測試當下用的就是 2048**。`codex-cowork` 審查後建議
+再加大到 4096（GitHub/Azure 的簽章與 JWT 長度不受本專案控制，未來可能
+變長；成本仍可忽略），已採用並隨 `v0.8.2` 一起發布，但**這個 4096 的
+數字本身尚未經過另一次實機測試**，只是 2048 的嚴格超集、理論上只會
+更寬裕不會更緊，不視為需要額外驗證的風險。
+
+**實機結果：使用者確認「成功更新了」**，並確認更新後裝置**自動重開機**、
+`/api/v1/device` 的 `firmware` 欄位正確顯示為新版本 `v0.8.1`——這是本
+專案第一次真正驗證通過的 OTA 完整流程（檢查→下載→寫入→自動重開機→
+版本確實切換）。比 `docs/RELEASE_CHECKLIST.md` 原本要求的驗收項目少
+一項明確證據：console log 是否出現 `esp_ota_mark_app_valid_cancel_
+rollback` 成功訊息（使用者只回報版本已切換，未附上這行 log），留待
+下次 release 或使用者後續回報補齊；裝置版本已正確切換這件事本身已
+隱含開機沒有 crash-loop（否則 bootloader 會自動 rollback 回舊分割區，
+`/api/v1/device` 就不會顯示新版本）。
+
+**重要限制，需在下一輪 release 溝通清楚**：這次測試時，「下載端」
+（負責發起 `esp_https_ota` 的那個韌體）是本地暫改版號、含這兩個修正
+的 `v0.8.0` 燒錄版本；被下載＋寫入的「目標端」是已發布、**不含**這兩個
+修正的官方 `v0.8.1` release。也就是說 socket／buffer 的修正只需要存在
+於「發起下載的那份韌體」，跟被下載的目標版本內容無關。但這也代表：
+裝置現在跑的 `v0.8.1` 本身**沒有**這兩個修正，之後若想再用 OTA 從
+`v0.8.1` 更新到 `v0.8.2`，會重新踩到同一組 `Failed to create socket`／
+`Out of buffer` 錯誤——因為這次是 `v0.8.1` 自己要發起下載，而它沒有
+修正。使用者需要用**有線燒錄**方式把 `v0.8.2` 直接裝上去一次；在那
+之後，因為 `v0.8.2` 本身就含這兩個修正，未來從 `v0.8.2` 開始的 OTA
+更新才能真正透過 OTA 完成，不需要再靠有線介入。
+
+兩個修正（`CONFIG_LWIP_MAX_SOCKETS=16`、`buffer_size`/`buffer_size_tx`
+=4096）與新增的 heap headroom 診斷 log 隨 `v0.8.2` 一併發布。

@@ -314,12 +314,38 @@ void OtaWorker::check_for_update()
     }
 }
 
+namespace {
+
+// Diagnostic-only: logs internal (non-PSRAM) and DMA-capable heap
+// headroom, both total-free and largest-contiguous-block, so a real
+// on-device failure log tells us whether esp_https_ota is failing from
+// genuine memory exhaustion (and which pool) versus fragmentation, rather
+// than guessing. See docs/hardware/VALIDATION.md's 2026-08-03 OTA entry --
+// this does not change any OTA behavior.
+void log_heap_headroom(const char* const point)
+{
+    ESP_LOGI(
+        kTag,
+        "ota_heap_headroom point=%s internal_free=%u internal_largest=%u "
+        "dma_free=%u dma_largest=%u",
+        point,
+        static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+        static_cast<unsigned>(
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
+        static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+        static_cast<unsigned>(
+            heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
+}
+
+}  // namespace
+
 void OtaWorker::update_now()
 {
     if (runtime_ != nullptr) {
         runtime_->update_ota_update_status(
             pf_runtime::OtaUpdateState::downloading, 0U, "");
     }
+    log_heap_headroom("update_now_start");
 
     const int url_written = std::snprintf(
         url_buffer_,
@@ -343,14 +369,38 @@ void OtaWorker::update_now()
     http_config.timeout_ms = 15000;
     http_config.crt_bundle_attach = &esp_crt_bundle_attach;
     http_config.keep_alive_enable = true;
+    // esp_http_client's default buffer sizes (512 bytes each for
+    // buffer_size/buffer_size_tx) are sized for ordinary requests, not
+    // GitHub's release-asset redirect chain: the final hop is a signed
+    // Azure Blob SAS URL with an embedded JWT, whose path+query alone
+    // measured 883 bytes on a real request to this repo's release --
+    // "GET <path+query> HTTP/1.1" (896 bytes) is written into the
+    // *outgoing* request-line buffer, sized by buffer_size_tx, not
+    // buffer_size (that one covers incoming response header parsing).
+    // Confirmed on real hardware 2026-08-03: first attempt raised only
+    // buffer_size and still failed with "HTTP_CLIENT: Out of buffer" at
+    // the exact request-line-formatting call site in esp_http_client.c
+    // (see docs/hardware/VALIDATION.md) -- buffer_size_tx was the actual
+    // culprit. Both are set here. Sized to 4096 (well above the measured
+    // 896 bytes) rather than exactly to the observed length, since
+    // GitHub/Azure's SAS signature and embedded JWT are outside this
+    // project's control and could grow in length over time -- a future
+    // failure here should read from a genuinely oversized URL, not one
+    // that merely grew past a tightly-fitted buffer. Heap headroom
+    // measured during the original failure (>85 KB free, 31 KB largest
+    // contiguous block) makes the extra couple of KB a trivial cost.
+    http_config.buffer_size = 4096;
+    http_config.buffer_size_tx = 4096;
 
     esp_https_ota_config_t ota_config{};
     ota_config.http_config = &http_config;
 
+    log_heap_headroom("before_esp_https_ota_begin");
     esp_https_ota_handle_t handle = nullptr;
     esp_err_t result = esp_https_ota_begin(&ota_config, &handle);
     if (result != ESP_OK || handle == nullptr) {
         ESP_LOGW(kTag, "ota_update_begin_failed=%s", esp_err_to_name(result));
+        log_heap_headroom("ota_update_begin_failed");
         if (runtime_ != nullptr) {
             runtime_->update_ota_update_status(
                 pf_runtime::OtaUpdateState::failed, 0U, "https_error");

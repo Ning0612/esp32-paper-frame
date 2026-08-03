@@ -3521,8 +3521,13 @@ esp_err_t start_health_server(
     configuration.uri_match_fn = httpd_uri_match_wildcard;
     configuration.recv_wait_timeout = 5;
     // The browser loads WebUI resources on keep-alive connections.
-    // CONFIG_LWIP_MAX_SOCKETS is set to 10 in sdkconfig, so max_open_sockets
-    // must be <= 7 to allow httpd_start() to succeed.
+    // CONFIG_LWIP_MAX_SOCKETS is 16 (bumped from the default 10 on
+    // 2026-08-03 -- see docs/hardware/VALIDATION.md -- after a real-device
+    // OTA download failed with "esp-tls: Failed to create socket" because
+    // this 7-socket httpd reservation left too few of the original 10 for
+    // mDNS/SNTP/WeatherWorker/pf_ota, which itself needs 2-3 sequential
+    // connections per update to follow GitHub's redirect chain). 7 still
+    // leaves 9 sockets system-wide for everything else, not the original 3.
     // Enabling LRU purge allows the server to automatically close the
     // least-recently-used idle connection when a new API/upload request arrives.
     configuration.max_open_sockets = 7;

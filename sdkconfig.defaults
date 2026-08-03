@@ -28,6 +28,18 @@ CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
 
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
+# Default of 10 left only 3 sockets for everything outside httpd's own
+# reserved max_open_sockets=7 (see components/pf_web/health_server.cpp) --
+# mDNS, SNTP, WeatherWorker, and pf_ota's esp_https_ota client (which needs
+# 2-3 sequential connections per update, since GitHub's release download
+# URL does a same-host then a cross-host redirect) all share that leftover
+# budget. Confirmed on real hardware 2026-08-03: "立即更新" failed with
+# esp-tls "Failed to create socket" while heap_caps_get_largest_free_block
+# stayed at a flat 31744 bytes across the whole attempt (see
+# docs/hardware/VALIDATION.md) -- ruling out memory pressure and pointing
+# at CONFIG_LWIP_MAX_SOCKETS as the actual ceiling being hit, not heap.
+CONFIG_LWIP_MAX_SOCKETS=16
+
 # Phase 8 OTA (docs/adr/0008-ota-github-releases-and-rollback.md): lets the
 # bootloader automatically revert to the previous OTA slot if the new
 # firmware crash-loops before app_main.cpp calls
