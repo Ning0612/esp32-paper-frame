@@ -1,5 +1,10 @@
 # ESP32-S3 電子紙圖片輪播專案需求草案 v0.1
 
+> 文件狀態：本檔是 v0.1 原始需求草案與 provenance，保留作歷史輸入，不是
+> current product contract。若與已接受 ADR、`docs/*` current contract、
+> 實作計畫或已驗證程式行為衝突，以較新的 current 文件與證據為準；本檔不
+> 原地追蹤後續決策。
+
 ## 一、專案名稱建議
 
 | 顯示名稱             | Repository 名稱          | 定位                             |

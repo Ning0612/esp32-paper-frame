@@ -1,8 +1,8 @@
 # ESP32-S3 燒錄操作
 
 本文件記錄 YD-ESP32-S3／ESP32-S3-N16R8 雙 USB-C 開發板在 Windows 11
-上的已驗證燒錄方式。COM 編號會在重新插拔或切換 ROM／app 後改變，命令中的
-`COM10` 只是 2026-07-30 實測值，不得永久寫入設定。
+上的已驗證燒錄方式。COM 編號會在重新插拔或切換 ROM／app 後改變；實際 port
+必須每次重新辨識，不得永久寫入設定。
 
 ## 日常開發：單一命令
 
@@ -14,7 +14,7 @@
 
 不需指定 COM、不需按 BOOT/RST，也不需將 GPIO0/GPIO46 接地。專案設定會：
 
-1. 依 board manifest 的 VID:PID `303A:1001` 自動選擇 ESP32-S3 native USB，
+1. 依 board manifest 的 Espressif native USB hardware ID 自動選擇 ESP32-S3 native USB，
    不會選到板載 CH343 或其他 USB serial device；
 2. 以 esptool `usb_reset` 讓正在執行的 app 進入 ROM download mode；
 3. 讀取 `otadata`，依 ESP-IDF bootloader 的 `ota_seq` 規則選出目前啟動的
@@ -56,14 +56,14 @@ RGB demo、native USB 被停用，或 app 已損壞到無法接受 `usb_reset`�
 
 | 介面 | Windows hardware ID | 用途 |
 | --- | --- | --- |
-| ESP32-S3 native USB Serial/JTAG | VID:PID `303A:1001` | 已驗證可進 ROM、執行 `esptool` 與監看 app console |
-| 板載 CH343 UART | VID:PID `1A86:55D3` | 本次在 ROM download mode 沒有收到資料，不作為標準燒錄路徑 |
+| ESP32-S3 native USB Serial/JTAG | Espressif native USB hardware ID | 已驗證可進 ROM、執行 `esptool` 與監看 app console |
+| 板載 USB-to-UART adapter | adapter hardware ID（已省略） | 本次在 ROM download mode 沒有收到資料，不作為標準燒錄路徑 |
 
 每次操作前先重新辨識：
 
 ```powershell
 .\.venv\Scripts\pio.exe device list
-$nativePort = 'COM10' # 以當次 VID:PID 303A:1001 的實際 COM 取代
+$nativePort = '<NATIVE_USB_PORT>' # 以當次 hardware ID 的實際 COM 取代
 $flashRunId = Get-Date -Format 'yyyyMMdd-HHmmss'
 ```
 

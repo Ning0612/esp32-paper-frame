@@ -6,7 +6,7 @@
 
 ## Context
 
-`docs/IMPLEMENTATION_PLAN.md` 的 Gate G7（"OpenWeatherMap endpoint/version、
+`docs/archive/IMPLEMENTATION_PLAN.md` 的 Gate G7（"OpenWeatherMap endpoint/version、
 TLS trust、cache schema 與 rate limit"）與狀態列 renderer 的字型/圖示來源
 必須在 Phase 6 開工前固定，不能沿用草案「建議」直接實作。掃描確認：全專案
 目前沒有任何 `esp_http_client`/`esp_tls`/`esp_crt_bundle` 用例、SNTP/mDNS
@@ -47,7 +47,7 @@ WeatherWorker（`pf_weather_worker` component）與狀態列渲染（`pf_display
 ### SNTP：最小可用的時間同步
 
 - NetworkServiceTask（既有 `pf_network::NetworkService`，
-  `docs/IMPLEMENTATION_PLAN.md` 第 60 行已將其列為 SNTP owner）在 STA
+  `docs/archive/IMPLEMENTATION_PLAN.md` 第 60 行已將其列為 SNTP owner）在 STA
   首次取得 IP 後啟動 SNTP：`esp_netif_sntp_init` +
   `ESP_NETIF_SNTP_DEFAULT_CONFIG`，伺服器名稱來自
   `WeatherSettings.ntp_server`（預設 `pool.ntp.org`），透過
@@ -74,7 +74,7 @@ WeatherWorker（`pf_weather_worker` component）與狀態列渲染（`pf_display
     handshake 失敗）→ `unreachable`。
   - 其餘結果（成功、`api_key_invalid`、`http_error`、`parse_error`——
     皆代表已收到 HTTP 回應，代表連線本身是通的）→ `reachable`。
-- 對應 `docs/IMPLEMENTATION_PLAN.md` 第 203 行的既有原則：
+- 對應 `docs/archive/IMPLEMENTATION_PLAN.md` 第 203 行的既有原則：
   「DNS、weather 或 Internet 錯誤只改變 Internet 狀態，不進 AP」。
 
 ### 字型與圖示授權（**圖示部分已被 ADR-0013 取代**）

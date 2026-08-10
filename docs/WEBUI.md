@@ -30,9 +30,8 @@ API route、handler、access policy 與 WebUI 按鈕，細節見
 | `GET /api/v1/device` | 永久公開 | 固定產品／型號、API 版本、面板尺寸與安全容量資訊 |
 | `GET /api/v1/health` | 永久公開 | 最小健康狀態；只讀 runtime snapshot |
 | `GET /api/v1/auth/status` | 永久公開 | 管理密碼是否設定、目前 session 與 CSRF 狀態 |
-| `POST /api/v1/auth/login` | 登入／首次建密碼 | 非同步提交 PBKDF 驗證，不把密碼放進 URL 或 response |
+| `POST /api/v1/auth/login` | 登入／首次建密碼 | 同步完成 PBKDF 驗證，不把密碼放進 URL 或 response |
 | `POST /api/v1/auth/password` | 已登入 + CSRF | 以兩個 form 欄位驗證並重設管理密碼；成功後撤銷 session |
-| `GET /api/v1/auth/login/status` | 登入流程 token | 取回一次性登入結果 |
 | `POST /api/v1/auth/logout` | 已登入 + CSRF | 撤銷目前 session |
 | `GET /api/v1/status` | 已登入 | 完整初版 runtime snapshot、容量與尚未提供功能的 `null` 狀態 |
 | `GET /api/v1/config` | 已登入 | 遮蔽後設定；秘密只回傳 `*_set` 布林值 |
@@ -111,21 +110,11 @@ node --check data\web\image_pipeline.js
 `data/web/image_pfr1.js` 將固定 profile 的 quantized result 打包成
 `application/vnd.paperframe.pfr1`，重用同一組 filename、flags、dithering、
 little-endian 與 CRC32 契約；瀏覽器只會產生受尺寸與 palette 限制的 packed
-payload。跨語言 golden vector 與欄位定義見
-[`docs/formats/PFR1.md`](formats/PFR1.md)。
+payload。所有欄位、壓縮、長度與 CRC 語意以
+[`docs/formats/PFR1.md`](formats/PFR1.md) 為準。
 
-打包完 nibble payload 後，`packPfr1()`（已改為 `async`）會嘗試用瀏覽器原生
-`CompressionStream('deflate-raw')` 壓縮：壓縮後比未壓縮小才採用（設定
-`Pfr1Flags.compressed` bit 並改存壓縮後 bytes），壓縮沒幫助、或執行環境
-沒有 `CompressionStream`（例如較舊的瀏覽器）時，直接退回今天的未壓縮輸出
-——保證新路徑不會比原本差。這個步驟刻意留在主執行緒、不搬進
-`image_quantize_worker.js`：payload 最大 182 KB，`CompressionStream` 壓縮
-是個位數 ms 等級，不值得為此擴充 worker 的訊息協定；打包（`packPfr1`）
-本身今天也是主執行緒同步呼叫，壓縮只是延續同一個階段。呼叫端如果需要
-強制輸出未壓縮版本（例如重現文件中的 golden vector），可以傳
-`{ compress: false }`。詳細的壓縮 payload 語意（`payload_length` 改為壓縮
-後 byte 數、CRC32 涵蓋範圍不變）見 [`docs/formats/PFR1.md`](formats/PFR1.md)
-的「Payload 壓縮」段落。
+`packPfr1()` 會在瀏覽器支援且壓縮後確實較小時使用 raw DEFLATE，否則輸出
+未壓縮 payload；完整 byte-level 語意與 golden vectors 只在上述格式文件維護。
 
 量化測試與 worker 語法檢查：
 
@@ -144,6 +133,13 @@ node --check data\web\image_pfr1.js
 - 標題使用 Georgia／Noto Serif TC；狀態與控制項使用 Consolas 等寬字體。
 - LIGHT／DARK 切換使用共用 localStorage key `iot-ui-theme`。
 - 主內容最大寬度 1040px；窄螢幕改為上方導覽及單欄卡片。
+
+## 最低 accessibility 驗收
+
+- 所有表單欄位、錯誤訊息與狀態更新都有可見的 label 或等價語意。
+- 登入、設定、上傳、刪除與確認操作可只用鍵盤完成，focus 狀態清楚可見。
+- 拖曳圖片與裁切操作都有檔案選擇或鍵盤可用的替代入口，不依賴 pointer-only。
+- 文字、控制項與錯誤狀態在 LIGHT／DARK 主題中保持可讀對比；動畫不得是唯一狀態提示。
 
 ## 更新方式
 

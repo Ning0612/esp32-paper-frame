@@ -6,25 +6,48 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 
 ## 目前狀態
 
-| 項目 | 狀態 |
-| --- | --- |
-| 需求與分階段計畫 | 已建立 |
-| Phase 0 repository baseline | 已完成 |
-| Phase 1 persistence/runtime/health foundations | build、host tests、實機 boot／mount 與 embedded runtime test 已通過 |
-| Phase 2 display/renderer ownership | packed framebuffer、renderer、`epd7in3e` driver、DisplayTask 與 carousel core/welcome lifecycle 已通過 |
-| Phase 3 provisioning/auth/WebUI | AP／STA、離線 portal、async auth/session/CSRF、responsive management shell 與初版 Dashboard 已完成 host/build；實機部署與完整 Phase 3 驗證待進行 |
-| ESP32-S3 USB 連線 | native USB 已驗證 ROM 燒錄與 app console；首次復原需 GPIO0/GPIO46 同時接地，COM 需重新辨識 |
-| 模組／Flash／PSRAM profile | ESP32-S3-N16R8；實機確認 16 MB Flash／8 MB octal PSRAM |
-| 7.3 吋 e-Paper HAT (E) | GPIO4/10–14 driver 實機顯示黑／黃／紅／藍／綠／白正確；sleep 電流量測待驗證 |
-| 光敏電阻 | 未接，後續必須走 absent/null 路徑 |
-| 溫溼度感測器 | 未接，後續必須走 absent/null 路徑 |
+目前狀態的唯一進度入口是 [專案狀態](docs/PROJECT_STATUS.md)。摘要如下：
 
-目前已有可編譯並通過實機 smoke test 的原生 ESP-IDF Phase 3 開發中韌體。
-板上 runtime queue、DisplayTask lifecycle、電子紙六色 pattern、空圖庫
-welcome refresh 與 provisioning AP 均已通過；catalog-backed 圖片輪播在
-Phase 5 接入；provisioning portal 已部署，async auth／CSRF 已完成
-host/build 且待隨管理 shell 一起部署，Phase 3 管理 shell 仍在進行；可選
-感測器尚未整合。
+| 分類 | 目前結論 |
+| --- | --- |
+| 已完成 | Phase 1–8 的主要程式、host tests 與韌體 build 已完成；部分 boot、mount、面板 pattern 與 STA smoke 已有實機證據。 |
+| 待驗證 | WebUI 瀏覽器流程、PFR1／imagefs 斷電、長時間輪播、天氣、感測器、OTA rollback 與 release gate 仍有實機缺口。 |
+| 待決定 | production security profile（Secure Boot／Flash Encryption）與 MVP 以外的 P1 功能尚未納入目前開發。 |
+
+在硬體驗證缺口關閉前，不宣稱 MVP release 或 production-ready。
+
+## 文件入口
+
+請先讀 [文件入口與分類](docs/README.md)；若只想知道現在做到哪裡，讀
+[專案狀態](docs/PROJECT_STATUS.md)。ADR、current contract、硬體證據與歷史
+計畫的權威關係都集中在該入口說明，不需要從所有文件開始閱讀。
+
+## 開源快速開始
+
+開發環境需要 Windows 11、Python 3.13、PlatformIO Core 6.1.19 與原生 ESP-IDF。
+在乾淨 checkout 中執行：
+
+```powershell
+uv venv --seed --python 3.13 .venv
+uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
+.\.venv\Scripts\pio.exe test -e native
+.\.venv\Scripts\pio.exe run
+```
+
+`native` 是不需要硬體的 host test；韌體 upload、面板、Wi-Fi、NVS、OTA 與
+斷電復原則依 [燒錄操作](docs/hardware/FLASHING.md)、[硬體驗證紀錄](docs/hardware/VALIDATION.md)
+與 [release checklist](docs/RELEASE_CHECKLIST.md) 執行。請勿把 host/build 結果
+當成實機驗證。
+
+## 公開基線與已知限制
+
+- 目標基線是 ESP32-S3-N16R8、16 MB Flash、8 MB octal PSRAM 與 7.3 吋
+  800×480 E6 全彩電子紙；光敏與溫溼度感測器是可選周邊。
+- WebUI 與圖片管理以離線優先為原則，不依賴外部 CDN 或後端服務。
+- 目前仍有顯示器、WebUI、PFR1／imagefs 斷電、天氣、感測器與 OTA 的實機
+  驗證缺口；在 [硬體驗證紀錄](docs/hardware/VALIDATION.md) 的目前未完成索引
+  關閉前，不宣稱 MVP release 或 production-ready。
+- 真實裝置測試資料、裝置識別資訊與執行期 imagefs 不屬於公開 repository 內容。
 
 ## 開發基線
 
@@ -59,16 +82,12 @@ GPIO0、GPIO46。完整安全步驟、app-only slot 限制與測試後恢復方�
 
 ## 文件
 
-- [原始需求草案](Guild.md)
-- [MVP 實作計畫](docs/IMPLEMENTATION_PLAN.md)
-- [參考來源與授權](docs/REFERENCES.md)
+- [文件入口與分類](docs/README.md)
+- [專案狀態](docs/PROJECT_STATUS.md)
 - [架構決策](docs/adr/README.md)
 - [硬體驗證紀錄](docs/hardware/VALIDATION.md)
-- [ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)
-- [Wi-Fi provisioning contract](docs/PROVISIONING.md)
-- [管理認證與 CSRF contract](docs/AUTHENTICATION.md)
-- [管理 WebUI 與 Dashboard](docs/WEBUI.md)
-- [貢獻與自動化工作規則](AGENTS.md)
+- [參考來源與授權](docs/REFERENCES.md)
+- [歷史需求草案](docs/archive/Guild.md)
 
 ## License
 

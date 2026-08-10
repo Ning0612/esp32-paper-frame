@@ -6,8 +6,8 @@
 
 ## Context
 
-Phase 7（`docs/IMPLEMENTATION_PLAN.md`）要加入 DHT22 溫溼度感測器與光敏
-電阻在場/離席偵測。`Guild.md` 4.8/4.9 節只給出定性描述與少數「建議值」
+Phase 7（`docs/archive/IMPLEMENTATION_PLAN.md`）要加入 DHT22 溫溼度感測器與光敏
+電阻在場/離席偵測。`docs/archive/Guild.md` 4.8/4.9 節只給出定性描述與少數「建議值」
 （離席 180 秒／返回 30 秒，WebUI 可調），沒有精確的讀取頻率、範圍驗證
 數字、濾波演算法選擇、debounce 實作機制或 `GET /api/v1/sensors` 的
 JSON schema；這些都必須在實作前固定，不能直接當作已驗證事實。
@@ -16,7 +16,7 @@ JSON schema；這些都必須在實作前固定，不能直接當作已驗證事
 已由 [ADR-0003](0003-fix-phase2-display-integration.md) 固定（光敏 ADC＝
 GPIO5／`ADC1_CH4`，DHT data＝GPIO6，I²C SDA/SCL＝GPIO8/9 留給未來
 I²C 感測器，GPIO4 已被 BUSY 佔用）；`CarouselScheduler` 目前沒有任何
-「立即到期」或「重設 deadline」的方法，而 Guild.md 明確要求返回時
+「立即到期」或「重設 deadline」的方法，而原始需求草案明確要求返回時
 「輪播計時重新開始…不使用離席前殘留的刷新 deadline」，這是必須新增的
 API 缺口。
 
@@ -52,7 +52,7 @@ log`）：上游的 esp8266 分支已移除，`driver` 改用本專案既有慣�
 ### DHT22 讀取頻率、範圍驗證與 backoff
 
 - 有效範圍：溫度 -40°C ~ 80°C、濕度 0% ~ 100%（DHT22/AM2302 datasheet
-  規格，非 Guild.md 指定，本 ADR 自行決定）。
+  規格，非原始需求草案指定，本 ADR 自行決定）。
 - 正常輪詢間隔與失敗後的指數退避／上限，沿用 `pf_weather::Cache` 的
   `record_success/record_failure/retry_due/stale` 設計形狀——這套模式
   已在 Phase 6 實作並通過 codex-cowork 審查，直接複用降低設計風險，不
@@ -63,7 +63,7 @@ log`）：上游的 esp8266 分支已移除，`driver` 改用本專案既有慣�
 
 ### 光敏電阻濾波方式
 
-採用 moving average（Guild.md 4.9 允許 moving average 或 median 擇一）。
+採用 moving average（原始需求草案 4.9 允許 moving average 或 median 擇一）。
 選擇理由：固定大小 ring buffer 記憶體與計算成本都低於 median（不需
 排序），且本產品的環境光是「緩慢漸變」場景（自然採光隨時間漸變，非
 瞬間尖峰雜訊為主），moving average 已足夠平滑；median filter 對脈衝雜訊
@@ -80,11 +80,11 @@ log`）：上游的 esp8266 分支已移除，`driver` 改用本專案既有慣�
 
 `LightSensorStatus` 為 `disabled`／`not_detected`／`error`／`saturated`
 時**一律不推進候選判定**，直接視為 `PresenceState::unknown`——對應
-Guild.md 4.9「不把 ADC 浮動值視為離席」與十一節「浮動、saturated 或
+原始需求草案 4.9「不把 ADC 浮動值視為離席」與十一節「浮動、saturated 或
 error ADC 不得觸發離席」。只有 `LightSensorStatus::online` 時才進行
 threshold 比較與 debounce。
 
-不額外加入 threshold 之外的 hysteresis band：Guild.md 唯一指定的抗頻閃
+不額外加入 threshold 之外的 hysteresis band：原始需求草案唯一指定的抗頻閃
 機制就是 duration debounce 本身，額外加窄化/加寬 threshold 屬於超出
 需求的臆測設計，不列入本階段範圍。
 
@@ -92,7 +92,7 @@ threshold 比較與 debounce。
 
 新增一個公開方法（精確簽名於實作時依測試驅動定案），語意為「讓下一次
 `poll()` 立即判定到期」，用於 presence 從 away／unknown 轉為 present 時
-呼叫，滿足 Guild.md「返回後…輪播計時重新開始…不使用離席前殘留的刷新
+呼叫，滿足原始需求草案「返回後…輪播計時重新開始…不使用離席前殘留的刷新
 deadline」。新增時必須保留 `in_flight_`／`manual_pending_` 既有不變量
 （不可讓一次強制到期繞過 in-flight 保護，否則會與既有的 request/complete/
 abandon 生命週期衝突），並補上對應 host test。
@@ -112,7 +112,7 @@ reachability 建立的相同模式：`SensorTask` 直接呼叫
 
 ### `GET /api/v1/sensors` JSON schema
 
-Guild.md 原文只有「感測器與讀值」一行說明，schema 需自訂：
+原始需求草案只有「感測器與讀值」一行說明，schema 需自訂：
 
 ```json
 {"ok":true,"data":{
@@ -126,7 +126,7 @@ Guild.md 原文只有「感測器與讀值」一行說明，schema 需自訂：
   "presence":"present"}}
 ```
 
-未安裝／未啟用時對應欄位為 JSON `null`，不得回傳 `0`（呼應 Guild.md
+未安裝／未啟用時對應欄位為 JSON `null`，不得回傳 `0`（呼應原始需求草案
 「API 回傳 `null`，不得回傳 `0`」的明確要求）。
 
 ## Consequences

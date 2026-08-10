@@ -1,5 +1,27 @@
 # 硬體驗證紀錄
 
+本檔是可公開的驗證摘要；公開版已移除本機 COM port、USB PNP ID、私人網路
+位址、個人工作站路徑與其他裝置識別細節。這些刪節不改變測試結論；需要重現
+測試時，請以目前硬體 profile、命令與 acceptance 描述為準。歷史段落保留時間
+順序與測試結論；後續新增紀錄仍採 append-only，頂端索引代表目前狀態。
+
+## Current unresolved hardware evidence（2026-08-10）
+
+本檔以下內容是 append-only 的歷史證據；本節只整理目前仍未閉環的項目，
+避免把早期「尚未驗證」誤讀成目前狀態，也避免把 host/build 結果當成實機
+證據。新紀錄若與本索引衝突，依最新日期的驗證結果更新本節。
+
+| 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
+| --- | --- | --- |
+| Phase 2 display | refresh duration、panel sleep 電流、forced-BUSY isolation | 2026-07-30 Phase 2 panel-driver 驗證；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 2 checkpoint |
+| Phase 3/4 WebUI | blank-NVS／STA browser flow、SNTP/mDNS、browser image 產出與下載收尾 | 2026-07-30 Phase 3 驗證；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 3–4 checkpoint |
+| Phase 5 storage | compressed PFR1 transaction 中斷電、長時間圖片輪播與 imagefs preservation fault injection | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
+| Phase 6 weather | 真實 SNTP、HTTPS/TLS 診斷狀態與面板狀態列視覺結果 | 2026-07-31 Phase 6；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 6 checkpoint |
+| Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
+| Phase 8 OTA | 真實 rollback fault injection、rollback confirmation、OTA worker stack high-water mark、weather+OTA heap 併發 | 2026-08-01 Phase 8；2026-08-03 GitHub Release 驗證 |
+| AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
+| active OTA upload wrapper | wrapper 的真實硬體寫入尚未以本次版本重跑；手動 active-slot 寫入已有證據 | 2026-08-03 active OTA slot upload |
+
 ## 2026-07-29 — 初始 USB 盤點
 
 ### 使用者提供狀態
@@ -16,10 +38,10 @@
 
 | Port | PNP ID | 判定 |
 | --- | --- | --- |
-| COM7 | `USB\VID_303A&PID_4001&MI_00` | 第一塊板的 Espressif USB Serial/JTAG；不是固定 port |
-| COM6 | `USB\VID_2E8A&PID_0005&MI_00` | 非 Espressif target；用途未在本專案判定 |
+| `<NATIVE_USB_PORT>` | `<USB_PNP_ID_REDACTED>` | Espressif USB Serial/JTAG；不是固定 port |
+| `<OTHER_PORT>` | `<USB_PNP_ID_REDACTED>` | 非本專案 target；用途未在本專案判定 |
 
-USB VID/PID 只能確認 COM7 是 Espressif native USB 介面，不能單獨證明
+USB VID/PID 只能確認該 port 是 Espressif native USB 介面，不能單獨證明
 開發板型號、Flash 容量或 PSRAM 模式。
 
 ### G1 驗證結果
@@ -29,11 +51,11 @@ USB VID/PID 只能確認 COM7 是 Espressif native USB 介面，不能單獨證�
 - [x] 固定 PlatformIO profile；upload/monitor port 每次依 USB hardware ID 辨識。
 - [x] 最小韌體 boot 並記錄 ESP-IDF、reset reason、Flash 實測容量。
 - [x] 最小韌體以 capability heap API 驗證 PSRAM 可用容量。
-- [x] 確認 native USB 在 ROM／應用程式模式可能重新枚舉，不固定為 COM7。
+- [x] 確認 native USB 在 ROM／應用程式模式可能重新枚舉，不固定為單一 port。
 
-### 第一塊板：G1 連線診斷
+### Board A：G1 連線診斷
 
-`esptool 5.3.0 --port COM7 chip-id` 可開啟 COM7，但 default reset、手動
+`esptool 5.3.0 --port <PORT> chip-id` 可開啟該 port，但 default reset、手動
 BOOT/RESET 後的 no-reset，以及 native USB 的 usb-reset 都沒有收到 ROM
 serial data。此結果可能涉及 boot strapping、reset control、USB 接孔／driver、
 外接周邊或連線時序；未執行任何 erase/write。停止重複 esptool 嘗試，先用
@@ -42,8 +64,8 @@ N16R8 profile 完成 clean build，後續以持續按住 BOOT 或改接板上 UA
 
 ### G1 UART 與 boot strap 診斷
 
-後續改接板上 CH343 USB-to-UART，Windows 枚舉為 `COM9`
-（VID `1A86`、PID `55D3`）。正常啟動時 `COM9` 可穩定收到 ESP32-S3 ROM
+後續改接板上 USB-to-UART adapter；adapter identifier 與本機 port 已省略。
+正常啟動時該 adapter 可穩定收到 ESP32-S3 ROM
 與既有 factory demo 的 log：
 
 ```text
@@ -75,15 +97,14 @@ RGB Demo 停止推定 GPIO0、EN 與 GPIO46 的實際 reset 電位。下一個�
    adapter 的 5 V/VCC。
 3. 改用另一塊已知可進 ROM bootloader 的同型板交叉驗證。
 
-採用第 3 項後，第二塊同型板成功建立 ROM sync。第一塊板的 transport
-問題仍未歸因，不把第二塊板成功誤記為第一塊板已修復。
+採用第 3 項後，另一塊同型板成功建立 ROM sync。Board A 的 transport
+問題仍未歸因，不把另一塊板成功誤記為 Board A 已修復。
 
-### 第二塊板：G1 與 Phase 1 實機驗證
+### Board B：G1 與 Phase 1 實機驗證
 
-第二塊 `ESP32-S3-N16R8` 以板載 CH343 UART 進入 ROM bootloader。本次
-Windows 枚舉為 upload `COM11`；PaperFrame 應用程式的 native USB
-Serial/JTAG console 枚舉為 `COM10`。這些編號只記錄本次操作，重新插拔後
-必須重新辨識。
+Board B `ESP32-S3-N16R8` 以板載 USB-to-UART adapter 進入 ROM bootloader；
+PaperFrame 應用程式則使用 native USB Serial/JTAG。實際 port 編號已省略，
+重新插拔後必須重新辨識。
 
 唯讀探測結果：
 
@@ -192,8 +213,8 @@ G2/G3 已由 [ADR-0003](../adr/0003-fix-phase2-display-integration.md) 固定：
   sleep 狀態。
 - `pio run -e paperframe-s3` 成功，ESP-IDF adapter 已編入正式韌體。
 - 六色直條 pattern 的 embedded test firmware 可成功建置。
-- 當次連線辨識為 CH343 UART `COM11`（VID:PID `1A86:55D3`）與 ESP32-S3
-  native USB `COM10`（VID:PID `303A:1001`）。
+- 當次連線辨識為 USB-to-UART adapter 與 ESP32-S3 native USB；adapter identifier
+  與本機 port 已省略。
 - CH343 自動 reset、手動 BOOT/RST 後的 no-reset UART 連線，以及 native
   USB no-reset 連線都未收到 ROM download response；最後分別回報
   `No serial data received` 與 `Write timeout`。
@@ -209,7 +230,7 @@ embedded pattern test；forced-BUSY 仍只允許 fake 或隔離治具測試。
 前一節的 ROM blocker 已用以下不同方法解決：
 
 1. `GPIO0` 與 `GPIO46` 同時固定接到 `GND` 後按 `RST`。
-2. CH343 `COM11` 仍未輸出 ROM 資料；ESP32-S3 native USB `COM10`
+2. USB-to-UART adapter 仍未輸出 ROM 資料；ESP32-S3 native USB port
    則明確輸出：
 
    ```text
@@ -217,7 +238,7 @@ embedded pattern test；forced-BUSY 仍只允許 fake 或隔離治具測試。
    waiting for download
    ```
 
-3. 關閉占用 COM10 的 monitor 後，`esptool --before no-reset` 經 native
+3. 關閉占用 native USB port 的 monitor 後，`esptool --before no-reset` 經 native
    USB 成功連線並讀取 OTA metadata。
 
 OTA metadata 第一份 entry 為 sequence 1、state `VALID`，第二份 entry
@@ -249,7 +270,7 @@ ROM。最後將測試前的完整 `ota_0` 備份原樣寫回，written data hash
 .\.venv\Scripts\pio.exe run -e paperframe-s3 -t upload
 ```
 
-PlatformIO 依 VID:PID `303A:1001` 自動選到 native USB `COM10`，esptool
+PlatformIO 自動選到 native USB port，esptool
 確認 `USB mode: USB-Serial/JTAG`，只擦除 `0x10000`–`0x69fff` 並寫入
 365,632-byte app image。寫入後 data hash 驗證成功並自動 hard reset；
 裝置重新枚舉為同一 native USB hardware ID。未改寫 bootloader、partition
@@ -280,7 +301,7 @@ Phase 2 DisplayTask 已整合為正式 app 的唯一 panel/SPI owner。Frame dat
   result 為 `completed/refreshed_and_slept`，runtime snapshot 為
   `deep_sleep`。
 - 測試 app 完成後執行標準單命令 upload。PlatformIO 自動選到 native USB
-  `COM10`，只擦除 `0x10000`–`0x75fff`、寫入 414,960-byte 正式 app，
+  port，只擦除 `0x10000`–`0x75fff`、寫入 414,960-byte 正式 app，
   data hash 驗證成功並 hard reset。bootloader、partition、OTA metadata、
   NVS、`webfs` 與 `imagefs` 均未改寫。
 
@@ -308,7 +329,7 @@ Phase 2 DisplayTask 已整合為正式 app 的唯一 panel/SPI owner。Frame dat
 - ESP-IDF 6 啟用 `MINIMAL_BUILD`，只編譯 `main` 與明確相依元件，排除
   未使用的 RGB LCD driver；`pio run -e paperframe-s3` 成功，RAM
   27,148 bytes（8.3%），Flash 414,277 bytes（15.8%）。
-- 標準單命令 upload 自動選到 native USB `COM10`，只擦除
+- 標準單命令 upload 自動選到 native USB port，只擦除
   `0x10000`–`0x75fff` 並寫入 414,688-byte app；data hash 驗證成功並
   hard reset，未改寫其他 partition。
 - 實機 console 回報
@@ -336,7 +357,7 @@ runtime snapshot；Internet 不可用不會把已連線 STA 切回 provisioning 
   `wifi=provisioning`／`internet=unknown` 的原子 snapshot update。
 - `pio run -e paperframe-s3` 成功；RAM 52,384 bytes（16.0%），Flash
   897,589 bytes（34.2%）。
-- native USB 單命令 upload 自動選到 `COM10`，只擦除
+- native USB 單命令 upload 自動選到 port，只擦除
   `0x10000`–`0xebfff` 並寫入 898,000-byte app；data hash 驗證成功。
 - 空白 credential 實機啟動 `PaperFrame-Setup-[masked]`，固定 IP
   `192.168.4.1`，DHCP server 成功啟動；log 未輸出 AP password 或任何
@@ -371,7 +392,7 @@ policy；不把尚未實作的管理 session、CSRF 或 Recovery AP login 宣稱
   `050AC7BAA87E46606A9EC0DD30C33C1AC204E6917C62A1A19B9D7CC57D0D509F`。
   只寫入 `0x510000`–`0x60ffff`，esptool data hash 驗證通過；未改寫
   `imagefs`、NVS、app 或 OTA metadata。
-- 標準 PlatformIO 單命令 upload 自動選到 native USB `COM10`，只擦除
+- 標準 PlatformIO 單命令 upload 自動選到 native USB port，只擦除
   `0x10000`–`0xf4fff` 並寫入 935,056-byte app；data hash 驗證通過並
   hard reset。
 - 裝置保留既有 Wi-Fi credential 並成功進 STA；以遮蔽後的晶片 hardware
@@ -406,9 +427,9 @@ PlatformIO app upload 沒有重寫 `webfs`、`imagefs`、NVS 或 OTA metadata。
 - `littlefs_webfs_bin` 產生 1,048,576-byte image，SHA-256
   `A1B8F3A6881390812E263D8366E7A0D2547E25867E281AAE22AF3305BD0F5803`；
   以 `esptool` 只寫入 `0x510000`–`0x60ffff`，data hash 驗證通過。
-- 以 PlatformIO native USB app-only upload 部署正式韌體；COM10 的
-  `303A:1001` USB-Serial/JTAG 連線、app hash 驗證與 hard reset 均成功。
-- 隨後使用 RTS-only reset 讀取 COM10 啟動日誌，確認：
+- 以 PlatformIO native USB app-only upload 部署正式韌體；USB-Serial/JTAG
+  連線、app hash 驗證與 hard reset 均成功。
+- 隨後使用 RTS-only reset 讀取啟動日誌，確認：
 
   ```text
   rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
@@ -470,7 +491,7 @@ PlatformIO app upload 沒有重寫 `webfs`、`imagefs`、NVS 或 OTA metadata。
 
 上面「Phase 5 imagefs transactional upload、catalog、斷電復原與圖片輪播」
 一項已在後續 commit（`519b6c0`…`7ad7cbe`）完成程式與 host test，並在
-`docs/IMPLEMENTATION_PLAN.md` checkpoint 標記完成；本檔先前未同步更新，
+`docs/archive/IMPLEMENTATION_PLAN.md` checkpoint 標記完成；本檔先前未同步更新，
 硬體長時間輪播與斷電後行為仍列為後續 acceptance 待驗證項，不是「完全
 未實作」。
 
@@ -579,8 +600,8 @@ stack-allocated 結構）應重新檢查 high-water mark，不要只靠「這次
 實機測試首次建立 admin 密碼——這是本專案第一次真正在硬體上走到這條路徑
 （先前每一筆相關 VALIDATION.md 紀錄都把它列為未驗證）。
 
-- 韌體上傳：CH343 UART（COM11）沒有回應 ROM download handshake（與此板
-  先前記錄的已知問題一致），改用 ESP32-S3 native USB（COM10）成功上傳。
+- 韌體上傳：USB-to-UART adapter 沒有回應 ROM download handshake（與此板
+  先前記錄的已知問題一致），改用 ESP32-S3 native USB 成功上傳。
 - 開機驗證：`carousel_request=1 outcome=1` 於開機後約 32 秒出現，早於
   先前修復的 boot-loop 崩潰點，開機穩定。
 這次測試連續發現並修好三個獨立問題，記錄下來避免下次重踩：
@@ -683,7 +704,7 @@ transitive 曝光範圍；ESP-IDF 6.0 目前仍可解析這個循環並成功建
 介面。
 
 `pf_carousel`／`pf_image` 折疊評估後放棄（見
-`docs/IMPLEMENTATION_PLAN.md` 對應記錄）：`pf_image` 已 `REQUIRES
+`docs/archive/IMPLEMENTATION_PLAN.md` 對應記錄）：`pf_image` 已 `REQUIRES
 pf_display`，若強行把 `pf_carousel` 折進 `pf_display` 會形成
 `pf_display → pf_image → pf_display` 的環狀依賴，解法只有連 `pf_image`
 一起吃進 `pf_display`，但 `pf_image` 同時被 `pf_storage` 大量依賴，屆時
@@ -776,12 +797,12 @@ subtype，`imagefs` 排在 CSV 後面，所以 PlatformIO 選到的目標 offset
 **處理**：
 1. 用 `littlefs_imagefs_bin`（空白 image）＋
    `esptool ... write-flash 0x630000` 清空被誤燒污染的 `imagefs`
-   （COM10，10,289,152 bytes，寫入與 hash 驗證皆通過）。
+   （native USB，10,289,152 bytes，寫入與 hash 驗證皆通過）。
 2. 新增 `scripts/flash-app-and-webfs.ps1`：只呼叫 `pio run -t upload`
    （app-only，經 `tools/platformio_native_usb_upload.py` 裁剪成純
    app 燒錄）＋ `littlefs_webfs_bin` 重建 ＋ `esptool write-flash
    0x510000` 手燒 `webfs`，全程不呼叫 `uploadfs`，也不碰 `imagefs`。
-3. 實機驗證：COM10 上完整跑一次腳本，三步驟（app upload 14.47s、
+3. 實機驗證：native USB 上完整跑一次腳本，三步驟（app upload 14.47s、
    webfs 重建 8 個檔案、`write-flash 0x510000` 3.0s）全部成功，
    exit code 0；`nvs`（`0x9000`，管理密碼／Wi-Fi 憑證／sensor／weather
    設定）不在這次任何寫入 offset 範圍內，確認未受影響。
@@ -1117,7 +1138,7 @@ I (110991) paperframe: carousel_request=2 outcome=1 next_due_ms=1910297
 
 ## 2026-08-02 — Phase 1 RAM 回收（1a/1b）：實機驗證第二輪，補齊剩餘項目
 
-用即時序列監看（COM10 native USB console）盯著使用者操作，補測第一輪
+用即時序列監看（native USB console）盯著使用者操作，補測第一輪
 遺漏的兩項。
 
 **Phase 1a — 重開機復原**：使用者觸發實體重置，log 擷取：
@@ -1209,7 +1230,7 @@ image_mutation_stack_free_bytes=1188
 把狀態列天氣圖示從程序化繪製改為轉檔自 `erikflowers/weather-icons` 的
 32×32 單色點陣圖，`pio run` 編譯乾淨（Flash 1,242,997 / 2,621,440
 bytes 47.4%，RAM 106,080 / 327,680 bytes 32.4%）、`pio test -e native`
-282/282 全綠後，燒錄到實機（`COM10`，`esptool` 回報 hash 驗證成功）。
+282/282 全綠後，燒錄到實機（native USB，`esptool` 回報 hash 驗證成功）。
 
 實機驗證範圍與結果：
 
@@ -1398,10 +1419,10 @@ hash，卻仍執行舊 slot 的韌體。
   及 invalid state 排除。
 - `\.venv\Scripts\python.exe -m py_compile` 通過；`pio run -e paperframe-s3`
   build 通過（RAM 106,688 bytes／32.6%，Flash 1,249,861 bytes／47.7%）。
-- 使用不存在的 `COM99` 執行 PlatformIO upload command smoke，確認實際呼叫
+- 使用不存在的 `<NON_EXISTENT_PORT>` 執行 PlatformIO upload command smoke，確認實際呼叫
   wrapper 並先嘗試讀 metadata；因預期無此連接埠而失敗，未對硬體寫入。
 - 目前實機曾以手動 esptool 將相同 firmware 寫入 active `ota_1`，重開機 log
-  確認載入 `0x290000` 且版本為 `v0.8.2`；本次 wrapper 沒有再次對 COM10
+  確認載入 `0x290000` 且版本為 `v0.8.2`；本次 wrapper 沒有再次對 native USB
   執行實際寫入。
 
 ### 2026-08-03 — AP Mode 專用字型補齊完整小寫英文字母

@@ -6,8 +6,8 @@
 
 ## Context
 
-使用者確認模組標示為 `ESP32-S3-N16R8`。Windows 將 native USB
-Serial/JTAG 枚舉為 COM7（VID `303A`、PID `4001`），但截至本 ADR 建立時，
+使用者確認模組標示為 `ESP32-S3-N16R8`。native USB
+Serial/JTAG 可被 Windows 枚舉，但截至本 ADR 建立時，
 esptool 的 default/no-reset/usb-reset 都尚未收到 ROM serial data，因此
 Flash/PSRAM 仍需由韌體 self-test 交叉驗證。
 
@@ -17,7 +17,7 @@ Flash/PSRAM 仍需由韌體 self-test 交叉驗證。
   ESP-IDF 基線。
 - 明確覆寫 16 MB Flash、QIO 80 MHz，以及 8 MB octal PSRAM 的
   `sdkconfig.defaults`。
-- 不把 COM7 寫入 `platformio.ini`；每次 upload 前重新辨識 port。
+- 不把實際 USB port 寫入 `platformio.ini`；每次 upload 前重新辨識 port。
 - Phase 1 不配置任何 e-Paper 或 sensor GPIO。
 - 若 boot self-test 與 N16R8 不符，停止燒錄後續功能並修正 profile。
 

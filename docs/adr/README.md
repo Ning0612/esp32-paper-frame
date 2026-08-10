@@ -4,6 +4,25 @@
 對外 API 的決策，使用 ADR 固定。小型實作細節留在程式與測試，不為每個
 函式建立 ADR。
 
+## 與其他文件的權威關係
+
+已接受且未被取代的 ADR 是跨模組、硬體、持久格式與安全決策的權威來源；
+新 ADR 取代舊決策時，必須保留歷史檔案並明確標示 `Supersedes`。目前 API、
+WebUI、儲存、天氣、認證與 binary format 的操作契約位於 `docs/` 主題文件；
+`docs/archive/IMPLEMENTATION_PLAN.md` 只做追溯，`hardware/VALIDATION.md` 只做證據
+紀錄，`docs/archive/Guild.md` 只保留原始需求 provenance。
+
+## 開源公開範圍
+
+ADR 是本專案的公開設計決策歷史，建議保留在開源 repository。公開 ADR 應
+說明已接受、被取代或拒絕的決策、影響範圍與理由，讓貢獻者理解「為什麼」
+而不只看到目前的實作。
+
+ADR 不應包含密碼、API key、session token、Wi-Fi credential、真實裝置識別、
+私人路徑或未脫敏的內部 log。原始討論、私人測試紀錄與尚未形成決策的草稿
+應留在 repository 外；被取代的 ADR 可保留，但必須標明 superseded 與取代它的
+文件。開源貢獻流程請見根目錄的 `CONTRIBUTING.md`。
+
 ## 命名
 
 ```text

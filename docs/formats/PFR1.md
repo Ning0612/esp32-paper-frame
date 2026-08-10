@@ -31,7 +31,7 @@ Header 的 byte offset 如下：
 | 13 | 1 | `palette` | `1=E6 native palette v1` |
 | 14 | 1 | `dithering` | 現行 browser 輸出：`1=Floyd-Steinberg`、`2=Atkinson`；`0=nearest` 與 `3=Bayer 4×4` 為舊檔案相容值，韌體仍可讀取 |
 | 15 | 1 | `reserved` | 必須為 0 |
-| 16 | 4 | `payload_length` | 必須等於該尺寸的 packed byte 數 |
+| 16 | 4 | `payload_length` | 實際儲存的 payload byte 數；未壓縮時等於該尺寸的 packed byte 數，壓縮時見「Payload 壓縮」 |
 | 20 | 2 | `filename_length` | 1–96 bytes；不是字元數 |
 | 22 | 2 | `reserved2` | 必須為 0 |
 | 24 | 4 | `payload_crc32` | CRC32 of payload only |

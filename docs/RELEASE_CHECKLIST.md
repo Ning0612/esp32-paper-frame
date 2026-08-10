@@ -53,18 +53,21 @@
 
 ## 3. 手動 on-device 檢查清單
 
-對照 `docs/hardware/VALIDATION.md` 最新一段列出的「尚未做任何實機驗證」
-項目逐一確認，至少涵蓋：
+對照 `docs/hardware/VALIDATION.md` 頂端的 `Current unresolved hardware evidence`
+索引逐一確認，至少涵蓋：
 
 - [ ] 全新開機（reboot persistence：設定、圖片、順序、目前圖片都保留）。
-- [ ] OTA 全流程：檢查更新 → 立即更新 → 自動重開機 → 開機後
-  `rollback_confirmed=ESP_OK` 出現在 console log。
+- [ ] OTA functional：檢查更新 → 立即更新 → 自動重開機，確認新版本正常啟動。
+- [ ] Boot validation：確認開機後 `rollback_confirmed=ESP_OK` 出現在 console log。
+- [ ] Rollback fault injection：刻意驗證新版本在確認前 crash-loop 時能回滾，並記錄
+  斷電／網路中斷等必要失敗路徑。
 - [ ] `webfs` 更新（若本次 release 含 WebUI 變更）仍走獨立的手動
   `cmake --target littlefs_webfs_bin` + `esptool` 流程，**不**與 OTA
   混用；release note 需分別註明「app 韌體版本」與「WebUI 版本」（若
   WebUI 這次未變更則不需重燒）。
-- [ ] System 頁四個操作按鈕（重新啟動、強制配網 AP、檢查更新、立即
+- [ ] System 頁四個 current 操作（重新啟動、重設管理密碼、檢查更新、立即
   更新）在真實瀏覽器中可正常觸發且回應符合預期。
+- [ ] STA 已連線時不提供手動 Recovery AP；Wi-Fi 失敗只走既有的自動 fallback AP。
 
 ## 4. Release note 內容
 

@@ -6,7 +6,7 @@
 
 ## Context
 
-`docs/IMPLEMENTATION_PLAN.md` Phase 8 要求「OTA 僅能使用 Phase 5 前已凍結的
+`docs/archive/IMPLEMENTATION_PLAN.md` Phase 8 要求「OTA 僅能使用 Phase 5 前已凍結的
 G5 partition layout，不在本階段重新分割既有裝置」且「OTA A/B 可回滾，且不
 改寫 imagefs；WebUI 更新只改寫 webfs」。掃描確認：全專案目前沒有任何
 `esp_ota_*`/`esp_https_ota` 用例，`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`

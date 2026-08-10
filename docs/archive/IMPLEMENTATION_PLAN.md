@@ -1,13 +1,25 @@
 # PaperFrame MVP 實作計畫
 
-狀態：Phase 5、Phase 6、Phase 7 程式實作完成；Phase 3／4 的部分實機收尾、
-Phase 5 實機圖片輪播驗證、Phase 6 全部實機驗證（SNTP、HTTPS、狀態列視覺
-結果）與 Phase 7 全部實機驗證（DHT22 讀值、光敏 threshold 校正、
-AWAY/PRESENT 轉換）仍待完成，暫不部署大功能版本
+進度摘要：請以 [`docs/PROJECT_STATUS.md`](../PROJECT_STATUS.md) 為準；本文件保留
+phase、acceptance、原始 commit boundaries 與詳細追溯，不再維護另一份進度摘要。
+
+本文件可公開，用於追蹤 phase、acceptance、進度與驗證連結；它不是 current
+API 或資料格式 contract。日期化 checkpoint、原始建議 commit boundaries 與
+實機測試敘述保留作開發歷史，現行行為以未被取代的 ADR 與 topic contract 為準。
 
 需求基線：`Guild.md` v0.1
 
 目標平台：ESP32-S3、16 MB Flash、PSRAM、7.3 吋 800×480 E6 e-Paper
+
+## 文件邊界與權威來源
+
+- 本計畫負責 requirement → phase/task → acceptance → current contract →
+  test/evidence 的追溯，不重新定義 topic contract 的完整細節。
+- 已接受 ADR 優先於原始草案；current contract 由 `docs/` 主題文件與
+  `docs/formats/` 定義；實機結果與未驗證項目只以
+  `docs/hardware/VALIDATION.md` 為證據來源。
+- 完成階段的 checkpoint 保留必要狀態與風險，但不應複製 API、binary layout
+  或硬體測試紀錄；新 acceptance 應連到唯一的 current contract 與 evidence。
 
 ## 1. 目標、範圍與交付策略
 
@@ -375,7 +387,7 @@ AP/STA/401/CSRF 驗收、十二之 4–6。
 交付物：
 
 - 結構化 ring-buffer events 與 masked diagnostics export。
-- `/api/v1/status`、events、reboot、Recovery AP；OTA 僅能使用 Phase 5
+- `/api/v1/status`、events、reboot；OTA 僅能使用 Phase 5
   前已凍結的 G5 partition layout，不在本階段重新分割既有裝置。
 - 系統頁：BUSY timeout、Wi-Fi reconnect、weather/sensor error、容量、版本、
   uptime、最近 refresh result。
@@ -406,10 +418,10 @@ status`、events、reboot 三項交付物維持不變。
 - 草案第十一節每個情境都有自動測試或可重現實機測試證據。
 - 重新啟動保留設定、圖片、順序與目前圖片。
 
-建議 commits：
+原始建議 commits（歷史規劃）：
 
 1. `feat(diagnostics): expose bounded runtime events`
-2. `feat(system): add protected recovery controls`
+2. `feat(system): expose protected diagnostics and reboot controls`
 3. `feat(ota): update firmware without touching images`
 4. `test: cover the PaperFrame MVP acceptance matrix`
 5. `docs: add hardware validation and release checklist`
@@ -473,7 +485,7 @@ status`、events、reboot 三項交付物維持不變。
 - [ ] Phase 3：AP／STA 純狀態機、provisioning portal、credential transaction、
   auth/CSRF 與 WebUI shell 已完成程式、host test、build、STA 啟動 smoke，
   以及正常 STA 登入後 Dashboard、Wi-Fi scan 與桌面版寬度驗證；最新
-  artifact 的 blank-NVS／Recovery AP 瀏覽器流程、SNTP/mDNS 仍待實機收尾，
+  artifact 的 blank-NVS／STA retry exhaustion fallback AP 瀏覽器流程、SNTP/mDNS 仍待實機收尾，
   故尚未標記 M2 完成。
 - [ ] Phase 4：PFR1 contract、韌體 validator、browser image pipeline、
   quantizer、packer 與 host tests 已完成；可正常選檔的 browser 實機圖片
