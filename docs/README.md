@@ -22,6 +22,15 @@ PaperFrame 的文件分成「目前狀態」、「現行契約」、「設計決
 - [STORAGE.md](STORAGE.md)、[WEATHER.md](WEATHER.md)
 - [formats/PFR1.md](formats/PFR1.md)、[formats/PFC1.md](formats/PFC1.md)
 
+## 硬體規格
+
+- [hardware/HARDWARE.md](hardware/HARDWARE.md)：元件清單、接線與腳位限制，
+  回答「要買什麼、怎麼接」。**它不是決策權威**——腳位分配的理由固定在
+  [ADR-0003](adr/0003-fix-phase2-display-integration.md)、感測器行為在
+  [ADR-0006](adr/0006-sensor-drivers-and-presence.md)，衝突時以 ADR 為準。
+  根目錄 README 的「硬體」段是本檔摘要；**重要資訊刻意在兩處重複**，
+  讓讀者不必先點進 docs 才知道要買什麼板子。
+
 ## 證據與操作
 
 - [hardware/VALIDATION.md](hardware/VALIDATION.md)：append-only 實機證據與目前未閉環項目。
@@ -49,5 +58,15 @@ PaperFrame 的文件分成「目前狀態」、「現行契約」、「設計決
 若日後仍需要縮短硬體紀錄的日常閱讀範圍，可再把較早的 append-only 歷史段落拆成
 `docs/archive/`，但必須保留 `VALIDATION.md` 的目前未閉環索引與指向歷史證據的連結。
 
-新增文件前，先確認內容不能放入上述既有分類；避免建立另一份進度表或重複的
-API／硬體驗證說明。
+新增文件前，先確認內容不能放入上述既有分類；避免建立另一份**進度表**或重複的
+**API／硬體驗證說明**。
+
+**重複的界線**：常用且會影響「要不要動手」的資訊——例如買什麼板子、接哪幾支腳、
+現在能不能宣稱 production-ready——**允許在根目錄 README 與 `docs/` 同時出現**，
+讓讀者不必層層點進來才看得到。但必須符合兩個條件：
+
+1. 明確標示哪一份是權威（決策以 ADR 為準、進度以 `PROJECT_STATUS.md` 為準、
+   實機證據以 `VALIDATION.md` 為準），摘要處註明它是摘要；
+2. 改動時兩處一起改——摘要與權威來源不一致，比沒有摘要更糟。
+
+不適用於進度狀態與實機驗證結果：那兩類只在單一入口維護，其他地方一律用連結。
