@@ -23,7 +23,6 @@ for (const id of [
   "system-uptime",
   "system-flash-capacity",
   "system-psram-capacity",
-  "system-webfs-capacity",
   "system-imagefs-capacity",
   "system-ota-check-state",
   "system-ota-latest-version",
@@ -103,5 +102,13 @@ assert.ok(css.includes(".system-action-group .primary-button { width: auto; marg
 // the actual use case.
 assert.ok(!html.includes('id="system-recovery-ap"'), "recovery-ap button must stay removed");
 assert.ok(!js.includes("/api/v1/system/recovery-ap"), "recovery-ap fetch must stay removed");
+
+// The webfs partition is retired: the WebUI is compiled into the app image so
+// that one OTA updates firmware and frontend together
+// (docs/adr/0016-embed-webui-assets-in-firmware.md). Nothing may report the
+// capacity of a filesystem that is no longer mounted.
+assert.ok(!html.includes('id="system-webfs-capacity"'), "system webfs capacity must stay removed");
+assert.ok(!html.includes('id="webfs-capacity"'), "dashboard webfs capacity must stay removed");
+assert.ok(!js.includes("webfs_total_bytes"), "webfs storage fields must stay removed");
 
 console.log("system_ui_contract: checks passed");

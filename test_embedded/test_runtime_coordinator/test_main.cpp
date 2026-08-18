@@ -29,7 +29,6 @@ void test_runtime_queues_and_snapshot()
         .flash = pf_runtime::ServiceState::ready,
         .psram = pf_runtime::ServiceState::degraded,
         .config = pf_runtime::ServiceState::ready,
-        .webfs = pf_runtime::ServiceState::ready,
         .imagefs = pf_runtime::ServiceState::degraded,
         .wifi = pf_runtime::WifiState::unknown,
         .internet = pf_runtime::InternetState::unknown,

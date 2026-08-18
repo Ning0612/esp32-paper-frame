@@ -19,7 +19,6 @@ pf_runtime::RuntimeSnapshot snapshot()
         .flash = pf_runtime::ServiceState::ready,
         .psram = pf_runtime::ServiceState::ready,
         .config = pf_runtime::ServiceState::ready,
-        .webfs = pf_runtime::ServiceState::ready,
         .imagefs = pf_runtime::ServiceState::ready,
         .wifi = pf_runtime::WifiState::connected,
         .internet = pf_runtime::InternetState::reachable,
@@ -32,8 +31,6 @@ pf_runtime::RuntimeSnapshot snapshot()
         .last_display_stage = 4,
         .flash_bytes = 16U * 1024U * 1024U,
         .psram_bytes = 8U * 1024U * 1024U,
-        .webfs_total_bytes = 0x100000U,
-        .webfs_used_bytes = 4096U,
         .imagefs_total_bytes = 0x130000U,
         .imagefs_used_bytes = 8192U,
         .carousel_refresh_minutes = 30,
@@ -55,7 +52,10 @@ void test_status_contains_runtime_fields_and_null_carousel_when_unset()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"sequence\":7"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"wifi\":\"connected\""));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"flash_bytes\":16777216"));
-    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"webfs_used_bytes\":4096"));
+    // The webfs partition is retired and its capacity must not
+    // reappear in the payload
+    // (docs/adr/0016-embed-webui-assets-in-firmware.md).
+    TEST_ASSERT_NULL(std::strstr(output, "webfs"));
     // Null-safety regression: snapshot() leaves current_image_id/
     // next_carousel_due_ms at their default 0 ("never set yet" / welcome
     // frame), which must render as null, not a fabricated 0.

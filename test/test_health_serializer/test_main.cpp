@@ -18,7 +18,6 @@ pf_runtime::RuntimeSnapshot ready_snapshot()
         .flash = pf_runtime::ServiceState::ready,
         .psram = pf_runtime::ServiceState::ready,
         .config = pf_runtime::ServiceState::ready,
-        .webfs = pf_runtime::ServiceState::ready,
         .imagefs = pf_runtime::ServiceState::ready,
         .wifi = pf_runtime::WifiState::provisioning,
         .internet = pf_runtime::InternetState::unknown,
@@ -47,7 +46,7 @@ void test_ready_snapshot_serializes_without_sensitive_fields()
     TEST_ASSERT_EQUAL_STRING(
         "{\"status\":\"ready\",\"sequence\":12,\"uptime_ms\":3456,"
         "\"services\":{\"flash\":\"ready\",\"psram\":\"ready\","
-        "\"config\":\"ready\",\"webfs\":\"ready\",\"imagefs\":\"ready\"},"
+        "\"config\":\"ready\",\"imagefs\":\"ready\"},"
         "\"network\":{\"wifi\":\"provisioning\","
         "\"internet\":\"unknown\"}}",
         output);

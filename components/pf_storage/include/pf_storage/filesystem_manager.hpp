@@ -14,8 +14,10 @@ struct FileSystemStatus {
     std::size_t used_bytes;
 };
 
+// Only imagefs is mounted. The WebUI is compiled into the app image
+// (docs/adr/0016-embed-webui-assets-in-firmware.md), so the webfs partition
+// is reserved: never mounted, written or reported.
 struct FileSystemSnapshot {
-    FileSystemStatus webfs;
     FileSystemStatus imagefs;
 };
 

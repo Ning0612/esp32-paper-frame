@@ -67,9 +67,9 @@ enum class TimeSyncState : std::uint8_t {
     synced,
 };
 
-// Phase 8 OTA (docs/adr/0008-ota-github-releases-and-rollback.md). Firmware
-// image updates only; webfs continues to use the separate manual esptool
-// flow documented in CLAUDE.md.
+// Phase 8 OTA (docs/adr/0008-ota-github-releases-and-rollback.md). The app
+// image carries the WebUI too, so one OTA updates firmware and frontend
+// together (docs/adr/0016-embed-webui-assets-in-firmware.md).
 enum class OtaCheckState : std::uint8_t {
     unknown,
     checking,
@@ -138,7 +138,6 @@ struct RuntimeSnapshot {
     ServiceState flash;
     ServiceState psram;
     ServiceState config;
-    ServiceState webfs;
     ServiceState imagefs;
     WifiState wifi;
     InternetState internet;
@@ -154,8 +153,6 @@ struct RuntimeSnapshot {
     // ready; no handler probes storage or hardware on the request path.
     std::uint32_t flash_bytes = 0;
     std::uint32_t psram_bytes = 0;
-    std::uint32_t webfs_total_bytes = 0;
-    std::uint32_t webfs_used_bytes = 0;
     std::uint32_t imagefs_total_bytes = 0;
     std::uint32_t imagefs_used_bytes = 0;
     std::uint32_t carousel_refresh_minutes = 0;

@@ -469,8 +469,9 @@ void OtaWorker::update_now()
         return;
     }
 
-    // webfs/imagefs are never touched here: esp_https_ota only ever writes
-    // to the OTA app partition esp_ota_get_next_update_partition() selects.
+    // imagefs is never touched here: esp_https_ota only ever writes to the
+    // OTA app partition esp_ota_get_next_update_partition() selects -- which
+    // now carries the WebUI too, so the frontend cannot lag the backend.
     // esp_https_ota_finish() above has already switched the boot partition,
     // so even if scheduling the automatic reboot fails, the new firmware
     // will still boot on whatever the next reboot happens to be -- the

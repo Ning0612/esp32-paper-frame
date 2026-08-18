@@ -20,9 +20,11 @@ namespace pf_ota {
 // told to, downloads and flashes it into the inactive OTA (ota_0/ota_1)
 // partition via esp_https_ota. Admin-triggered only -- there is no
 // background polling; the WebUI's system page calls
-// request_check_for_update()/request_update_now(). webfs/imagefs are never
-// touched by this worker. See
-// docs/adr/0008-ota-github-releases-and-rollback.md.
+// request_check_for_update()/request_update_now(). imagefs is never
+// touched by this worker; the WebUI travels inside the app image, so one
+// update covers firmware and frontend. See
+// docs/adr/0008-ota-github-releases-and-rollback.md and
+// docs/adr/0016-embed-webui-assets-in-firmware.md.
 class OtaWorker {
 public:
     esp_err_t start(pf_runtime::RuntimeCoordinator& runtime);

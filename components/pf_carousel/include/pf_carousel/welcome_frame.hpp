@@ -98,7 +98,7 @@ inline bool render_welcome_frame(
     }
 
     // A dependency-free PaperFrame "PF" mark keeps the bootstrap frame
-    // available before webfs fonts, weather data, or an image catalog exist.
+    // available before weather data or an image catalog exist.
     detail::fill_rect(
         frame, 240U, 140U, 24U, 180U, pf_display::Color::black);
     detail::fill_rect(

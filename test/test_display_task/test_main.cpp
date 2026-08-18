@@ -91,7 +91,6 @@ pf_runtime::RuntimeSnapshot ready_snapshot()
         .flash = pf_runtime::ServiceState::ready,
         .psram = pf_runtime::ServiceState::ready,
         .config = pf_runtime::ServiceState::ready,
-        .webfs = pf_runtime::ServiceState::ready,
         .imagefs = pf_runtime::ServiceState::ready,
         .display = DisplayState::refreshing,
         .active_display_request_id = 17,

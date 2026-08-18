@@ -22,7 +22,6 @@ Dashboard snapshot，會在後續 phase 增量加入圖片、weather 與 sensor 
     "flash": "ready",
     "psram": "ready",
     "config": "ready",
-    "webfs": "ready",
     "imagefs": "ready"
   },
   "network": {
@@ -33,6 +32,10 @@ Dashboard snapshot，會在後續 phase 增量加入圖片、weather 與 sensor 
 ```
 
 - service state 只有 `unknown`、`ready`、`degraded`。
+- `services` 不含 `webfs`：WebUI 資產已編入 app image，`webfs` 分割區
+  轉為 reserved（不掛載、不寫入、不統計），因此沒有對應的執行期狀態可報。
+  見 [ADR-0016](adr/0016-embed-webui-assets-in-firmware.md)。
+
 - 任一 service 不是 `ready` 時，頂層 `status` 為 `degraded`。
 - snapshot 尚未發布時，頂層與各 service 都回傳 `unknown`，不得以 `0` 或
   歷史值偽裝；已發布 snapshot 內有 unknown service 時，頂層為 `degraded`。

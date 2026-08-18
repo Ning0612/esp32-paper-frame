@@ -47,7 +47,6 @@ FileSystemStatus mount_one(const char* label, const char* base_path)
 FileSystemSnapshot mount_all()
 {
     return {
-        .webfs = mount_one("webfs", "/web"),
         .imagefs = mount_one("imagefs", "/images"),
     };
 }

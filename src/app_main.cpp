@@ -650,7 +650,6 @@ extern "C" void app_main()
             esp_err_to_name(status.mount_error),
             esp_err_to_name(status.info_error));
     };
-    log_filesystem("webfs", filesystem_snapshot.webfs);
     log_filesystem("imagefs", filesystem_snapshot.imagefs);
 
     const pf_runtime::RuntimeSnapshot initial_snapshot{
@@ -662,7 +661,6 @@ extern "C" void app_main()
             hardware.psram_ready ? pf_runtime::ServiceState::ready
                                  : pf_runtime::ServiceState::degraded,
         .config = state_from_error(config_result.error),
-        .webfs = state_from_filesystem(filesystem_snapshot.webfs),
         .imagefs =
             storage_startup.ok()
                 ? state_from_filesystem(filesystem_snapshot.imagefs)
@@ -678,10 +676,6 @@ extern "C" void app_main()
         .last_display_stage = 0,
         .flash_bytes = hardware.flash_bytes,
         .psram_bytes = static_cast<std::uint32_t>(hardware.psram_bytes),
-        .webfs_total_bytes = static_cast<std::uint32_t>(
-            filesystem_snapshot.webfs.total_bytes),
-        .webfs_used_bytes = static_cast<std::uint32_t>(
-            filesystem_snapshot.webfs.used_bytes),
         .imagefs_total_bytes = static_cast<std::uint32_t>(
             filesystem_snapshot.imagefs.total_bytes),
         .imagefs_used_bytes = imagefs_used_bytes_at_boot,

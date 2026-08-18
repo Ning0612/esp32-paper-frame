@@ -19,7 +19,6 @@ constexpr bool is_ready(
     return snapshot.flash == pf_runtime::ServiceState::ready &&
            snapshot.psram == pf_runtime::ServiceState::ready &&
            snapshot.config == pf_runtime::ServiceState::ready &&
-           snapshot.webfs == pf_runtime::ServiceState::ready &&
            snapshot.imagefs == pf_runtime::ServiceState::ready;
 }
 
@@ -39,7 +38,7 @@ inline SerializeResult serialize_health(
         output_size,
         "{\"status\":\"%s\",\"sequence\":%lu,\"uptime_ms\":%llu,"
         "\"services\":{\"flash\":\"%s\",\"psram\":\"%s\","
-        "\"config\":\"%s\",\"webfs\":\"%s\",\"imagefs\":\"%s\"},"
+        "\"config\":\"%s\",\"imagefs\":\"%s\"},"
         "\"network\":{\"wifi\":\"%s\",\"internet\":\"%s\"}}",
         !snapshot_valid
             ? "unknown"
@@ -49,7 +48,6 @@ inline SerializeResult serialize_health(
         pf_runtime::to_string(snapshot.flash),
         pf_runtime::to_string(snapshot.psram),
         pf_runtime::to_string(snapshot.config),
-        pf_runtime::to_string(snapshot.webfs),
         pf_runtime::to_string(snapshot.imagefs),
         pf_runtime::to_string(snapshot.wifi),
         pf_runtime::to_string(snapshot.internet));

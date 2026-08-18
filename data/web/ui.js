@@ -299,7 +299,6 @@
     $("#display-last").textContent = display.last_outcome ? labelState(display.last_outcome) : "尚未刷新";
     $("#flash-capacity").textContent = formatBytes(storage.flash_bytes);
     $("#psram-capacity").textContent = formatBytes(storage.psram_bytes);
-    $("#webfs-capacity").textContent = storage.webfs_total_bytes == null ? "未知" : `${formatBytes(storage.webfs_used_bytes)} / ${formatBytes(storage.webfs_total_bytes)}`;
     $("#imagefs-capacity").textContent = storage.imagefs_total_bytes == null ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
     const serviceValues = Object.values(services).map(labelState);
     $("#service-state").textContent = serviceValues.length ? serviceValues.join(" · ") : "未知";
@@ -1769,8 +1768,6 @@
         $("#system-uptime").textContent = formatUptime(data.uptime_ms);
         $("#system-flash-capacity").textContent = formatBytes(storage.flash_bytes);
         $("#system-psram-capacity").textContent = formatBytes(storage.psram_bytes);
-        $("#system-webfs-capacity").textContent = storage.webfs_total_bytes == null
-          ? "未知" : `${formatBytes(storage.webfs_used_bytes)} / ${formatBytes(storage.webfs_total_bytes)}`;
         $("#system-imagefs-capacity").textContent = storage.imagefs_total_bytes == null
           ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
       }

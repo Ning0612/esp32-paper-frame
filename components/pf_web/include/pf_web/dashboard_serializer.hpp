@@ -252,8 +252,6 @@ inline SerializeResult serialize_status(
 
     char flash_bytes[16]{};
     char psram_bytes[16]{};
-    char webfs_total[16]{};
-    char webfs_used[16]{};
     char imagefs_total[16]{};
     char imagefs_used[16]{};
     char refresh_minutes[16]{};
@@ -282,16 +280,6 @@ inline SerializeResult serialize_status(
         sizeof(psram_bytes),
         snapshot_valid ? snapshot.psram : pf_runtime::ServiceState::unknown,
         snapshot_valid ? snapshot.psram_bytes : 0U);
-    format_capacity(
-        webfs_total,
-        sizeof(webfs_total),
-        snapshot_valid ? snapshot.webfs : pf_runtime::ServiceState::unknown,
-        snapshot_valid ? snapshot.webfs_total_bytes : 0U);
-    format_capacity(
-        webfs_used,
-        sizeof(webfs_used),
-        snapshot_valid ? snapshot.webfs : pf_runtime::ServiceState::unknown,
-        snapshot_valid ? snapshot.webfs_used_bytes : 0U);
     format_capacity(
         imagefs_total,
         sizeof(imagefs_total),
@@ -338,7 +326,7 @@ inline SerializeResult serialize_status(
     }
 
     /*
-     * Keep the status JSON bounded and deterministic. The six capacity
+     * Keep the status JSON bounded and deterministic. The four capacity
      * strings above are either decimal numbers or the JSON literal null.
      */
     const int written = std::snprintf(
@@ -347,12 +335,11 @@ inline SerializeResult serialize_status(
         "{\"ok\":true,\"data\":{\"sequence\":%lu,"
         "\"uptime_ms\":%llu,\"services\":{"
         "\"flash\":\"%s\",\"psram\":\"%s\","
-        "\"config\":\"%s\",\"webfs\":\"%s\","
+        "\"config\":\"%s\","
         "\"imagefs\":\"%s\"},\"network\":{"
         "\"wifi\":\"%s\",\"internet\":\"%s\","
         "\"sntp\":\"%s\"},\"storage\":{"
         "\"flash_bytes\":%s,\"psram_bytes\":%s,"
-        "\"webfs_total_bytes\":%s,\"webfs_used_bytes\":%s,"
         "\"imagefs_total_bytes\":%s,\"imagefs_used_bytes\":%s},"
         "\"display\":{\"state\":\"%s\","
         "\"active_request_id\":%lu,\"queued_count\":%u,"
@@ -379,15 +366,12 @@ inline SerializeResult serialize_status(
         snapshot_valid ? pf_runtime::to_string(snapshot.flash) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.psram) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.config) : "unknown",
-        snapshot_valid ? pf_runtime::to_string(snapshot.webfs) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.imagefs) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.wifi) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.internet) : "unknown",
         snapshot_valid ? pf_runtime::to_string(snapshot.time_sync) : "unknown",
         flash_bytes,
         psram_bytes,
-        webfs_total,
-        webfs_used,
         imagefs_total,
         imagefs_used,
         snapshot_valid ? pf_runtime::to_string(snapshot.display) : "unknown",
