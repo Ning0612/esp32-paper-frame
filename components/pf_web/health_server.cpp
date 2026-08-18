@@ -35,46 +35,67 @@
 #include "pf_web/weather_config_form.hpp"
 #include "pf_weather/weather_worker.hpp"
 
+// The WebUI is gzipped and compiled into the app image so a firmware OTA also
+// updates the frontend. These assets used to live in a separate webfs LittleFS
+// partition that OTA never touched, which let the frontend fall behind the
+// backend after an update -- see
+// docs/adr/0016-embed-webui-assets-in-firmware.md. The payload arrives as a
+// generated translation unit (tools/generate_web_assets.py); it lands in
+// .rodata, same as any other constant in this firmware, so it costs flash
+// rather than RAM.
+#include "web_assets_generated.hpp"
+
 namespace pf_web {
 namespace {
 
 constexpr char kTag[] = "pf_web";
 
+// Every asset is served gzipped: the payload is embedded pre-compressed and
+// is never decompressed on the device.
 struct StaticAsset {
-    const char* path;
+    const unsigned char* data;
+    const std::size_t* size;
     const char* content_type;
 };
 
 constexpr StaticAsset kIndexAsset{
-    "/web/index.html",
+    web_assets::kIndexHtmlGz,
+    &web_assets::kIndexHtmlGzSize,
     "text/html; charset=utf-8",
 };
 constexpr StaticAsset kStyleAsset{
-    "/web/style.css",
+    web_assets::kStyleCssGz,
+    &web_assets::kStyleCssGzSize,
     "text/css; charset=utf-8",
 };
 constexpr StaticAsset kScriptAsset{
-    "/web/ui.js",
+    web_assets::kUiJsGz,
+    &web_assets::kUiJsGzSize,
     "application/javascript; charset=utf-8",
 };
 constexpr StaticAsset kImagePipelineAsset{
-    "/web/image_pipeline.js",
+    web_assets::kImagePipelineJsGz,
+    &web_assets::kImagePipelineJsGzSize,
     "application/javascript; charset=utf-8",
 };
 constexpr StaticAsset kImageQuantizerAsset{
-    "/web/image_quantizer.js",
+    web_assets::kImageQuantizerJsGz,
+    &web_assets::kImageQuantizerJsGzSize,
     "application/javascript; charset=utf-8",
 };
 constexpr StaticAsset kImagePfr1Asset{
-    "/web/image_pfr1.js",
+    web_assets::kImagePfr1JsGz,
+    &web_assets::kImagePfr1JsGzSize,
     "application/javascript; charset=utf-8",
 };
 constexpr StaticAsset kImageQuantizeWorkerAsset{
-    "/web/image_quantize_worker.js",
+    web_assets::kImageQuantizeWorkerJsGz,
+    &web_assets::kImageQuantizeWorkerJsGzSize,
     "application/javascript; charset=utf-8",
 };
 constexpr StaticAsset kFaviconAsset{
-    "/web/favicon.svg",
+    web_assets::kFaviconSvgGz,
+    &web_assets::kFaviconSvgGzSize,
     "image/svg+xml",
 };
 constexpr std::uint32_t kMaximumBodyReceiveMs = 15000U;
@@ -487,33 +508,29 @@ esp_err_t static_asset_handler(httpd_req_t* request)
             "{\"ok\":false,\"error\":\"asset_context\"}");
     }
 
-    std::FILE* const file =
-        std::fopen(asset->path, "rb");
-    if (file == nullptr) {
-        return send_json(
-            request,
-            "503 Service Unavailable",
-            "{\"ok\":false,\"error\":\"webfs_unavailable\"}");
-    }
+    // There is no "asset unavailable" path any more: the payload is linked
+    // into this firmware image, so a missing asset fails the build instead
+    // of surfacing at runtime.
     esp_err_t result =
         set_common_headers(request, asset->content_type);
-    char chunk[512]{};
-    while (result == ESP_OK) {
-        const std::size_t length =
-            std::fread(chunk, 1U, sizeof(chunk), file);
-        if (length == 0U) {
-            break;
-        }
-        result = httpd_resp_send_chunk(
-            request,
-            chunk,
-            static_cast<ssize_t>(length));
-    }
-    std::fclose(file);
     if (result == ESP_OK) {
-        result = httpd_resp_send_chunk(request, nullptr, 0);
+        // Set here rather than inside set_common_headers(): that helper also
+        // serves this server's JSON responses, which are not compressed.
+        result = httpd_resp_set_hdr(
+            request,
+            "Content-Encoding",
+            "gzip");
     }
-    return result;
+    if (result != ESP_OK) {
+        return result;
+    }
+    // A single send rather than the former 512-byte chunk loop: the payload
+    // is one contiguous flash-resident range, so esp_http_server can emit a
+    // real Content-Length instead of chunked transfer encoding.
+    return httpd_resp_send(
+        request,
+        reinterpret_cast<const char*>(asset->data),
+        static_cast<ssize_t>(*asset->size));
 }
 
 esp_err_t health_handler(httpd_req_t* request)
