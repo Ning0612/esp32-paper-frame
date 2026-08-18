@@ -34,7 +34,7 @@ Recovery AP 登入流程見
   presence blank submit 透過同一 submission gate 序列化，避免 AP page 被
   後續 frame race 覆蓋。
 - WebUI URL 固定為 `http://192.168.4.1/`；HTML、CSS、JavaScript 與 favicon
-  全部來自 `webfs`，不依賴 CDN。
+  全部編入 app image（ADR-0016），不依賴 CDN。
 
 ## API 流程
 

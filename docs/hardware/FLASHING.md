@@ -19,8 +19,8 @@
 2. 以 esptool `usb_reset` 讓正在執行的 app 進入 ROM download mode；
 3. 讀取 `otadata`，依 ESP-IDF bootloader 的 `ota_seq` 規則選出目前啟動的
    `ota_N`，只擦寫該 app image；不再假設固定 offset `0x10000`；
-4. 保留 bootloader、partition table、OTA metadata、NVS、`webfs` 與
-   `imagefs`，完成 hash 驗證後 hard reset。
+4. 保留 bootloader、partition table、OTA metadata、NVS、reserved 的
+   `webfs` 與 `imagefs`，完成 hash 驗證後 hard reset。
 
 成功輸出應包含 `Auto-detected: COM...`、`USB mode: USB-Serial/JTAG`、
 `Hash of data verified.` 與 `Hard resetting via RTS pin...`。若目前是空白板、
@@ -31,26 +31,19 @@ RGB demo、native USB 被停用，或 app 已損壞到無法接受 `usb_reset`�
 韌體；正式 OTA 更新仍須由 OTA contract 寫入非執行中的 slot，不能把這個
 開發 uploader 當成正式 OTA 實作。
 
-## 日常開發：韌體＋webfs 一起更新
-
-`data/web/*`（前端）跟著韌體改動時，用 `scripts\flash-app-and-webfs.ps1`
-一次做完「app-only upload + 重建 webfs + 只寫 `0x510000`」，不用手動兜
-下方「App-only 開發燒錄」與「WebUI-only 更新」兩節的指令：
-
-```powershell
-.\scripts\flash-app-and-webfs.ps1 -Port COMx
-```
-
-任一步失敗會直接丟出例外中止，不會留下 app／webfs 不一致的中間狀態。
-全程不觸碰 `imagefs`（`0x630000`）或 NVS，可重複執行。
+`data/web/*`（前端）在 build 時 gzip 後編入 app image
+（[ADR-0016](../adr/0016-embed-webui-assets-in-firmware.md)），所以上面這一個
+命令就是完整部署：改前端不需要任何額外的燒錄步驟，每次 build 前都會自動
+重新產生嵌入資產。
 
 **絕對不要用 `pio run -t uploadfs`（任何 env）**：這個 partition table
 有兩個 `spiffs` subtype 分割區（`webfs`、`imagefs`），PlatformIO 內建
 `uploadfs` 的分割區選取邏輯（`fetch_fs_size()`，逐筆覆寫、取 CSV 裡最後
 一個符合的分割區）會選到排序在後面的 `imagefs`（`0x630000`），但內容
-來源固定是 `data/web/*`——等於每次都把 WebUI 檔案寫進使用者的圖片
-儲存區。2026-08-01 已實測確認並清空受污染的 `imagefs`，詳見
-`docs/hardware/VALIDATION.md` 對應日期記錄。
+來源固定是 `data/web/*`——等於把 WebUI 檔案寫進使用者的圖片儲存區。
+2026-08-01 已實測確認並清空受污染的 `imagefs`，詳見
+`docs/hardware/VALIDATION.md` 對應日期記錄。WebUI 改為編入韌體之後，
+這個指令**更沒有任何正當用途**：跑它只會毀掉 `imagefs`。
 
 ## USB 介面
 
@@ -217,61 +210,19 @@ if ($LASTEXITCODE -ne 0) {
 一般 app-only 燒錄不得改寫：
 
 - `0xd000` 的 OTA metadata；
-- `0x510000` 的 `webfs`；
+- `0x510000` 的 `webfs`（reserved，見 ADR-0016）；
 - `0x630000` 的 `imagefs`；
 - NVS、partition table 或 eFuse。
 
-## WebUI-only 更新
+## WebUI 更新
 
-只有 `data/web/` 內容變更時才需另外更新 `webfs`；日常 app-only upload
-不會自動更新 WebUI。先建置精確 target：
+WebUI 沒有獨立的燒錄流程：`data/web/` 的內容在 build 時 gzip 後編入 app
+image，因此一般 app upload 或一次 OTA 就會同時更新韌體與前端，見
+[ADR-0016](../adr/0016-embed-webui-assets-in-firmware.md)。
 
-```powershell
-.\.pio\packages\tool-cmake\bin\cmake.exe `
-  --build .pio\build\paperframe-s3 `
-  --target littlefs_webfs_bin
-
-if ($LASTEXITCODE -ne 0) {
-  throw 'webfs build failed; do not continue to write-flash.'
-}
-$webfs = Get-Item -LiteralPath `
-  '.pio\build\paperframe-s3\webfs.bin' -ErrorAction Stop
-if ($webfs.Length -ne 0x100000) {
-  throw 'webfs image is not exactly the partition size; refusing write.'
-}
-$webfsSha256 = (Get-FileHash -Algorithm SHA256 `
-  -LiteralPath $webfs.FullName).Hash
-Write-Host "webfs SHA-256: $webfsSha256"
-```
-
-確認 `$nativePort` 是當次 VID:PID `303A:1001` 的 native USB COM，且沒有
-monitor 占用後，只寫入 `webfs` 的固定開發 partition：
-
-```powershell
-.\.venv\Scripts\python.exe -m esptool `
-  --chip esp32s3 `
-  --port $nativePort `
-  --baud 460800 `
-  --before usb-reset `
-  --after hard-reset `
-  write-flash `
-  --flash-mode dio `
-  --flash-freq 80m `
-  --flash-size 16MB `
-  0x510000 $webfs.FullName
-
-if ($LASTEXITCODE -ne 0) {
-  throw 'Writing webfs failed; stop without touching imagefs.'
-}
-```
-
-成功輸出必須包含 `Hash of data verified.`；若沒有這行，即使 command exit
-code 為 0 也不得把本次 WebUI-only 更新記為已驗證。
-
-此流程只覆寫 `0x510000`–`0x60ffff`，保留 app、NVS、OTA metadata、
-`imagefs` 與使用者圖片。不得把 factory provisioning 的空
-`imagefs.bin` 加入 WebUI-only 命令。partition layout 變更後，必須先重新
-核對 partition table，不能沿用此 offset。
+`0x510000` 的 `webfs` 分割區仍保留在 partition table 中（ADR-0004 凍結的
+layout 未變），但已不掛載、不寫入。既有裝置上的殘留內容**刻意不清除**：
+bootloader 回滾到舊版韌體時，舊版仍需要那份 WebUI 才能運作。
 
 ## Embedded e-Paper pattern test
 

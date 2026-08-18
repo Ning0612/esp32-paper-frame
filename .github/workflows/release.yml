@@ -74,19 +74,15 @@ jobs:
             node "$test"
           done
 
-      - name: Build firmware and WebFS
+      - name: Build firmware
         shell: bash
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           python -m platformio run -e paperframe-s3
-          export IDF_PATH="$GITHUB_WORKSPACE/.pio/packages/framework-espidf"
-          cmake --build .pio/build/paperframe-s3 --target littlefs_webfs_bin
           mkdir -p release-assets
           cp .pio/build/paperframe-s3/firmware.bin \
             release-assets/paperframe-firmware.bin
-          cp .pio/build/paperframe-s3/webfs.bin \
-            release-assets/paperframe-webfs.bin
           cp partitions/paperframe-dev.csv \
             release-assets/paperframe-partitions.csv
           # Bundled as a zip (not flat files) so the LICENSES/OFL-1.1.txt
@@ -108,7 +104,6 @@ jobs:
             cd release-assets
             sha256sum \
               paperframe-firmware.bin \
-              paperframe-webfs.bin \
               paperframe-partitions.csv \
               paperframe-licenses.zip \
               > SHA256SUMS
@@ -117,9 +112,8 @@ jobs:
             '## PaperFrame release assets' \
             '' \
             "- App firmware version/tag: $RELEASE_TAG." \
-            "- WebUI asset version: built from $RELEASE_TAG; flash it separately with the documented esptool flow. OTA does not update WebFS." \
+            '- The WebUI is compiled into paperframe-firmware.bin, so a single OTA updates the firmware and the frontend together.' \
             '- paperframe-firmware.bin is the app image used by device OTA.' \
-            '- paperframe-webfs.bin contains the WebUI and must not be written to imagefs.' \
             '- paperframe-partitions.csv records the partition layout used for this build.' \
             '- paperframe-licenses.zip: third-party asset attribution (weather icon bitmaps converted from erikflowers/weather-icons, SIL OFL-1.1) required to accompany this compiled firmware -- contains ASSET_CREDITS.md, THIRD_PARTY_NOTICES.md, and LICENSES/OFL-1.1.txt.' \
             '- SHA256SUMS contains SHA-256 checksums for the release assets.' \
@@ -137,7 +131,6 @@ jobs:
           notes="$(cat release-assets/release-notes.md)"
           assets=(
             release-assets/paperframe-firmware.bin
-            release-assets/paperframe-webfs.bin
             release-assets/paperframe-partitions.csv
             release-assets/paperframe-licenses.zip
             release-assets/SHA256SUMS

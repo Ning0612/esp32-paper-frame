@@ -2,7 +2,7 @@
 
 PaperFrame 是區域網路／裝置 AP 使用的離線優先裝置。安全問題請不要直接
 公開成 issue，尤其是可能暴露管理 session、Wi-Fi credential、API key、OTA
-驗證、CSRF、任意檔案寫入或跨 `webfs`／`imagefs` 邊界的問題。
+驗證、CSRF、任意檔案寫入或跨 `imagefs` 邊界的問題。
 
 ## 回報方式
 

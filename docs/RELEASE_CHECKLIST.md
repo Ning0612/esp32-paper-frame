@@ -15,9 +15,9 @@
   the tag to match `kFirmwareVersion` and point to a commit reachable from
   `main` before publishing a release.
 - The release workflow publishes `paperframe-firmware.bin` for device OTA,
-  `paperframe-webfs.bin` for the separate manual WebFS flash, the partition
-  CSV, and `SHA256SUMS`. It does not replace the manual hardware validation
-  below.
+  the partition CSV, and `SHA256SUMS`. The WebUI is compiled into the
+  firmware image, so there is no separate WebFS asset to flash. It does not
+  replace the manual hardware validation below.
 
 ## 1. Release 資產硬性規定（OTA 依賴，不可省略）
 
@@ -61,10 +61,8 @@
 - [ ] Boot validation：確認開機後 `rollback_confirmed=ESP_OK` 出現在 console log。
 - [ ] Rollback fault injection：刻意驗證新版本在確認前 crash-loop 時能回滾，並記錄
   斷電／網路中斷等必要失敗路徑。
-- [ ] `webfs` 更新（若本次 release 含 WebUI 變更）仍走獨立的手動
-  `cmake --target littlefs_webfs_bin` + `esptool` 流程，**不**與 OTA
-  混用；release note 需分別註明「app 韌體版本」與「WebUI 版本」（若
-  WebUI 這次未變更則不需重燒）。
+- [ ] WebUI 版本一致性：確認 OTA 完成後瀏覽器載入的就是本次 release 的
+  前端（前端已編入 app image，見 ADR-0016，不需也不應另外燒錄）。
 - [ ] System 頁四個 current 操作（重新啟動、重設管理密碼、檢查更新、立即
   更新）在真實瀏覽器中可正常觸發且回應符合預期。
 - [ ] STA 已連線時不提供手動 Recovery AP；Wi-Fi 失敗只走既有的自動 fallback AP。

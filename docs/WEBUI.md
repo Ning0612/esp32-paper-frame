@@ -1,7 +1,7 @@
 # 管理 WebUI 與 Dashboard
 
-管理介面位於 `data/web/`，所有 HTML、CSS、JavaScript 與 favicon都寫入
-`webfs`，不依賴外部 CDN。登入後提供共用的 responsive 導覽殼層，開放上方
+管理介面的來源位於 `data/web/`，所有 HTML、CSS、JavaScript 與 favicon
+在 build 時 gzip 後編入 app image，不依賴外部 CDN。登入後提供共用的 responsive 導覽殼層，開放上方
 導覽的「總覽」、「Wi‑Fi」、「天氣」、圖片處理／圖片庫、「環境」與
 「系統」view。圖片在瀏覽器本機處理成 PFR1 後，可由登入且帶 CSRF
 的請求非同步上傳到裝置 imagefs。
@@ -10,10 +10,11 @@
 狀態，並提供四個系統操作：重新啟動裝置、重設管理密碼、檢查 GitHub
 Releases 更新、立即下載並安裝更新。其中重新啟動、重設密碼與立即更新
 需要登入 + CSRF；OTA 檢查是已登入的唯讀操作。需要 mutation 的操作皆有
-`window.confirm()` 或表單確認。OTA 只更新 app 韌體
-（`ota_0`/`ota_1`），webfs 更新仍是獨立的手動流程，見本檔「更新
-方式」一節；OTA 決策見
-[`docs/adr/0008-ota-github-releases-and-rollback.md`](adr/0008-ota-github-releases-and-rollback.md)。
+`window.confirm()` 或表單確認。OTA 寫入 app slot（`ota_0`/`ota_1`），
+而 WebUI 就在 app image 裡，所以一次 OTA 會同時更新韌體與前端，
+前端不可能落後於後端；OTA 決策見
+[`docs/adr/0008-ota-github-releases-and-rollback.md`](adr/0008-ota-github-releases-and-rollback.md) 與
+[`docs/adr/0016-embed-webui-assets-in-firmware.md`](adr/0016-embed-webui-assets-in-firmware.md)。
 
 **已移除**：原本規劃「強制進入配網 AP」（管理員在 STA 已連線時手動切回
 provisioning AP）於 2026-08-01 實機測試時發現會在 AP+STA combo 模式
@@ -143,6 +144,8 @@ node --check data\web\image_pfr1.js
 
 ## 更新方式
 
-韌體 app-only upload 不會更新 WebUI。修改 `data/web/` 後，依
-[ESP32-S3 燒錄操作](hardware/FLASHING.md) 的 WebUI-only 流程建置並只寫入
-`0x510000` 的 `webfs` partition；不可把 `imagefs.bin` 放入同一命令。
+WebUI 沒有獨立的更新流程。`data/web/` 的內容在 build 時 gzip 後編入 app
+image，因此一般 app upload 或一次 OTA 就會同時更新韌體與前端，見
+[ADR-0016](adr/0016-embed-webui-assets-in-firmware.md)。改完前端只要重新
+build 並上傳韌體即可，不需要任何額外的 filesystem 燒錄步驟。
+

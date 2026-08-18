@@ -24,13 +24,11 @@ idf_component_register(
         spi_flash
 )
 
-# Build a self-contained WebUI image and an empty imagefs image for explicit
-# factory provisioning. Neither image is attached to normal firmware flashing,
-# so a daily app update cannot erase web assets or user images.
+# An empty imagefs image for explicit factory provisioning. It is not attached
+# to normal firmware flashing, so a routine app update cannot erase user
+# images. The WebUI needs no image of its own: it is compiled into the app so
+# that one OTA updates firmware and frontend together
+# (docs/adr/0016-embed-webui-assets-in-firmware.md).
 set(PAPERFRAME_EMPTY_FS_DIR "${CMAKE_CURRENT_BINARY_DIR}/empty_factory_fs")
 file(MAKE_DIRECTORY "${PAPERFRAME_EMPTY_FS_DIR}")
-littlefs_create_partition_image(
-    webfs
-    "${CMAKE_CURRENT_LIST_DIR}/../data/web"
-)
 littlefs_create_partition_image(imagefs "${PAPERFRAME_EMPTY_FS_DIR}")

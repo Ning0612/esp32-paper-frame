@@ -21,6 +21,7 @@
 | Phase 8 OTA | 真實 rollback fault injection、rollback confirmation、OTA worker stack high-water mark、weather+OTA heap 併發 | 2026-08-01 Phase 8；2026-08-03 GitHub Release 驗證 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
 | active OTA upload wrapper | wrapper 的真實硬體寫入尚未以本次版本重跑；手動 active-slot 寫入已有證據 | 2026-08-03 active OTA slot upload |
+| 嵌入式 WebUI | 瀏覽器 gzip 解碼（含 Web Worker 與 favicon）、`/health` 實機回應形狀、移除 webfs 掛載後的 heap 差值、真實 OTA 後前端同步換版 | 2026-08-19 WebUI 編入 app image |
 
 ## 2026-07-29 — 初始 USB 盤點
 
@@ -1432,3 +1433,38 @@ AP Mode 的 5×7 專用字型已從原本只涵蓋實際 SSID 所需的小寫字
 host test 逐一查詢 renderer 共用的 glyph table，使用 `abcdefghijklmnopqrstuvwxyz`
 確認每個字母的 5×7 bitmap 都符合預期，且不是 `?` fallback；ESP32-S3 build
 另確認 AP renderer 的實際編譯連結路徑使用同一份 table。
+
+## 2026-08-19 — WebUI 編入 app image（僅 host／build 驗證）
+
+`data/web/*` 改為在 build 時 gzip 後編入 app image，`webfs` 分割區轉為
+reserved，詳見
+[ADR-0016](../adr/0016-embed-webui-assets-in-firmware.md)。**本段沒有任何
+實機驗證。**
+
+已完成（host／build）：
+
+- `pio run -e paperframe-s3` 成功；Flash 由 1,250,640 增至 1,292,285 bytes
+  （OTA slot 的 49.3%，餘裕約 1.33 MB），RAM 32.6%（106,688 bytes）。
+- 8 個資產原始 177,074 bytes、gzip -9 後 41,913 bytes（23.7%）。
+- 嵌入資料落在 flash DROM（`pf_web::web_assets::kUiJsGz` 位於
+  `0x3c0eb38c`），不佔 RAM。
+- `pio test -e native` 304/304 通過；`test/web/*.mjs` 全通過；
+  `node test/test_partition_layout.mjs` 通過（partition table 未變更，
+  ADR-0004 凍結的 SHA-256 仍有效）；embedded test 專案 build-only 通過。
+- 觸發鏈：修改 `data/web/style.css` 後未 touch 任何 CMakeLists 重跑
+  `pio run`，生成器回報 `updated` 並重新編譯、`firmware.bin` 大小改變；
+  還原後第二次 build 回報 `unchanged` 且無重編（決定性壓縮生效）。
+- 防護測試：於 `data/web/` 放入未接線的檔案後，
+  `test/web/test_embedded_web_assets.mjs` 以「is embedded but never wired
+  into a StaticAsset」失敗。
+- `littlefs_imagefs_bin` 仍可產出 10,289,152 bytes（`0x9D0000`）的 image，
+  factory provisioning 未受影響；`webfs.bin` 不再產生。
+
+待實機驗證：
+
+- 瀏覽器對 `Content-Encoding: gzip` 的實際解碼，特別是由 `new Worker()`
+  載入的 `image_quantize_worker.js` 與 `favicon.svg`（SVG + gzip + CSP
+  `img-src 'self'` 的交互）。
+- `/health` 實機回應不再含 `webfs` 欄位且 `status` 為 `ready`。
+- 移除 webfs LittleFS 掛載後的 heap 差值（預期釋出數 KB 量級）。
+- 一次真實 OTA 後，瀏覽器載入的前端即為新版（不需另外燒錄）。
