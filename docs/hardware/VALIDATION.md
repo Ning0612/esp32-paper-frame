@@ -21,7 +21,7 @@
 | Phase 8 OTA | 真實 rollback fault injection、rollback confirmation、OTA worker stack high-water mark、weather+OTA heap 併發 | 2026-08-01 Phase 8；2026-08-03 GitHub Release 驗證 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
 | active OTA upload wrapper | wrapper 的真實硬體寫入尚未以本次版本重跑；手動 active-slot 寫入已有證據 | 2026-08-03 active OTA slot upload |
-| 嵌入式 WebUI | 瀏覽器 gzip 解碼（含 Web Worker 與 favicon）、`/health` 實機回應形狀、移除 webfs 掛載後的 heap 差值、真實 OTA 後前端同步換版 | 2026-08-19 WebUI 編入 app image |
+| 嵌入式 WebUI | 僅剩「登入後 Dashboard／System 頁的容量欄位視覺確認」與「真實 OTA 後前端同步換版」；gzip 供檔、Web Worker、favicon、`/health` 形狀與 webfs 不再掛載已於 2026-08-19 實機驗證 | 2026-08-19 嵌入式 WebUI 實機驗證 |
 
 ## 2026-07-29 — 初始 USB 盤點
 
@@ -1468,3 +1468,84 @@ reserved，詳見
 - `/health` 實機回應不再含 `webfs` 欄位且 `status` 為 `ready`。
 - 移除 webfs LittleFS 掛載後的 heap 差值（預期釋出數 KB 量級）。
 - 一次真實 OTA 後，瀏覽器載入的前端即為新版（不需另外燒錄）。
+
+## 2026-08-19 — 嵌入式 WebUI 實機驗證
+
+補上同日「WebUI 編入 app image（僅 host／build 驗證）」段落所列的待驗證
+項。硬體：ESP32-S3-N16R8，native USB Serial/JTAG（`VID_303A&PID_1001`），
+裝置取得區網 IP（本紀錄省略實際位址）。
+
+### 燒錄
+
+`pio run --target upload` 寫入 **active `ota_1` slot（`0x290000`）**，
+1,292,688 bytes，`Hash of data verified.`，hard reset 成功。未觸碰
+`webfs`、`imagefs`、NVS 或 OTA metadata——本次不需要任何額外的 filesystem
+燒錄步驟，這正是本變更的目的。
+
+### 開機 log
+
+- `filesystem=imagefs mounted=true total=10289152 used=573440
+  mount_status=ESP_OK info_status=ESP_OK`
+  ——**只有 imagefs 一行，webfs 掛載訊息已消失**，確認 `mount_all()` 不再
+  掛載 webfs。
+- `storage_worker_ready recovery=none action=no_change`
+- `health_server_ready route=/api/v1/health`
+- `rollback_confirmed=ESP_OK`
+- heap_init：`207 KiB` + `21 KiB` + `32 KiB` DRAM + `7 KiB` RTCRAM，PSRAM
+  8 MB 併入 heap。**未取得改動前的同條件對照值，因此「移除 webfs 掛載省下
+  多少 heap」仍未量化**，僅確認開機正常、無退化跡象。
+
+### HTTP 契約
+
+`GET /api/v1/health` → `200`：
+
+```json
+{"status":"ready","sequence":126,"uptime_ms":112076,
+ "services":{"flash":"ready","psram":"ready","config":"ready","imagefs":"ready"},
+ "network":{"wifi":"connected","internet":"reachable"}}
+```
+
+**`status` 為 `ready`（不是 `degraded`），且 `services` 不含 `webfs`**，確認
+`is_ready()` 移除 webfs 條件後行為正確。`GET /api/v1/device` 回報
+`firmware":"v0.8.2"`。
+
+### gzip 供檔（8 個資產全部驗證）
+
+每個資產皆 `200` + `Content-Encoding: gzip`，解壓後長度與 repo 內
+`data/web/` 的檔案大小**逐一完全相符**，證明裝置提供的就是本次 build 的
+前端：
+
+| 路徑 | 傳輸 (gzip) | 解壓後 | 本機檔案 |
+| --- | ---: | ---: | ---: |
+| `/` | 6,974 | 31,849 | 31,849 |
+| `/ui.js` | 22,353 | 94,924 | 94,924 |
+| `/style.css` | 4,270 | 18,856 | 18,856 |
+| `/image_pipeline.js` | 3,572 | 17,158 | 17,158 |
+| `/image_quantizer.js` | 1,353 | 4,936 | 4,936 |
+| `/image_pfr1.js` | 2,598 | 7,396 | 7,396 |
+| `/image_quantize_worker.js` | 500 | 1,095 | 1,095 |
+| `/favicon.svg` | 235 | 326 | 326 |
+
+`Cache-Control: no-store`、`X-Content-Type-Options: nosniff` 與 ADR-0014 的
+CSP 均原樣保留。注意 route 只註冊 `HTTP_GET`，因此 `curl -I`（HEAD）不會有
+回應——這是既有行為，非本次變更所致。
+
+### 瀏覽器行為
+
+- 登入頁完整渲染（版面、字型、配色正常），**console 0 error／0 warning**。
+- 網路面板：`/`、`style.css`、`image_pipeline.js`、`image_quantizer.js`、
+  `image_pfr1.js`、`ui.js`、`favicon.svg` 與 `/api/v1/auth/status` 全部
+  `200`。
+- **Web Worker**：於頁面內以 `new Worker('/image_quantize_worker.js')`
+  建立，worker 不只成功載入，且**實際執行**——對探測訊息回覆了它自身的
+  參數檢查結果 `{"ok":false,"error":"worker request must include raster
+  dimensions and data"}`。這同時驗證了 gzip 解碼、`importScripts` 以及 CSP
+  在沒有 `worker-src` 時回退到 `script-src 'self'` 的行為。
+
+### 仍未驗證
+
+- 登入後 Dashboard／System 頁的容量欄位視覺確認（需管理密碼；程式與
+  contract test 已確認 `webfs-capacity`／`system-webfs-capacity` 兩個 id 與
+  `webfs_total_bytes` 皆已從 `index.html`／`ui.js` 移除）。
+- 一次真實 OTA 後前端同步換版（需要一個新的 GitHub Release 才能端到端驗證）。
+- 移除 webfs 掛載後的 heap 差值量化（缺改動前的對照值）。
