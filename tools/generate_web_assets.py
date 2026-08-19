@@ -78,16 +78,24 @@ def collect(source_directory: pathlib.Path):
     for path in sorted(source_directory.iterdir()):
         if not path.is_file() or path.name.startswith("."):
             continue
-        if not path.name.isascii():
+        # Printable ASCII only: the name becomes both a C++ identifier and a
+        # comment in the generated source, so a control character could break
+        # the output outright.
+        if not path.name.isascii() or not path.name.isprintable():
             raise SystemExit(
-                f"generate_web_assets: non-ASCII asset name: {path.name}. "
-                "Rename it: the embedded symbol is derived from the filename "
-                "and must be a portable C++ identifier.")
+                f"generate_web_assets: asset name must be printable ASCII: "
+                f"{path.name!r}. Rename it: the embedded symbol is derived "
+                "from the filename and must be a portable C++ identifier.")
         raw = path.read_bytes()
         if not raw:
             raise SystemExit(f"generate_web_assets: empty asset: {path}")
 
         identifier = to_identifier(path.name)
+        # A name made only of punctuation would silently yield the symbol kGz.
+        if not identifier:
+            raise SystemExit(
+                f"generate_web_assets: {path.name} has no alphanumeric "
+                "characters to build a symbol from. Rename it.")
         # Punctuation collapses to nothing, so foo-bar.js and foo_bar.js both
         # want kFooBarJsGz. Say so here instead of letting the C++ compiler
         # report a duplicate definition of a symbol nobody wrote by hand.

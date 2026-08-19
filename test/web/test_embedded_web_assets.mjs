@@ -36,10 +36,16 @@ const assetTable = new Map(
         .map(([, variable, data, size]) => [variable, { data, size }]));
 
 // Route URI -> the StaticAsset variable its user_ctx points at.
-const routeTable = new Map(
-    [...server.matchAll(
-        /\.uri = "([^"]+)",\s*\.method = HTTP_GET,\s*\.handler = static_asset_handler,\s*\.user_ctx = const_cast<StaticAsset\*>\(&(\w+)\)/g)]
-        .map(([, uri, variable]) => [uri, variable]));
+const routeEntries = [...server.matchAll(
+    /\.uri = "([^"]+)",\s*\.method = HTTP_GET,\s*\.handler = static_asset_handler,\s*\.user_ctx = const_cast<StaticAsset\*>\(&(\w+)\)/g)]
+    .map(([, uri, variable]) => [uri, variable]);
+const routeTable = new Map(routeEntries);
+
+// Building the map would otherwise hide a duplicated URI behind whichever
+// definition happens to come last.
+assert.equal(
+    routeTable.size, routeEntries.length,
+    "duplicate static-asset route URIs");
 
 // Checking each link of the chain separately would pass even if a route were
 // wired to the wrong asset, so follow it end to end: filename -> expected
