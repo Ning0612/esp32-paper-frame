@@ -1714,6 +1714,20 @@
     });
   }
 
+  const setOtaProgress = (percent) => {
+    const bar = $("#system-ota-progress-bar");
+    const known = percent !== null;
+    $("#system-ota-progress").textContent = known ? `${percent}%` : "—";
+    $("#system-ota-progress-fill").style.width = known ? `${percent}%` : "0%";
+    bar.hidden = !known;
+    if (known) {
+      bar.setAttribute("aria-valuenow", String(percent));
+    } else {
+      // Absent rather than 0: an unknown value must not read as "no progress".
+      bar.removeAttribute("aria-valuenow");
+    }
+  };
+
   async function loadSystemStatus() {
     const requestId = ++systemOtaStatusRequestId;
     systemOtaStatus.textContent = "";
@@ -1772,6 +1786,11 @@
           ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
       }
 
+      if (!otaResponse.ok || !otaPayload.data) {
+        // Leaving the previous reading on screen would claim an update is
+        // still running when all we actually lost is the status request.
+        setOtaProgress(null);
+      }
       if (otaResponse.ok && otaPayload.data) {
         const ota = otaPayload.data;
         const checkLabels = { unknown: "未知", checking: "檢查中", up_to_date: "已是最新", update_available: "有新版本", check_failed: "檢查失敗" };
@@ -1780,12 +1799,13 @@
         $("#system-ota-latest-version").textContent = ota.latest_version || "未知";
         $("#system-ota-update-state").textContent = updateLabels[ota.update_state] || "未知";
         const otaInProgress = ota.update_state === "downloading" || ota.update_state === "writing";
-        const otaPercent = Math.max(0, Math.min(100, Number(ota.progress_percent) || 0));
-        const otaBar = $("#system-ota-progress-bar");
-        $("#system-ota-progress").textContent = otaInProgress ? `${otaPercent}%` : "—";
-        $("#system-ota-progress-fill").style.width = otaInProgress ? `${otaPercent}%` : "0%";
-        otaBar.hidden = !otaInProgress;
-        otaBar.setAttribute("aria-valuenow", String(otaInProgress ? otaPercent : 0));
+        // A missing or malformed percentage is unknown, not zero -- reporting
+        // 0% mid-download would be inventing a value, which this project's
+        // WebUI rules forbid for absent data.
+        const otaPercentRaw = Number(ota.progress_percent);
+        setOtaProgress(otaInProgress && Number.isFinite(otaPercentRaw)
+          ? Math.max(0, Math.min(100, Math.round(otaPercentRaw)))
+          : null);
         // ready_pending_reboot + non-empty last_error means "succeeded but
         // automatic reboot didn't fire, manual reboot needed" -- NOT a
         // failure; only "failed" state is an actual OTA failure.

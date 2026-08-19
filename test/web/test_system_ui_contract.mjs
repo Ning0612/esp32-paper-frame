@@ -118,5 +118,11 @@ assert.ok(!js.includes("webfs_total_bytes"), "webfs storage fields must stay rem
 assert.ok(css.includes(".progress-fill"), "progress bar needs a fill style");
 assert.ok(html.includes('role="progressbar"'), "progress bar needs its role");
 assert.ok(js.includes('setAttribute("aria-valuenow"'), "progress must update aria-valuenow");
+// One helper owns the bar so the width, the label and aria-valuenow cannot
+// drift apart, and an unknown percentage must stay unknown rather than 0.
+assert.ok(js.includes("const setOtaProgress ="), "bar updates must go through one helper");
+assert.ok(js.includes("Number.isFinite(otaPercentRaw)"), "a malformed percentage must not become 0");
+assert.ok(js.includes('removeAttribute("aria-valuenow")'), "unknown progress must drop aria-valuenow");
+assert.ok(!js.includes("Number(ota.progress_percent) || 0"), "progress must not fall back to 0");
 
 console.log("system_ui_contract: checks passed");
