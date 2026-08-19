@@ -9,7 +9,7 @@ namespace pf_runtime {
 // against a GitHub Release tag_name. Bump this alongside the git tag pushed
 // to GitHub Releases (see the release checklist) or "check for update" will
 // mismatch.
-inline constexpr char kFirmwareVersion[] = "v0.9.0";
+inline constexpr char kFirmwareVersion[] = "v0.9.1";
 
 // NOTE: this is deliberately not a full SemVer 2.0.0 parser/comparator --
 // it exists solely to answer "is this GitHub release tag an update over the
