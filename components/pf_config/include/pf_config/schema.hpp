@@ -140,6 +140,19 @@ inline StartupPlan make_startup_plan(const StoredConfig& stored)
     return plan;
 }
 
+// Whether this firmware may write the central record back. A schema it could
+// not interpret must be left alone: overwriting it would stamp this build's
+// kCurrentSchemaVersion onto a record written by newer firmware, silently
+// downgrading it. Refusing to write costs the user one unsaved setting change;
+// writing costs the newer firmware its configuration.
+constexpr bool schema_allows_write(const SchemaAction action)
+{
+    return action == SchemaAction::use_current ||
+           action == SchemaAction::migrate_v0 ||
+           action == SchemaAction::migrate_v1 ||
+           action == SchemaAction::initialize_defaults;
+}
+
 constexpr const char* to_string(const SchemaAction action)
 {
     switch (action) {

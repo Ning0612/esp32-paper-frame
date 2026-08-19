@@ -124,6 +124,28 @@ void test_migration_preserves_carousel_random_when_present()
     TEST_ASSERT_TRUE(plan.record.carousel_random);
 }
 
+// Writing back a record this firmware could not interpret would stamp its own
+// kCurrentSchemaVersion onto data written by a newer build. Only the actions
+// that mean "the schema was understood" may write.
+void test_only_understood_schemas_may_be_written_back()
+{
+    TEST_ASSERT_TRUE(
+        pf_config::schema_allows_write(pf_config::SchemaAction::use_current));
+    TEST_ASSERT_TRUE(
+        pf_config::schema_allows_write(pf_config::SchemaAction::migrate_v0));
+    TEST_ASSERT_TRUE(
+        pf_config::schema_allows_write(pf_config::SchemaAction::migrate_v1));
+    TEST_ASSERT_TRUE(pf_config::schema_allows_write(
+        pf_config::SchemaAction::initialize_defaults));
+
+    TEST_ASSERT_FALSE(
+        pf_config::schema_allows_write(pf_config::SchemaAction::reject_future));
+    TEST_ASSERT_FALSE(
+        pf_config::schema_allows_write(pf_config::SchemaAction::reject_corrupt));
+    TEST_ASSERT_FALSE(
+        pf_config::schema_allows_write(pf_config::SchemaAction::unavailable));
+}
+
 void test_future_schema_is_rejected_without_write()
 {
     pf_config::StoredConfig stored{};
@@ -197,6 +219,7 @@ int main(int, char**)
     RUN_TEST(test_v0_migration_preserves_refresh_and_adds_timezone);
     RUN_TEST(test_v1_migration_preserves_existing_fields_and_defaults_random_off);
     RUN_TEST(test_migration_preserves_carousel_random_when_present);
+    RUN_TEST(test_only_understood_schemas_may_be_written_back);
     RUN_TEST(test_future_schema_is_rejected_without_write);
     RUN_TEST(test_incomplete_current_record_is_rejected_without_write);
     RUN_TEST(test_invalid_v0_record_is_rejected_without_write);

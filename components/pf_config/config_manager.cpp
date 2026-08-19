@@ -1,3 +1,4 @@
+#include <atomic>
 #include "pf_config/config_manager.hpp"
 
 #include <cstdint>
@@ -105,6 +106,11 @@ esp_err_t read_optional_timezone(
     return result;
 }
 
+// Set once while initialize() runs on the startup task, read afterwards from
+// HTTP handlers. Defaults to false so a failed or never-run initialize() keeps
+// the record read-only rather than writable.
+std::atomic<bool> g_central_record_writable{false};
+
 }  // namespace
 
 StartupResult initialize()
@@ -162,6 +168,11 @@ StartupResult initialize()
     }
 
     const StartupPlan plan = make_startup_plan(stored);
+    // Latch write permission from the plan, not from the result below: a
+    // migration whose write fails is still a schema this firmware understands
+    // and may retry writing later.
+    g_central_record_writable.store(
+        schema_allows_write(plan.action), std::memory_order_release);
     if (plan.write_required) {
         result = write_current_record(handle, plan.record);
     } else if (plan.action == SchemaAction::reject_future) {
@@ -182,6 +193,10 @@ StartupResult initialize()
 
 esp_err_t save_config(const ConfigRecord& record)
 {
+    // Refuse rather than downgrade a record this firmware could not read.
+    if (!g_central_record_writable.load(std::memory_order_acquire)) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (!refresh_minutes_valid(record.refresh_minutes)) {
         return ESP_ERR_INVALID_ARG;
     }

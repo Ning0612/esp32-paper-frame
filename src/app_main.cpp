@@ -495,9 +495,14 @@ extern "C" void app_main()
     // management password and the weather/sensor settings each live in their
     // own NVS namespace with their own validation, so a schema version this
     // firmware cannot interpret says nothing about whether they are readable.
-    // initialize() runs nvs_flash_init() before it ever looks at the schema,
-    // so a reject_future/reject_corrupt result still means NVS itself is fine
-    // -- only SchemaAction::unavailable says otherwise. Gating these loads on
+    // initialize() runs nvs_flash_init() before it ever looks at the schema, so
+    // reject_future/reject_corrupt mean the schema could not be interpreted
+    // rather than that NVS is unusable. This is a useful approximation, not a
+    // guarantee: a corrupt result can also come from a low-level read failure,
+    // and unavailable can come from pf_config being unopenable while other
+    // namespaces still read fine. Each loader validates its own blob and
+    // reports its own error, so the cost of being wrong here is a logged
+    // failure, not bad data. Gating these loads on
     // the schema instead turned an OTA rollback onto firmware predating a
     // schema bump into what looks like a factory reset: the device came up in
     // the provisioning AP with every setting apparently gone, while all of it
@@ -803,8 +808,10 @@ extern "C" void app_main()
             esp_err_to_name(sensor_task_result));
     }
 
+    // Provisioning stores Wi-Fi credentials in pf_wifi, not in the central
+    // record, so an uninterpretable schema must not stop it starting.
     const esp_err_t provisioning_store_result =
-        config_result.error != ESP_OK
+        !nvs_available
             ? config_result.error
             : runtime_result != ESP_OK
                   ? runtime_result
@@ -817,8 +824,13 @@ extern "C" void app_main()
             esp_err_to_name(provisioning_store_result));
     }
 
+    // Likewise the management password: it lives in its own namespace. Leaving
+    // AuthService unstarted makes every login return 503 and, because
+    // authenticate_request() fails closed with password_configured=true when
+    // uninitialised, it also makes the device *look* like the password is
+    // fine -- which is exactly how this was missed the first time round.
     const esp_err_t authentication_result =
-        config_result.error != ESP_OK
+        !nvs_available
             ? config_result.error
             : runtime_result != ESP_OK
                   ? runtime_result
