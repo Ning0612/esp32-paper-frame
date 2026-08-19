@@ -28,21 +28,43 @@ const toIdentifier = (name) => name
     .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
     .join("");
 
+// StaticAsset variable -> the embedded symbol it serves, and the size symbol
+// paired with it.
+const assetTable = new Map(
+    [...server.matchAll(
+        /constexpr StaticAsset (\w+)\{\s*web_assets::(\w+),\s*&web_assets::(\w+),/g)]
+        .map(([, variable, data, size]) => [variable, { data, size }]));
+
+// Route URI -> the StaticAsset variable its user_ctx points at.
+const routeTable = new Map(
+    [...server.matchAll(
+        /\.uri = "([^"]+)",\s*\.method = HTTP_GET,\s*\.handler = static_asset_handler,\s*\.user_ctx = const_cast<StaticAsset\*>\(&(\w+)\)/g)]
+        .map(([, uri, variable]) => [uri, variable]));
+
+// Checking each link of the chain separately would pass even if a route were
+// wired to the wrong asset, so follow it end to end: filename -> expected
+// symbol -> StaticAsset -> route.
 for (const name of assets) {
     const symbol = `k${toIdentifier(name)}Gz`;
-
-    assert.ok(
-        server.includes(`web_assets::${symbol},`),
-        `${name} is embedded but never wired into a StaticAsset`);
-    assert.ok(
-        server.includes(`&web_assets::${symbol}Size,`),
-        `${name} has no size wired into its StaticAsset`);
-
     const uri = name === "index.html" ? "/" : `/${name}`;
-    assert.ok(
-        server.includes(`.uri = "${uri}"`),
-        `${name} has no HTTP route (${uri})`);
+
+    const variable = routeTable.get(uri);
+    assert.ok(variable, `${name} has no static-asset route (${uri})`);
+
+    const wired = assetTable.get(variable);
+    assert.ok(wired, `route ${uri} points at unknown StaticAsset ${variable}`);
+    assert.equal(
+        wired.data, symbol,
+        `route ${uri} serves ${wired.data}, expected ${symbol}`);
+    assert.equal(
+        wired.size, `${symbol}Size`,
+        `${variable} pairs ${wired.data} with ${wired.size}`);
 }
+
+// A route serving an asset that no longer exists would 404 just as silently.
+assert.equal(
+    routeTable.size, assets.length,
+    `${routeTable.size} static-asset routes for ${assets.length} assets`);
 
 // Assets are stored gzipped and never decompressed on the device, so the
 // response must say so or browsers receive unreadable bytes.

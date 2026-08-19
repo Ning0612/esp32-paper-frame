@@ -70,8 +70,8 @@
 ## 4. Release note 內容
 
 - [ ] 列出本次 app 韌體版本（`kFirmwareVersion`）與對應 git tag。
-- [ ] 若本次同時更新 `data/web/`，明確註明 WebUI 版本需要另外用
-  esptool 手動燒錄，OTA 不會更新它。
+- [ ] 註明 WebUI 與韌體同版：前端已編入 app image（ADR-0016），一次
+  OTA 同時更新兩者，既不需要、也不應該另外燒錄 WebUI。
 - [ ] 若本次變更了 partition layout（理論上不應該——見 ADR-0004），
   必須有新的 superseding ADR 並在 release note 高亮警告。
 - [ ] 附上 `docs/hardware/VALIDATION.md` 對應段落的連結或摘要，讓使用
