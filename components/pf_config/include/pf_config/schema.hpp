@@ -110,19 +110,33 @@ inline StartupPlan make_startup_plan(const StoredConfig& stored)
     }
 
     plan.record.refresh_minutes = stored.refresh_minutes;
+
+    // Carry over every field the stored record already has *before* the
+    // migration early-returns. That path sets write_required, so the record
+    // returned here is what gets written back to NVS -- anything left at its
+    // default is lost permanently, not just for this boot. A record from a
+    // version that predates a field simply has *_present false and keeps the
+    // default, which is the intended behaviour; an out-of-range value is
+    // treated the same way rather than rejected, because failing a migration
+    // closed would discard the entire configuration over one bad byte.
+    if (stored.carousel_random_present && stored.carousel_random <= 1U) {
+        plan.record.carousel_random = stored.carousel_random != 0U;
+    }
+
     if (stored.schema_version < kCurrentSchemaVersion) {
         plan.action = SchemaAction::migrate_v1;
         plan.write_required = true;
         return plan;
     }
 
+    // The current schema is stricter than a migration: a record claiming to be
+    // current must have every field present and valid.
     if (!stored.carousel_random_present || stored.carousel_random > 1U) {
         plan.action = SchemaAction::reject_corrupt;
         return plan;
     }
 
     plan.action = SchemaAction::use_current;
-    plan.record.carousel_random = stored.carousel_random != 0U;
     return plan;
 }
 

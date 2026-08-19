@@ -95,6 +95,35 @@ void test_v1_migration_preserves_existing_fields_and_defaults_random_off()
     TEST_ASSERT_FALSE(plan.record.carousel_random);
 }
 
+// The v1 fixture above has no carousel_random at all, so defaulting it off is
+// correct there. This one is the shape the next schema bump will produce: a
+// stored record that *does* carry the field, migrating to a newer version.
+// make_startup_plan must carry such fields across, because the migration path
+// sets write_required and the returned record is what gets written back to
+// NVS -- anything it drops is lost permanently, not just for this boot.
+void test_migration_preserves_carousel_random_when_present()
+{
+    pf_config::StoredConfig stored{};
+    stored.schema_present = true;
+    stored.schema_version = 1;
+    stored.refresh_present = true;
+    stored.refresh_minutes = 35;
+    stored.timezone_present = true;
+    pf_config::copy_timezone(stored.timezone, "Asia/Taipei");
+    stored.carousel_random_present = true;
+    stored.carousel_random = 1U;
+
+    const pf_config::StartupPlan plan =
+        pf_config::make_startup_plan(stored);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_config::SchemaAction::migrate_v1),
+        static_cast<int>(plan.action));
+    TEST_ASSERT_TRUE(plan.write_required);
+    TEST_ASSERT_EQUAL_UINT32(35, plan.record.refresh_minutes);
+    TEST_ASSERT_TRUE(plan.record.carousel_random);
+}
+
 void test_future_schema_is_rejected_without_write()
 {
     pf_config::StoredConfig stored{};
@@ -167,6 +196,7 @@ int main(int, char**)
     RUN_TEST(test_current_schema_is_used_without_migration);
     RUN_TEST(test_v0_migration_preserves_refresh_and_adds_timezone);
     RUN_TEST(test_v1_migration_preserves_existing_fields_and_defaults_random_off);
+    RUN_TEST(test_migration_preserves_carousel_random_when_present);
     RUN_TEST(test_future_schema_is_rejected_without_write);
     RUN_TEST(test_incomplete_current_record_is_rejected_without_write);
     RUN_TEST(test_invalid_v0_record_is_rejected_without_write);
