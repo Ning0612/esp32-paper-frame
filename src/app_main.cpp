@@ -491,8 +491,22 @@ extern "C" void app_main()
             pf_config::to_string(config_result.action));
     }
 
+    // The schema governs the pf_config namespace only. Wi-Fi credentials, the
+    // management password and the weather/sensor settings each live in their
+    // own NVS namespace with their own validation, so a schema version this
+    // firmware cannot interpret says nothing about whether they are readable.
+    // initialize() runs nvs_flash_init() before it ever looks at the schema,
+    // so a reject_future/reject_corrupt result still means NVS itself is fine
+    // -- only SchemaAction::unavailable says otherwise. Gating these loads on
+    // the schema instead turned an OTA rollback onto firmware predating a
+    // schema bump into what looks like a factory reset: the device came up in
+    // the provisioning AP with every setting apparently gone, while all of it
+    // sat intact in NVS.
+    const bool nvs_available =
+        config_result.action != pf_config::SchemaAction::unavailable;
+
     pf_config::NetworkCredentialLoadResult stored_credentials =
-        config_result.error == ESP_OK
+        nvs_available
             ? pf_config::load_network_credentials()
             : pf_config::NetworkCredentialLoadResult{
                   config_result.error,
@@ -511,7 +525,7 @@ extern "C" void app_main()
             stored_credentials.configured ? "true" : "false");
     }
     const pf_config::ManagementPasswordStatus password_status =
-        config_result.error == ESP_OK
+        nvs_available
             ? pf_config::management_password_status()
             : pf_config::ManagementPasswordStatus{
                   config_result.error,
@@ -530,7 +544,7 @@ extern "C" void app_main()
             password_status.configured ? "true" : "false");
     }
     pf_config::WeatherSettingsLoadResult weather_settings_result =
-        config_result.error == ESP_OK
+        nvs_available
             ? pf_config::load_weather_settings()
             : pf_config::WeatherSettingsLoadResult{
                   config_result.error,
@@ -552,7 +566,7 @@ extern "C" void app_main()
                 : "false");
     }
     pf_config::SensorSettingsLoadResult sensor_settings_result =
-        config_result.error == ESP_OK
+        nvs_available
             ? pf_config::load_sensor_settings()
             : pf_config::SensorSettingsLoadResult{
                   config_result.error,
