@@ -436,6 +436,47 @@ void test_compressed_file_decodes_and_composes_same_as_uncompressed()
     TEST_ASSERT_EQUAL_MEMORY(frame_b.data(), frame_a.data(), frame_b.size());
 }
 
+// Compression and rotation are orthogonal stages, but a compressed portrait
+// file going through the default rotation is the combination the device
+// actually serves, and nothing covered it: the compressed round-trip test
+// below only uses landscape.
+void test_compressed_portrait_matches_uncompressed_under_default_rotation()
+{
+    const auto compressed_file = make_compressed_file(1U);
+    const auto uncompressed_file = make_file(1U);
+    const pf_display::StatusBarContent content = make_status_content();
+
+    std::vector<std::uint8_t> compressed_scratch(pf_image::kPfr1MaxPayloadBytes);
+    std::vector<std::uint8_t> output_scratch(pf_image::kPfr1MaxPayloadBytes);
+    pf_image::Pfr1InflateBuffers inflate_buffers;
+    inflate_buffers.compressed = compressed_scratch.data();
+    inflate_buffers.compressed_capacity = compressed_scratch.size();
+    inflate_buffers.output = output_scratch.data();
+    inflate_buffers.output_capacity = output_scratch.size();
+
+    std::vector<std::uint8_t> payload_a(pf_image::kPfr1MaxPayloadBytes);
+    std::vector<std::uint8_t> status_a(pf_display::kLandscapeStatusBytes);
+    std::vector<std::uint8_t> frame_a(pf_display::kFullFramebufferBytes, 0x55U);
+    pf_carousel::Pfr1FrameDecoder compressed_decoder(
+        payload_a.data(), payload_a.size(), &inflate_buffers);
+    TEST_ASSERT_TRUE(feed_file(compressed_decoder, compressed_file));
+    TEST_ASSERT_TRUE(compressed_decoder.finish_and_compose(
+        status_a.data(), status_a.size(), frame_a.data(), frame_a.size(),
+        content));
+
+    std::vector<std::uint8_t> payload_b(pf_image::kPfr1MaxPayloadBytes);
+    std::vector<std::uint8_t> status_b(pf_display::kLandscapeStatusBytes);
+    std::vector<std::uint8_t> frame_b(pf_display::kFullFramebufferBytes, 0x55U);
+    pf_carousel::Pfr1FrameDecoder uncompressed_decoder(
+        payload_b.data(), payload_b.size());
+    TEST_ASSERT_TRUE(feed_file(uncompressed_decoder, uncompressed_file));
+    TEST_ASSERT_TRUE(uncompressed_decoder.finish_and_compose(
+        status_b.data(), status_b.size(), frame_b.data(), frame_b.size(),
+        content));
+
+    TEST_ASSERT_EQUAL_MEMORY(frame_b.data(), frame_a.data(), frame_b.size());
+}
+
 void test_compressed_file_without_inflate_buffers_fails_closed()
 {
     const auto compressed_file = make_compressed_file(0U);
@@ -526,6 +567,7 @@ int main()
     RUN_TEST(test_portrait_file_composes_and_rejects_small_payload_buffer);
     RUN_TEST(test_portrait_default_rotation_matches_physical_mounting);
     RUN_TEST(test_compressed_file_decodes_and_composes_same_as_uncompressed);
+    RUN_TEST(test_compressed_portrait_matches_uncompressed_under_default_rotation);
     RUN_TEST(test_compressed_file_without_inflate_buffers_fails_closed);
     RUN_TEST(test_corrupt_compressed_stream_fails_closed_without_partial_frame);
     RUN_TEST(test_unsynced_time_still_composes_a_safe_placeholder);

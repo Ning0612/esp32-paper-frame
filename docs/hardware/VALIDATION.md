@@ -5,7 +5,7 @@
 測試時，請以目前硬體 profile、命令與 acceptance 描述為準。歷史段落保留時間
 順序與測試結論；後續新增紀錄仍採 append-only，頂端索引代表目前狀態。
 
-## Current unresolved hardware evidence（2026-08-10）
+## Current unresolved hardware evidence（2026-08-19）
 
 本檔以下內容是 append-only 的歷史證據；本節只整理目前仍未閉環的項目，
 避免把早期「尚未驗證」誤讀成目前狀態，也避免把 host/build 結果當成實機
@@ -21,7 +21,7 @@
 | Phase 8 OTA | 真實 rollback fault injection、rollback confirmation、OTA worker stack high-water mark、weather+OTA heap 併發 | 2026-08-01 Phase 8；2026-08-03 GitHub Release 驗證 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
 | active OTA upload wrapper | wrapper 的真實硬體寫入尚未以本次版本重跑；手動 active-slot 寫入已有證據 | 2026-08-03 active OTA slot upload |
-| 嵌入式 WebUI | 僅剩「登入後 Dashboard／System 頁的容量欄位視覺確認」與「真實 OTA 後前端同步換版」；gzip 供檔、Web Worker、favicon、`/health` 形狀與 webfs 不再掛載已於 2026-08-19 實機驗證 | 2026-08-19 嵌入式 WebUI 實機驗證 |
+| 嵌入式 WebUI | 一次真實 OTA 後前端同步換版；移除 webfs 掛載後的 heap 差值量化 | 2026-08-19 嵌入式 WebUI 實機驗證 |
 
 ## 2026-07-29 — 初始 USB 盤點
 
@@ -1544,9 +1544,8 @@ CSP 均原樣保留。注意 route 只註冊 `HTTP_GET`，因此 `curl -I`（HEA
 
 ### 仍未驗證
 
-- 登入後 Dashboard／System 頁的容量欄位視覺確認（需管理密碼；程式與
-  contract test 已確認 `webfs-capacity`／`system-webfs-capacity` 兩個 id 與
-  `webfs_total_bytes` 皆已從 `index.html`／`ui.js` 移除）。
+- ~~登入後 Dashboard／System 頁的容量欄位視覺確認~~ **已於 2026-08-19 由使用者
+  在實機確認：兩頁皆不再顯示 webfs 容量。**
 - 一次真實 OTA 後前端同步換版（需要一個新的 GitHub Release 才能端到端驗證）。
 - 移除 webfs 掛載後的 heap 差值量化（缺改動前的對照值）。
 
