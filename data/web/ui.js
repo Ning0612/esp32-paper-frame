@@ -1779,8 +1779,13 @@
         $("#system-ota-check-state").textContent = checkLabels[ota.check_state] || "未知";
         $("#system-ota-latest-version").textContent = ota.latest_version || "未知";
         $("#system-ota-update-state").textContent = updateLabels[ota.update_state] || "未知";
-        $("#system-ota-progress").textContent = (ota.update_state === "downloading" || ota.update_state === "writing")
-          ? `${ota.progress_percent}%` : "—";
+        const otaInProgress = ota.update_state === "downloading" || ota.update_state === "writing";
+        const otaPercent = Math.max(0, Math.min(100, Number(ota.progress_percent) || 0));
+        const otaBar = $("#system-ota-progress-bar");
+        $("#system-ota-progress").textContent = otaInProgress ? `${otaPercent}%` : "—";
+        $("#system-ota-progress-fill").style.width = otaInProgress ? `${otaPercent}%` : "0%";
+        otaBar.hidden = !otaInProgress;
+        otaBar.setAttribute("aria-valuenow", String(otaInProgress ? otaPercent : 0));
         // ready_pending_reboot + non-empty last_error means "succeeded but
         // automatic reboot didn't fire, manual reboot needed" -- NOT a
         // failure; only "failed" state is an actual OTA failure.

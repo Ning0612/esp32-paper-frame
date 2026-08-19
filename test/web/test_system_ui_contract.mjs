@@ -28,6 +28,8 @@ for (const id of [
   "system-ota-latest-version",
   "system-ota-update-state",
   "system-ota-progress",
+  "system-ota-progress-bar",
+  "system-ota-progress-fill",
   "system-ota-error",
   "system-ota-check",
   "system-ota-update",
@@ -110,5 +112,11 @@ assert.ok(!js.includes("/api/v1/system/recovery-ap"), "recovery-ap fetch must st
 assert.ok(!html.includes('id="system-webfs-capacity"'), "system webfs capacity must stay removed");
 assert.ok(!html.includes('id="webfs-capacity"'), "dashboard webfs capacity must stay removed");
 assert.ok(!js.includes("webfs_total_bytes"), "webfs storage fields must stay removed");
+
+// The bar is decorative; the percentage must stay readable as text, and the
+// bar has to carry its value for assistive tech rather than only visually.
+assert.ok(css.includes(".progress-fill"), "progress bar needs a fill style");
+assert.ok(html.includes('role="progressbar"'), "progress bar needs its role");
+assert.ok(js.includes('setAttribute("aria-valuenow"'), "progress must update aria-valuenow");
 
 console.log("system_ui_contract: checks passed");

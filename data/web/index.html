@@ -343,7 +343,12 @@
                   <div><dt>檢查狀態</dt><dd id="system-ota-check-state">未知</dd></div>
                   <div><dt>最新版本</dt><dd id="system-ota-latest-version">未知</dd></div>
                   <div><dt>更新狀態</dt><dd id="system-ota-update-state">未知</dd></div>
-                  <div><dt>進度</dt><dd id="system-ota-progress">—</dd></div>
+                  <div><dt>進度</dt><dd class="progress-cell">
+                    <div id="system-ota-progress-bar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="OTA 更新進度" hidden>
+                      <div id="system-ota-progress-fill" class="progress-fill"></div>
+                    </div>
+                    <span id="system-ota-progress">—</span>
+                  </dd></div>
                   <div><dt>訊息</dt><dd id="system-ota-error">—</dd></div>
                 </dl>
                 <div class="system-action-group" role="group" aria-label="OTA 操作">

@@ -1,0 +1,37 @@
+- main [ref=f1e9]:
+  - generic [ref=f1e10]:
+    - generic [ref=f1e11]:
+      - generic [ref=f1e12]: PF
+      - generic [ref=f1e13]:
+        - paragraph [ref=f1e14]: PAPERFRAME / LOCAL CONSOLE
+        - heading "離線電子紙管理台" [level=1] [ref=f1e15]
+    - generic [ref=f1e16]:
+      - generic [ref=f1e17]: LOCAL ONLY
+      - button "DARK" [ref=f1e18] [cursor=pointer]
+  - region [ref=f1e21]:
+    - generic [ref=f1e22]:
+      - generic [ref=f1e23]:
+        - generic [ref=f1e24]: AUTH
+        - generic [ref=f1e25]:
+          - paragraph [ref=f1e26]: ACCESS CONTROL
+          - heading "管理員登入" [level=2] [ref=f1e27]
+      - generic [ref=f1e28]: ADMIN
+    - paragraph [ref=f1e29]: 正在確認裝置的管理員狀態…
+    - generic [ref=f1e30]:
+      - generic [ref=f1e31]:
+        - generic [ref=f1e32]: 管理帳號
+        - textbox "管理帳號" [ref=f1e33]: admin
+      - generic [ref=f1e34]:
+        - generic [ref=f1e35]: 管理密碼
+        - generic [ref=f1e36]:
+          - textbox "管理密碼 顯示 至少 8 個字元；只保存加鹽後的強雜湊。" [ref=f1e37]
+          - button "顯示" [ref=f1e38] [cursor=pointer]
+        - generic [ref=f1e39]: 至少 8 個字元；只保存加鹽後的強雜湊。
+      - button "登入" [ref=f1e40] [cursor=pointer]
+      - status [ref=f1e41]
+  - generic [ref=f1e42]:
+    - link "Ning0612/esp32-paper-frame repo source" [ref=f1e43] [cursor=pointer]:
+      - /url: https://github.com/Ning0612/esp32-paper-frame
+    - generic [ref=f1e44]: PaperFrame Management Console
+    - generic [ref=f1e45]: 所有資產皆離線內建
+    - generic [ref=f1e46]: 僅限可信任 LAN 或裝置 AP
