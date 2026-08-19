@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -256,6 +257,86 @@ void test_portrait_file_composes_and_rejects_small_payload_buffer()
     TEST_ASSERT_FALSE(rejected.feed(file.data(), file.size()));
 }
 
+bool compose_portrait_frame(
+    std::vector<std::uint8_t>& frame,
+    const std::vector<std::uint8_t>& file,
+    const pf_display::StatusBarContent& content,
+    const bool use_default_rotation,
+    const pf_display::PortraitRotation rotation)
+{
+    std::vector<std::uint8_t> payload(pf_image::kPfr1MaxPayloadBytes);
+    std::vector<std::uint8_t> status(pf_display::kLandscapeStatusBytes);
+    frame.assign(pf_display::kFullFramebufferBytes, 0x55U);
+    pf_carousel::Pfr1FrameDecoder decoder(payload.data(), payload.size());
+    if (!feed_file(decoder, file)) {
+        return false;
+    }
+    if (use_default_rotation) {
+        return decoder.finish_and_compose(
+            status.data(),
+            status.size(),
+            frame.data(),
+            frame.size(),
+            content);
+    }
+    return decoder.finish_and_compose(
+        status.data(),
+        status.size(),
+        frame.data(),
+        frame.size(),
+        content,
+        pf_display::StatusPlacement::top,
+        rotation);
+}
+
+// The panel is mounted so that a portrait frame rotated clockwise comes out
+// upside down; reported from hardware on 2026-08-19. The two rotations map
+// the logical canvas point-symmetrically, so they differ by exactly 180
+// degrees and the default has to be the counter-clockwise one for what the
+// panel shows to match how the device is actually placed.
+void test_portrait_default_rotation_matches_physical_mounting()
+{
+    const auto file = make_file(1U);
+    const pf_display::StatusBarContent content = make_status_content();
+
+    std::vector<std::uint8_t> by_default;
+    std::vector<std::uint8_t> counter_clockwise;
+    std::vector<std::uint8_t> clockwise;
+
+    TEST_ASSERT_TRUE(compose_portrait_frame(
+        by_default,
+        file,
+        content,
+        true,
+        pf_display::PortraitRotation::clockwise));
+    TEST_ASSERT_TRUE(compose_portrait_frame(
+        counter_clockwise,
+        file,
+        content,
+        false,
+        pf_display::PortraitRotation::counter_clockwise));
+    TEST_ASSERT_TRUE(compose_portrait_frame(
+        clockwise,
+        file,
+        content,
+        false,
+        pf_display::PortraitRotation::clockwise));
+
+    TEST_ASSERT_EQUAL_MEMORY(
+        counter_clockwise.data(),
+        by_default.data(),
+        by_default.size());
+
+    // Without this the assertion above would still pass if the two rotations
+    // ever became equivalent, making the test vacuous.
+    TEST_ASSERT_NOT_EQUAL(
+        0,
+        std::memcmp(
+            clockwise.data(),
+            counter_clockwise.data(),
+            counter_clockwise.size()));
+}
+
 void test_compressed_file_decodes_and_composes_same_as_uncompressed()
 {
     const auto compressed_file = make_compressed_file(0U);
@@ -382,6 +463,7 @@ int main()
     UNITY_BEGIN();
     RUN_TEST(test_landscape_file_composes_rendered_status_and_preserves_image);
     RUN_TEST(test_portrait_file_composes_and_rejects_small_payload_buffer);
+    RUN_TEST(test_portrait_default_rotation_matches_physical_mounting);
     RUN_TEST(test_compressed_file_decodes_and_composes_same_as_uncompressed);
     RUN_TEST(test_compressed_file_without_inflate_buffers_fails_closed);
     RUN_TEST(test_corrupt_compressed_stream_fails_closed_without_partial_frame);

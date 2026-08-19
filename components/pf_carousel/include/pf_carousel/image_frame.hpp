@@ -39,8 +39,14 @@ public:
         const pf_display::StatusBarContent& status_content,
         const pf_display::StatusPlacement placement =
             pf_display::StatusPlacement::top,
+        // Counter-clockwise matches how the panel is physically mounted:
+        // rendering a portrait frame clockwise puts it on screen upside down
+        // (observed on hardware 2026-08-19). compose_portrait maps the
+        // logical canvas point-symmetrically for the two rotations, so this
+        // is exactly a 180-degree difference and it turns the whole canvas,
+        // status strip included.
         const pf_display::PortraitRotation portrait_rotation =
-            pf_display::PortraitRotation::clockwise)
+            pf_display::PortraitRotation::counter_clockwise)
     {
         if (failed_ || status == nullptr ||
             status_capacity < pf_display::kLandscapeStatusBytes ||
