@@ -147,15 +147,28 @@ inline StartupPlan make_startup_plan(const StoredConfig& stored)
 // writing costs the newer firmware its configuration.
 constexpr bool schema_allows_write(const SchemaAction action)
 {
-    // reject_corrupt is writable on purpose. Unreadable data cannot be
-    // preserved by refusing to touch it, and overwriting it is the only route
-    // back to a working configuration -- blocking that would leave the
-    // central record permanently read-only with no repair path short of
-    // erasing NVS. reject_future is the opposite case: that record is intact
-    // and meaningful to newer firmware, so this build must not stamp its own
-    // version over it.
-    return action != SchemaAction::reject_future &&
-           action != SchemaAction::unavailable;
+    // Only a record this firmware actually parsed may be written back.
+    //
+    // reject_corrupt is excluded even though that blocks the obvious repair
+    // route, because the save path cannot repair anything: a rejected plan
+    // reports record_available=false, so the fields it *did* parse are
+    // dropped and the runtime carries placeholders instead ("unknown" for
+    // timezone). Saving then writes those placeholders over settings that
+    // were perfectly valid -- fixing one corrupt field by destroying its
+    // neighbours, invisibly, with no UI to put them back.
+    //
+    // Repairing genuinely corrupt data needs a deliberate reset that starts
+    // from defaults rather than from a half-populated runtime; until such a
+    // path exists the central record stays read-only, which loses a setting
+    // change rather than a setting.
+    //
+    // reject_future is excluded for the opposite reason: that record parsed
+    // fine for newer firmware and stamping this build's version over it would
+    // downgrade it.
+    return action == SchemaAction::use_current ||
+           action == SchemaAction::migrate_v0 ||
+           action == SchemaAction::migrate_v1 ||
+           action == SchemaAction::initialize_defaults;
 }
 
 constexpr const char* to_string(const SchemaAction action)

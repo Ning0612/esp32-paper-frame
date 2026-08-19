@@ -1086,7 +1086,7 @@
       }
       if (response.status === 409 && payload.error === "config_read_only") {
         // Firmware older than the stored settings: retrying cannot help.
-        throw new Error("目前韌體比裝置上的設定舊，為避免覆蓋而暫停儲存；請更新韌體後再試。");
+        throw new Error("裝置設定目前為唯讀：開機時無法解讀已儲存的設定，為避免覆寫而暫停儲存。請查看裝置日誌。");
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "carousel_save_failed");
       imageCarouselStatus.className = "save-status success";
