@@ -21,7 +21,7 @@
 | Phase 8 OTA | 真實 rollback fault injection、rollback confirmation、OTA worker stack high-water mark、weather+OTA heap 併發 | 2026-08-01 Phase 8；2026-08-03 GitHub Release 驗證 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
 | active OTA upload wrapper | wrapper 的真實硬體寫入尚未以本次版本重跑；手動 active-slot 寫入已有證據 | 2026-08-03 active OTA slot upload |
-| 嵌入式 WebUI | 一次真實 OTA 後前端同步換版；移除 webfs 掛載後的 heap 差值量化 | 2026-08-19 嵌入式 WebUI 實機驗證 |
+| 嵌入式 WebUI | 僅剩「移除 webfs 掛載後的 heap 差值量化」（缺改動前對照值）；OTA 後前端同步換版已於 v0.9.0 閉環 | 2026-08-19 v0.9.0 OTA 端到端驗證 |
 
 ## 2026-07-29 — 初始 USB 盤點
 
@@ -1601,3 +1601,53 @@ CSP 均原樣保留。注意 route 只註冊 `HTTP_GET`，因此 `curl -I`（HEA
 
 此預設值編碼的是本裝置的實體擺放方向。若日後支援不同的安裝方向，應改為
 可設定項而非再次翻轉預設值。
+
+## 2026-08-19 — v0.9.0 release 與 OTA 端到端驗證
+
+關閉「一次真實 OTA 後前端同步換版」這項待驗證，同時取得 ADR-0008 的真實
+GitHub 下載與 rollback confirmation 證據。
+
+### Release
+
+tag `v0.9.0` 推送後 release workflow 成功（4m56s）。資產：
+
+| 資產 | 大小 | 備註 |
+| --- | ---: | --- |
+| `paperframe-firmware.bin` | 1,292,608 | OTA 使用 |
+| `paperframe-partitions.csv` | 414 | SHA-256 `427fd414…5870`，**與 ADR-0004 凍結值一致** |
+| `paperframe-licenses.zip` | 4,556 | 第三方素材授權 |
+| `SHA256SUMS` | 272 | |
+
+**不再產生 `paperframe-webfs.bin`**，確認 ADR-0016 的發佈側清理生效。
+
+### 測試方法
+
+刻意**不降回舊架構**：v0.8.2 的 upload 走的不是 active-slot wrapper，會寫到
+`0x10000`（ota_0），而 otadata 指向 ota_1，重啟後仍執行原韌體，降版根本不會
+生效。改為以目前程式碼建置一份「版本號 `v0.8.9` + `index.html` 開頭插入
+`<!-- OTA-PROBE-LOCAL-BUILD -->` 標記」的測試韌體燒入裝置。這個標記讓「前端
+是否真的被換掉」成為可直接觀測的事實，而不是從「前端在 app image 內」推論。
+
+### 結果
+
+| 檢查 | 結果 |
+| --- | --- |
+| OTA 前版本 | `v0.8.9`（測試韌體），前端含 `OTA-PROBE-LOCAL-BUILD` |
+| 管理員於 WebUI 觸發檢查更新 → 立即更新 | 成功，裝置自動重開機 |
+| OTA 後版本 | **`v0.9.0`** |
+| 前端標記 | **已消失**——前端確實隨韌體一併換成 release 版本 |
+| `/api/v1/health` | `status":"ready"`，`services` 無 `webfs` |
+| 資產供檔 | `/`、`/ui.js`、`/image_quantize_worker.js` 皆 `Content-Encoding: gzip`，解壓後長度與 release 版一致（31,849 / 94,924 / 1,095） |
+| 開機 log | `rollback_confirmed=ESP_OK`；`filesystem=imagefs mounted=true`（無 webfs 掛載） |
+| **再次重開機** | 仍為 `v0.9.0`，標記仍不存在——**rollback confirmation 確實生效，未被回滾** |
+| imagefs | `used=1,257,472`，使用者圖片完好，OTA 未觸碰 |
+
+「再次重開機仍是新版」是關鍵的一步：若
+`esp_ota_mark_app_valid_cancel_rollback()` 未生效，bootloader 會在下次開機
+回滾到 `v0.8.9`，只做一次 OTA 是看不出來的。
+
+### 仍未驗證
+
+- 移除 webfs 掛載後的 heap 差值量化（缺改動前的同條件對照值）。
+- rollback fault injection（刻意燒一個在 confirmation 前 crash-loop 的版本）。
+- OTA 下載途中斷電。

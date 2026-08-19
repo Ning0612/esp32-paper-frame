@@ -42,7 +42,7 @@ Phase 1–8 的主要程式、host tests 與韌體 build 已完成，部分 boot
 | Phase 8 OTA | 真實 GitHub download、rollback fault injection／confirmation、worker stack、weather+OTA heap、System page |
 | AP grace policy | SSID 可讀性、AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard |
 | active OTA upload wrapper | 以目前版本重新完成真實硬體寫入流程 |
-| 嵌入式 WebUI | 瀏覽器對 `Content-Encoding: gzip` 的實際解碼（含 Web Worker 與 favicon）、`/health` 實機回應形狀、移除 webfs 掛載後的 heap 差值、一次真實 OTA 後前端同步換版 |
+| 嵌入式 WebUI | 移除 webfs 掛載後的 heap 差值量化（其餘已於 2026-08-19 實機驗證，OTA 端到端已於 v0.9.0 閉環） |
 
 每完成一項，先更新 [硬體驗證紀錄](hardware/VALIDATION.md) 的頂端未完成索引，
 再同步本表；不要只把 checkbox 改成完成。
