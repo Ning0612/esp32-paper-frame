@@ -65,3 +65,4 @@ NNNN-short-imperative-title.md
 - [ADR-0014：天氣更新改為面板刷新觸發，WebUI 改用地圖選點](0014-weather-panel-refresh-cadence-and-map-picker.md)（取代 ADR-0005「Rate limit / 更新頻率」子決策與 location/language 欄位）
 - [ADR-0015：開機首張真實圖片等待 NTP／天氣就緒或逾時](0015-first-image-waits-for-ntp-and-weather.md)
 - [ADR-0016：WebUI 資產 gzip 後編入 app image，webfs 分割區轉為 reserved](0016-embed-webui-assets-in-firmware.md)（取代 ADR-0008 Context 第 1 條）
+- [ADR-0017：設定載入的降級邊界與中央記錄的寫入規則](0017-config-degradation-boundaries.md)

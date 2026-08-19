@@ -1651,3 +1651,49 @@ tag `v0.9.0` 推送後 release workflow 成功（4m56s）。資產：
 - 移除 webfs 掛載後的 heap 差值量化（缺改動前的同條件對照值）。
 - rollback fault injection（刻意燒一個在 confirmation 前 crash-loop 的版本）。
 - OTA 下載途中斷電。
+
+## 2026-08-20 — 設定降級邊界修正（實機紅綠）
+
+修正兩個既有缺陷，詳見
+[ADR-0017](../adr/0017-config-degradation-boundaries.md)。兩者都只在未來某次
+`kCurrentSchemaVersion` 升級時才會引爆，且症狀都出現在 OTA 之後——最難歸因的
+時機。
+
+### 缺陷 1：遷移會丟棄既有欄位
+
+`make_startup_plan()` 在遷移分支 early return **之前**複製了
+`refresh_minutes`，卻在其後才讀取 `carousel_random`。遷移路徑會設定
+`write_required`，因此回傳的記錄會被寫回 NVS——沒被複製到的欄位就被預設值
+永久取代。既有的 v1 測試斷言「隨機播放預設關閉」是正確的（那筆 v1 記錄本來
+就沒有這個欄位）；缺陷在於遷移路徑不會**保留**欄位，只有當來源版本已帶著它
+時才會顯現，也就是下一次 bump。
+
+修正：所有欄位在任何 early return 之前完成複製。新增 host test 以「已帶有該
+欄位的記錄」作為輸入（即下次 bump 的形狀），修改前為紅
+（`Expected TRUE Was FALSE`）。
+
+### 缺陷 2：schema 不可解讀時，不相關的設定與服務一起停擺
+
+以 `kCurrentSchemaVersion = 1` 建置，讓 NVS 中既有的 version 2 記錄看起來像
+未來版本，精確重現 OTA rollback 情境。
+
+| | 修正前 | 修正後 |
+| --- | --- | --- |
+| serial | `provisioning_ap_ready ssid=PaperFrame-Setup-...` | 正常連線 |
+| `/api/v1/health` | 無法連上 | `wifi: "connected"`、`config: "degraded"` |
+| 錯誤密碼登入 | （服務未啟動，503） | **401**（服務已啟動並驗證憑證） |
+
+還原為 version 2 後裝置回到 `config: "ready"`、`wifi: "connected"`。
+
+**驗證方法的教訓**：第一次實機驗證曾以 `/api/v1/auth/status` 回報
+`password_configured: true` 作為「管理密碼載入成功」的證據，這是**假陽性**
+——`AuthService::authenticate_request()` 在服務未初始化時刻意 fail-closed
+回傳 `true`，也就是說那個 `true` 正是「服務沒啟動」的表現。能區分兩種狀態的
+探針是「用錯誤密碼登入」：401 代表服務已啟動並實際驗證，503 代表服務不可用。
+
+### 仍未驗證
+
+- 登入後修改設定被拒（`409 config_read_only`）的端到端路徑，需要管理密碼。
+- `nvs_flash_init()` 失敗、以及 NVS 滿導致 `pf_config` 開啟失敗這兩條路徑。
+- 真實的 OTA rollback fault injection（刻意燒一個在 rollback confirmation 前
+  crash-loop 的版本）——這仍是 ADR-0008 從 Phase 8 起就列著的待驗證項。
