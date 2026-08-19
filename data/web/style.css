@@ -256,6 +256,6 @@ footer a:hover, footer a:focus-visible { color: var(--ink); text-decoration-thic
    states where there is no progress to show; the bar is purely visual and is
    hidden unless a download or write is actually running. */
 .progress-cell { display: flex; align-items: center; gap: 9px; }
-.progress-bar { flex: 1 1 auto; min-width: 96px; max-width: 220px; height: 18px; border: 2px solid var(--line); background: var(--surface-strong); overflow: hidden; }
+.progress-bar { flex: 1 1 auto; min-width: 192px; max-width: 440px; height: 18px; border: 2px solid var(--line); background: var(--surface-strong); overflow: hidden; }
 .progress-fill { width: 0; height: 100%; background: var(--teal); transition: width .3s ease; }
 @media (prefers-reduced-motion: reduce) { .progress-fill { transition: none; } }
