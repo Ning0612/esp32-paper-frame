@@ -1549,3 +1549,56 @@ CSP 均原樣保留。注意 route 只註冊 `HTTP_GET`，因此 `curl -I`（HEA
   `webfs_total_bytes` 皆已從 `index.html`／`ui.js` 移除）。
 - 一次真實 OTA 後前端同步換版（需要一個新的 GitHub Release 才能端到端驗證）。
 - 移除 webfs 掛載後的 heap 差值量化（缺改動前的對照值）。
+
+## 2026-08-19 — 直式圖片方向修正（實機確認）
+
+### 症狀
+
+實機直立擺放時，直式（portrait）圖片在面板上呈現上下顛倒，與實際放置
+方向差 180 度。橫式圖片正常。
+
+### 根因
+
+`pf_display::compose_portrait()` 對 `PortraitRotation::clockwise` 與
+`counter_clockwise` 的座標映射互為點對稱：
+
+- clockwise：`native_x = (kPortraitLogicalHeight - 1) - logical_y`、
+  `native_y = logical_x`
+- counter_clockwise：`native_x = logical_y`、
+  `native_y = (kPortraitImageWidth - 1) - logical_x`
+
+因此兩者恰好相差 180 度。renderer 本身兩個方向都正確且早有測試覆蓋
+（`test_frame_renderer` 的
+`test_portrait_rotates_all_placement_and_direction_combinations`）——錯的
+是 `pf_carousel::Pfr1FrameDecoder::finish_and_compose()` 的預設值選了
+`clockwise`，而本裝置的實際擺放需要 `counter_clockwise`。production 程式碼沒有任何呼叫端
+覆寫這個參數（只有 host test 為了比對兩個方向而明確傳值），所以預設值
+就是實際行為。
+
+### 修正
+
+`components/pf_carousel/include/pf_carousel/image_frame.hpp` 的
+`portrait_rotation` 預設值改為
+`pf_display::PortraitRotation::counter_clockwise`。`compose_portrait()`
+旋轉的是整個 portrait 邏輯畫布，狀態列會隨圖片一起翻轉，不會留在原處。
+橫式圖片不受影響（`compose_landscape()` 不做旋轉）。
+
+### 驗證
+
+- 新增 `test_image_frame` 的
+  `test_portrait_default_rotation_matches_physical_mounting`：以同一個
+  PFR1 檔案分別用「預設」「明確 counter_clockwise」「明確 clockwise」合成
+  三次，斷言預設等於 counter_clockwise，並額外斷言兩個方向的輸出確實不同
+  （避免斷言在兩者等價時變成空的）。
+- **修改前該測試為紅**：`Memory Mismatch. Byte 1209 Expected 0x00 Was
+  0x11`；修改後轉綠。
+- `pio test -e native` 305/305 通過；`pio run` 成功（Flash 49.3%、
+  1,292,285 bytes；RAM 32.6%）。
+- 燒錄後實機重啟，log 出現 `carousel_request=1 outcome=1
+  next_due_ms=1838647`，面板完成一次刷新；**使用者於實機確認直式圖片方向
+  已轉正**。
+
+### 備註
+
+此預設值編碼的是本裝置的實體擺放方向。若日後支援不同的安裝方向，應改為
+可設定項而非再次翻轉預設值。

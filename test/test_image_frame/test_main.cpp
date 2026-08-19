@@ -257,6 +257,38 @@ void test_portrait_file_composes_and_rejects_small_payload_buffer()
     TEST_ASSERT_FALSE(rejected.feed(file.data(), file.size()));
 }
 
+// Stamps a distinctive palette code into the image's logical (0,0) pixel and
+// repairs both CRCs, so a composed frame can be checked for where that pixel
+// actually landed rather than only for equality between two rotations.
+std::vector<std::uint8_t> mark_first_image_pixel(
+    std::vector<std::uint8_t> file,
+    const std::uint8_t code)
+{
+    const std::size_t payload_offset =
+        pf_image::kPfr1HeaderSize + std::string("test.pfr1").size();
+    const std::size_t payload_length = file.size() - payload_offset;
+    file[payload_offset] = static_cast<std::uint8_t>(
+        (code << 4U) | (file[payload_offset] & 0x0FU));
+    write_u32(
+        file,
+        24U,
+        pf_image::crc32(file.data() + payload_offset, payload_length));
+    write_u32(file, 28U, pf_image::crc32(file.data(), 24U));
+    return file;
+}
+
+std::uint8_t frame_code_at(
+    const std::vector<std::uint8_t>& frame,
+    const std::size_t x,
+    const std::size_t y)
+{
+    const std::size_t row_bytes = pf_display::kPanelWidth / 2U;
+    const std::uint8_t packed = frame[(y * row_bytes) + (x / 2U)];
+    return (x % 2U) == 0U
+        ? static_cast<std::uint8_t>(packed >> 4U)
+        : static_cast<std::uint8_t>(packed & 0x0FU);
+}
+
 bool compose_portrait_frame(
     std::vector<std::uint8_t>& frame,
     const std::vector<std::uint8_t>& file,
@@ -335,6 +367,35 @@ void test_portrait_default_rotation_matches_physical_mounting()
             clockwise.data(),
             counter_clockwise.data(),
             counter_clockwise.size()));
+
+    // The comparisons above are driven by the status strip, which is the only
+    // non-uniform part of a filler payload. Follow one image pixel through the
+    // rotation as well, so a decoder that mishandles image coordinates cannot
+    // pass by keeping the two rotations merely unequal.
+    constexpr std::uint8_t kMarker = 2U;
+    std::vector<std::uint8_t> marked;
+    TEST_ASSERT_TRUE(compose_portrait_frame(
+        marked,
+        mark_first_image_pixel(file, kMarker),
+        content,
+        true,
+        pf_display::PortraitRotation::clockwise));
+
+    // Status strip on top, so the image's first row sits at logical y =
+    // kStatusBarHeight. Counter-clockwise maps logical (x, y) to native
+    // (y, kPortraitImageWidth - 1 - x).
+    const std::size_t expected_x = pf_display::kStatusBarHeight;
+    const std::size_t expected_y = pf_display::kPortraitImageWidth - 1U;
+    TEST_ASSERT_EQUAL_UINT8(
+        kMarker,
+        frame_code_at(marked, expected_x, expected_y));
+
+    // ... and specifically not where a clockwise rotation would have put it.
+    const std::size_t clockwise_x =
+        pf_display::kPortraitLogicalHeight - 1U - pf_display::kStatusBarHeight;
+    TEST_ASSERT_NOT_EQUAL(
+        kMarker,
+        frame_code_at(marked, clockwise_x, 0U));
 }
 
 void test_compressed_file_decodes_and_composes_same_as_uncompressed()
