@@ -86,4 +86,7 @@ assert.ok(!ui.includes("previewProcessed.addEventListener(\"keydown\""));
 assert.ok(!ui.includes('imageSourceRaster'));
 assert.ok(ui.includes("data-image-action"));
 assert.ok(css.includes(".image-library-actions .danger-button"));
-console.log("image_ui_contract: 29 tests passed");
+assert.ok(ui.includes("config_read_only"),
+  "a refused save must be distinguished from a storage fault");
+
+console.log("image_ui_contract: 30 tests passed");

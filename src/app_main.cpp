@@ -495,20 +495,13 @@ extern "C" void app_main()
     // management password and the weather/sensor settings each live in their
     // own NVS namespace with their own validation, so a schema version this
     // firmware cannot interpret says nothing about whether they are readable.
-    // initialize() runs nvs_flash_init() before it ever looks at the schema, so
-    // reject_future/reject_corrupt mean the schema could not be interpreted
-    // rather than that NVS is unusable. This is a useful approximation, not a
-    // guarantee: a corrupt result can also come from a low-level read failure,
-    // and unavailable can come from pf_config being unopenable while other
-    // namespaces still read fine. Each loader validates its own blob and
-    // reports its own error, so the cost of being wrong here is a logged
-    // failure, not bad data. Gating these loads on
-    // the schema instead turned an OTA rollback onto firmware predating a
-    // schema bump into what looks like a factory reset: the device came up in
-    // the provisioning AP with every setting apparently gone, while all of it
-    // sat intact in NVS.
-    const bool nvs_available =
-        config_result.action != pf_config::SchemaAction::unavailable;
+    // Gate them on whether NVS itself came up -- not on the schema, and not on
+    // SchemaAction::unavailable, which also fires when merely the pf_config
+    // namespace cannot be opened. Gating on the schema turned an OTA rollback
+    // onto firmware predating a schema bump into what looked like a factory
+    // reset: the device came up in the provisioning AP with every setting
+    // apparently gone, while all of it sat intact in NVS.
+    const bool nvs_available = config_result.nvs_initialized;
 
     pf_config::NetworkCredentialLoadResult stored_credentials =
         nvs_available

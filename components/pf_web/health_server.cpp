@@ -982,6 +982,15 @@ esp_err_t process_carousel_config(
     }
     const esp_err_t saved = pf_config::save_config(candidate);
     pf_runtime::coordinator().unlock_flash_display();
+    if (saved == ESP_ERR_INVALID_STATE) {
+        // Not a storage fault: the stored record was written by firmware
+        // newer than this one, so overwriting it would downgrade it. Say so,
+        // otherwise the user retries a save that can never succeed.
+        return send_json(
+            request,
+            "409 Conflict",
+            "{\"ok\":false,\"error\":\"config_read_only\"}");
+    }
     if (saved != ESP_OK) {
         return send_json(
             request,

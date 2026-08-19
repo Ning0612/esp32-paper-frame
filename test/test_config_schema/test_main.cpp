@@ -138,10 +138,15 @@ void test_only_understood_schemas_may_be_written_back()
     TEST_ASSERT_TRUE(pf_config::schema_allows_write(
         pf_config::SchemaAction::initialize_defaults));
 
+    // Corrupt data cannot be preserved by refusing to touch it, and
+    // overwriting is the only way back to a usable configuration.
+    TEST_ASSERT_TRUE(
+        pf_config::schema_allows_write(pf_config::SchemaAction::reject_corrupt));
+
+    // A future record is intact and meaningful to newer firmware; stamping
+    // this build's version over it would destroy that.
     TEST_ASSERT_FALSE(
         pf_config::schema_allows_write(pf_config::SchemaAction::reject_future));
-    TEST_ASSERT_FALSE(
-        pf_config::schema_allows_write(pf_config::SchemaAction::reject_corrupt));
     TEST_ASSERT_FALSE(
         pf_config::schema_allows_write(pf_config::SchemaAction::unavailable));
 }

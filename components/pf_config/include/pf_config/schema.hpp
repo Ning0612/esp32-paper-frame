@@ -147,10 +147,15 @@ inline StartupPlan make_startup_plan(const StoredConfig& stored)
 // writing costs the newer firmware its configuration.
 constexpr bool schema_allows_write(const SchemaAction action)
 {
-    return action == SchemaAction::use_current ||
-           action == SchemaAction::migrate_v0 ||
-           action == SchemaAction::migrate_v1 ||
-           action == SchemaAction::initialize_defaults;
+    // reject_corrupt is writable on purpose. Unreadable data cannot be
+    // preserved by refusing to touch it, and overwriting it is the only route
+    // back to a working configuration -- blocking that would leave the
+    // central record permanently read-only with no repair path short of
+    // erasing NVS. reject_future is the opposite case: that record is intact
+    // and meaningful to newer firmware, so this build must not stamp its own
+    // version over it.
+    return action != SchemaAction::reject_future &&
+           action != SchemaAction::unavailable;
 }
 
 constexpr const char* to_string(const SchemaAction action)

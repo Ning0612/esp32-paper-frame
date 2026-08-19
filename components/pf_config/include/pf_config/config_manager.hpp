@@ -14,6 +14,13 @@ struct StartupResult {
     esp_err_t error;
     bool record_available;
     ConfigRecord record;
+    // Whether the NVS subsystem itself came up. SchemaAction::unavailable
+    // covers both "nvs_flash_init() failed" and "only the pf_config namespace
+    // could not be opened", and those demand opposite responses: the first
+    // means no namespace is readable, the second says nothing about the
+    // others. Callers deciding whether to load unrelated settings must use
+    // this, not the action.
+    bool nvs_initialized;
 };
 
 StartupResult initialize();

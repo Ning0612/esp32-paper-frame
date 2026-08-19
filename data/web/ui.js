@@ -1084,6 +1084,10 @@
         showAuthForm(true);
         return;
       }
+      if (response.status === 409 && payload.error === "config_read_only") {
+        // Firmware older than the stored settings: retrying cannot help.
+        throw new Error("目前韌體比裝置上的設定舊，為避免覆蓋而暫停儲存；請更新韌體後再試。");
+      }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "carousel_save_failed");
       imageCarouselStatus.className = "save-status success";
       imageCarouselStatus.textContent = `${imageCarouselRandom.checked ? "已開啟隨機輪播" : "已關閉隨機輪播"}，間隔 ${refreshMinutes} 分鐘。`;

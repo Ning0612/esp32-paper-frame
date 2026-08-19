@@ -115,15 +115,20 @@ std::atomic<bool> g_central_record_writable{false};
 
 StartupResult initialize()
 {
+    // Clear first: every early return below leaves the record read-only, and
+    // a second call must not inherit an earlier run's permission.
+    g_central_record_writable.store(false, std::memory_order_release);
+
     esp_err_t result = initialize_nvs();
     if (result != ESP_OK) {
-        return {SchemaAction::unavailable, result, false, {}};
+        // NVS itself is unusable -- nothing can be read.
+        return {SchemaAction::unavailable, result, false, {}, false};
     }
 
     nvs_handle_t handle = 0;
     result = nvs_open(kNamespace, NVS_READWRITE, &handle);
     if (result != ESP_OK) {
-        return {SchemaAction::unavailable, result, false, {}};
+        return {SchemaAction::unavailable, result, false, {}, true};
     }
 
     StoredConfig stored{};
@@ -138,6 +143,7 @@ StartupResult initialize()
             version_result,
             false,
             {},
+            true,
         };
     }
 
@@ -163,7 +169,7 @@ StartupResult initialize()
         }
         if (result != ESP_OK) {
             nvs_close(handle);
-            return {SchemaAction::unavailable, result, false, {}};
+            return {SchemaAction::unavailable, result, false, {}, true};
         }
     }
 
@@ -188,6 +194,7 @@ StartupResult initialize()
         result,
         result == ESP_OK,
         result == ESP_OK ? plan.record : ConfigRecord{},
+        true,
     };
 }
 
