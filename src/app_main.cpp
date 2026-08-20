@@ -273,18 +273,20 @@ pf_display::StatusBarContent build_status_bar_content()
     }
 
     if (snapshot.time_sync == pf_runtime::TimeSyncState::synced) {
-        const std::time_t now = std::time(nullptr);
-        std::tm utc{};
-        // Displayed in UTC: the minimal SNTP integration in this phase
-        // does not carry a configured timezone offset (see
-        // docs/adr/0005-weather-worker-and-status-bar.md).
-        if (gmtime_r(&now, &utc) != nullptr) {
+        // SNTP itself only ever yields UTC; shifting the epoch by the
+        // configured offset before gmtime_r() is what turns that into local
+        // wall-clock date/weekday fields (see
+        // docs/adr/0005-weather-worker-and-status-bar.md Update 2026-08-21).
+        const std::time_t local_now = std::time(nullptr) +
+            static_cast<std::time_t>(snapshot.timezone_offset_minutes) * 60;
+        std::tm local{};
+        if (gmtime_r(&local_now, &local) != nullptr) {
             content.time_valid = true;
-            content.year = static_cast<std::uint16_t>(utc.tm_year + 1900);
-            content.month = static_cast<std::uint8_t>(utc.tm_mon + 1);
-            content.day = static_cast<std::uint8_t>(utc.tm_mday);
+            content.year = static_cast<std::uint16_t>(local.tm_year + 1900);
+            content.month = static_cast<std::uint8_t>(local.tm_mon + 1);
+            content.day = static_cast<std::uint8_t>(local.tm_mday);
             content.iso_weekday = static_cast<std::uint8_t>(
-                utc.tm_wday == 0 ? 7 : utc.tm_wday);
+                local.tm_wday == 0 ? 7 : local.tm_wday);
         }
     }
 
@@ -671,6 +673,17 @@ extern "C" void app_main()
     };
     log_filesystem("imagefs", filesystem_snapshot.imagefs);
 
+    std::int32_t initial_timezone_offset_minutes = 0;
+    if (config_result.record_available) {
+        // A record this firmware could parse always carries validated
+        // offset text (make_startup_plan() rejects or normalizes anything
+        // else), so this cannot fail in practice; falling back to UTC
+        // rather than asserting keeps startup non-fatal either way.
+        pf_config::parse_timezone_offset_minutes(
+            config_result.record.timezone,
+            initial_timezone_offset_minutes);
+    }
+
     const pf_runtime::RuntimeSnapshot initial_snapshot{
         .sequence = 1,
         .flash =
@@ -703,6 +716,7 @@ extern "C" void app_main()
                                          : 0U,
         .carousel_random = config_result.record_available &&
                            config_result.record.carousel_random,
+        .timezone_offset_minutes = initial_timezone_offset_minutes,
         .reboot_reason = pf_runtime::classify_reset_reason(
             static_cast<int>(esp_reset_reason())),
     };

@@ -133,6 +133,7 @@ h3 { font-size: 1.25rem; }
 
 .setup-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr); gap: 22px; align-items: start; }
 .credential-panel { position: sticky; top: 20px; }
+.panel-column { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
 .image-workbench { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 22px; align-items: start; }
 .image-output { position: sticky; top: 20px; }
 .image-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 15px; }

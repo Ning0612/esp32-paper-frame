@@ -92,6 +92,71 @@ void test_form_rejects_missing_unknown_and_duplicate_fields()
             form)));
 }
 
+void test_form_accepts_timezone_field()
+{
+    pf_web::CarouselConfigForm form{};
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_web::CarouselConfigParseStatus::ok),
+        static_cast<int>(pf_web::parse_carousel_config_form(
+            "random=true&timezone=%2B5.5",
+            std::strlen("random=true&timezone=%2B5.5"),
+            form)));
+    TEST_ASSERT_TRUE(form.timezone_seen);
+    TEST_ASSERT_EQUAL_STRING("+5.5", form.timezone);
+
+    pf_web::CarouselConfigForm form_without_timezone{};
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_web::CarouselConfigParseStatus::ok),
+        static_cast<int>(pf_web::parse_carousel_config_form(
+            "random=false", std::strlen("random=false"), form_without_timezone)));
+    TEST_ASSERT_FALSE(form_without_timezone.timezone_seen);
+}
+
+void test_form_rejects_invalid_timezone_field()
+{
+    pf_web::CarouselConfigForm form{};
+    for (const char* body : {
+             "random=true&timezone=Asia%2FTaipei",
+             "random=true&timezone=%2B15",
+             "random=true&timezone=",
+         }) {
+        TEST_ASSERT_EQUAL_INT(
+            static_cast<int>(pf_web::CarouselConfigParseStatus::invalid_value),
+            static_cast<int>(pf_web::parse_carousel_config_form(
+                body, std::strlen(body), form)));
+    }
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_web::CarouselConfigParseStatus::duplicate_field),
+        static_cast<int>(pf_web::parse_carousel_config_form(
+            "random=true&timezone=%2B8&timezone=%2B9",
+            std::strlen("random=true&timezone=%2B8&timezone=%2B9"),
+            form)));
+}
+
+// The WebUI's timezone-only save posts just `timezone=...` -- random must
+// stay optional (mirroring refresh_minutes_seen/timezone_seen) so the caller
+// can preserve the carousel's existing mode instead of being forced to
+// resend a possibly-stale snapshot of it.
+void test_form_random_field_is_optional()
+{
+    pf_web::CarouselConfigForm form{};
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_web::CarouselConfigParseStatus::ok),
+        static_cast<int>(pf_web::parse_carousel_config_form(
+            "timezone=%2B8", std::strlen("timezone=%2B8"), form)));
+    TEST_ASSERT_FALSE(form.random_seen);
+    TEST_ASSERT_TRUE(form.timezone_seen);
+    TEST_ASSERT_EQUAL_STRING("+8", form.timezone);
+
+    pf_web::CarouselConfigForm form_with_random{};
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_web::CarouselConfigParseStatus::ok),
+        static_cast<int>(pf_web::parse_carousel_config_form(
+            "random=true", std::strlen("random=true"), form_with_random)));
+    TEST_ASSERT_TRUE(form_with_random.random_seen);
+    TEST_ASSERT_TRUE(form_with_random.random);
+}
+
 void test_form_rejects_malformed_boolean()
 {
     pf_web::CarouselConfigForm form{};
@@ -114,6 +179,9 @@ int main(int, char**)
     RUN_TEST(test_form_accepts_refresh_interval_bounds);
     RUN_TEST(test_form_rejects_refresh_interval_outside_bounds);
     RUN_TEST(test_form_rejects_missing_unknown_and_duplicate_fields);
+    RUN_TEST(test_form_accepts_timezone_field);
+    RUN_TEST(test_form_rejects_invalid_timezone_field);
+    RUN_TEST(test_form_random_field_is_optional);
     RUN_TEST(test_form_rejects_malformed_boolean);
     return UNITY_END();
 }

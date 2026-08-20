@@ -204,51 +204,69 @@
               </div>
             </div>
             <p class="intro-copy">設定只保存在 PaperFrame 的 NVS；API key 只會回報是否存在，不會出現在回應或畫面。</p>
-            <form id="weather-form" class="setup-grid" novalidate>
-              <section class="panel credential-panel">
-                <div class="panel-heading">
-                  <div><span class="panel-no coral">A</span><h3>OpenWeatherMap</h3></div>
-                  <span id="weather-config-state" class="local-only">尚未設定</span>
-                </div>
-                <label class="field">
-                  <span>API key（留白代表保留現有值）</span>
-                  <input id="weather-api-key" type="password" maxlength="127" autocomplete="new-password">
-                </label>
-                <div class="image-option-grid">
-                  <label class="field"><span>緯度 × 10⁶</span><input id="weather-latitude" type="number" min="-90000000" max="90000000" required></label>
-                  <label class="field"><span>經度 × 10⁶</span><input id="weather-longitude" type="number" min="-180000000" max="180000000" required></label>
-                  <label class="field"><span>單位</span><select id="weather-units"><option value="metric">攝氏／Metric</option><option value="imperial">華氏／Imperial</option></select></label>
-                  <label class="field"><span>NTP server</span><input id="weather-ntp-server" maxlength="63" required></label>
-                </div>
-                <div class="panel-heading compact weather-map-heading">
-                  <div><span class="panel-no blue">B</span><h3>拖曳地圖選點</h3></div>
-                  <span id="weather-map-mode" class="local-only">離線模式</span>
-                </div>
-                <div id="weather-map" class="weather-map">
-                  <div id="weather-map-tiles" class="weather-map-tiles"></div>
-                  <canvas id="weather-map-canvas" class="weather-map-canvas" hidden></canvas>
-                  <div id="weather-map-pin" class="weather-map-pin" aria-hidden="true"></div>
-                  <div class="weather-map-zoom">
-                    <button type="button" id="weather-map-zoom-in" class="plain-button" aria-label="放大">＋</button>
-                    <button type="button" id="weather-map-zoom-out" class="plain-button" aria-label="縮小">－</button>
+            <div class="setup-grid">
+              <form id="weather-form" style="display: contents" novalidate>
+                <section class="panel credential-panel">
+                  <div class="panel-heading">
+                    <div><span class="panel-no coral">A</span><h3>OpenWeatherMap</h3></div>
+                    <span id="weather-config-state" class="local-only">尚未設定</span>
                   </div>
-                  <a id="weather-map-attribution" class="weather-map-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" hidden>© OpenStreetMap contributors</a>
-                </div>
-                <p class="field-hint">連線時載入地圖圖磚，拖曳地圖移動中央圖釘；離線時改為經緯度格線，可直接點擊或拖曳圖釘。</p>
-                <button id="weather-save" class="primary-button" type="submit">保存設定</button>
-                <p id="weather-status" class="save-status" role="status" aria-live="assertive"></p>
-              </section>
-              <section class="panel status-panel muted-panel">
-                <div class="panel-heading compact">
-                  <div><span class="panel-no mint">C</span><h3>安全狀態</h3></div>
-                </div>
-                <dl class="definition-list">
-                  <div><dt>API key</dt><dd id="weather-api-key-state">未知</dd></div>
-                  <div><dt>資料快取</dt><dd id="weather-cache-state">尚未接入 HTTPS worker</dd></div>
-                  <div><dt>時間同步</dt><dd id="weather-ntp-state">設定完成後接入 SNTP</dd></div>
-                </dl>
-              </section>
-            </form>
+                  <label class="field">
+                    <span>API key（留白代表保留現有值）</span>
+                    <input id="weather-api-key" type="password" maxlength="127" autocomplete="new-password">
+                  </label>
+                  <div class="image-option-grid">
+                    <label class="field"><span>緯度</span><input id="weather-latitude" type="number" step="0.000001" min="-90" max="90" required></label>
+                    <label class="field"><span>經度</span><input id="weather-longitude" type="number" step="0.000001" min="-180" max="180" required></label>
+                    <label class="field"><span>單位</span><select id="weather-units"><option value="metric">攝氏／Metric</option><option value="imperial">華氏／Imperial</option></select></label>
+                    <label class="field"><span>NTP server</span><input id="weather-ntp-server" maxlength="63" required></label>
+                  </div>
+                  <div class="panel-heading compact weather-map-heading">
+                    <div><span class="panel-no blue">B</span><h3>拖曳地圖選點</h3></div>
+                    <span id="weather-map-mode" class="local-only">離線模式</span>
+                  </div>
+                  <div id="weather-map" class="weather-map">
+                    <div id="weather-map-tiles" class="weather-map-tiles"></div>
+                    <canvas id="weather-map-canvas" class="weather-map-canvas" hidden></canvas>
+                    <div id="weather-map-pin" class="weather-map-pin" aria-hidden="true"></div>
+                    <div class="weather-map-zoom">
+                      <button type="button" id="weather-map-zoom-in" class="plain-button" aria-label="放大">＋</button>
+                      <button type="button" id="weather-map-zoom-out" class="plain-button" aria-label="縮小">－</button>
+                    </div>
+                    <a id="weather-map-attribution" class="weather-map-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" hidden>© OpenStreetMap contributors</a>
+                  </div>
+                  <p class="field-hint">連線時載入地圖圖磚，拖曳地圖移動中央圖釘；離線時改為經緯度格線，可直接點擊或拖曳圖釘。</p>
+                  <button id="weather-save" class="primary-button" type="submit">保存設定</button>
+                  <p id="weather-status" class="save-status" role="status" aria-live="assertive"></p>
+                </section>
+              </form>
+              <div class="panel-column">
+                <form id="timezone-form" style="display: contents" novalidate>
+                  <section class="panel">
+                    <div class="panel-heading">
+                      <div><span class="panel-no coral">C</span><h3>時區</h3></div>
+                    </div>
+                    <label class="field">
+                      <span>UTC 偏移（例如 +8、-5.5、+5.75）</span>
+                      <input id="device-timezone" type="text" maxlength="6" pattern="[+-]?\d{1,2}(\.\d{1,2})?" placeholder="+8" required>
+                    </label>
+                    <p class="field-hint">SNTP 取得的時間一律是 UTC；狀態列顯示的日期與星期會加上這個偏移換算為當地時間。支援 15 分鐘為單位的偏移（如 +5.75、-5.5）。</p>
+                    <button id="timezone-save" class="primary-button" type="submit" disabled>保存設定</button>
+                    <p id="timezone-status" class="save-status" role="status" aria-live="assertive"></p>
+                  </section>
+                </form>
+                <section class="panel status-panel muted-panel">
+                  <div class="panel-heading compact">
+                    <div><span class="panel-no mint">D</span><h3>安全狀態</h3></div>
+                  </div>
+                  <dl class="definition-list">
+                    <div><dt>API key</dt><dd id="weather-api-key-state">未知</dd></div>
+                    <div><dt>資料快取</dt><dd id="weather-cache-state">尚未接入 HTTPS worker</dd></div>
+                    <div><dt>時間同步</dt><dd id="weather-ntp-state">設定完成後接入 SNTP</dd></div>
+                  </dl>
+                </section>
+              </div>
+            </div>
           </div>
 
           <div id="environment-view" class="view" data-view-panel="environment" hidden>

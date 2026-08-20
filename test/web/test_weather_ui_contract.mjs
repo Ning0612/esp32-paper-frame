@@ -20,14 +20,18 @@ for (const id of [
   "weather-map-zoom-in",
   "weather-map-zoom-out",
   "weather-map-mode",
+  "timezone-form",
+  "device-timezone",
 ]) {
   assert.ok(html.includes(`id="${id}"`), `missing ${id}`);
 }
 for (const id of ["weather-interval", "weather-location", "weather-language"]) {
   assert.ok(!html.includes(`id="${id}"`), `stale field still present: ${id}`);
 }
+assert.ok(!html.includes("10⁶"), "stale e6-scaled lat/lon label still present");
 assert.ok(js.includes("/api/v1/weather/config"));
 assert.ok(js.includes('"X-CSRF-Token": csrfToken'));
 assert.ok(js.includes("tile.openstreetmap.org"));
 assert.ok(js.includes("drawGraticule"));
-console.log("weather_ui_contract: 5 checks passed");
+assert.ok(js.includes("loadDeviceTimezone"));
+console.log("weather_ui_contract: 6 checks passed");

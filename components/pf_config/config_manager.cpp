@@ -209,7 +209,8 @@ esp_err_t save_config(const ConfigRecord& record)
     }
 
     ConfigRecord validated = record;
-    if (!copy_timezone(validated.timezone, record.timezone)) {
+    if (!copy_timezone(validated.timezone, record.timezone) ||
+        !valid_timezone_offset_text(validated.timezone)) {
         return ESP_ERR_INVALID_ARG;
     }
 

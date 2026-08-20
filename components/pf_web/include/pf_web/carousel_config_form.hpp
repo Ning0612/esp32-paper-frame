@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "pf_config/schema.hpp"
+#include "pf_web/provisioning_form.hpp"
 
 namespace pf_web {
 
@@ -18,8 +19,11 @@ enum class CarouselConfigParseStatus : std::uint8_t {
 
 struct CarouselConfigForm {
     bool random = false;
+    bool random_seen = false;
     std::uint32_t refresh_minutes = 0U;
     bool refresh_minutes_seen = false;
+    char timezone[pf_config::kTimezoneCapacity]{};
+    bool timezone_seen = false;
 };
 
 inline bool parse_refresh_minutes(
@@ -63,6 +67,7 @@ inline CarouselConfigParseStatus parse_carousel_config_form(
     CarouselConfigForm candidate{};
     bool random_seen = false;
     bool refresh_minutes_seen = false;
+    bool timezone_seen = false;
     std::size_t cursor = 0U;
     while (cursor < length) {
         const std::size_t field_start = cursor;
@@ -115,14 +120,25 @@ inline CarouselConfigParseStatus parse_carousel_config_form(
                     candidate.refresh_minutes)) {
                 return CarouselConfigParseStatus::invalid_value;
             }
+        } else if (
+            name_length == 8U &&
+            std::memcmp(body + field_start, "timezone", 8U) == 0) {
+            if (timezone_seen) {
+                return CarouselConfigParseStatus::duplicate_field;
+            }
+            timezone_seen = true;
+            if (decode_form_value(value, value_length, candidate.timezone) !=
+                    FormDecodeStatus::ok ||
+                !pf_config::valid_timezone_offset_text(candidate.timezone)) {
+                return CarouselConfigParseStatus::invalid_value;
+            }
         } else {
             return CarouselConfigParseStatus::unknown_field;
         }
     }
-    if (!random_seen) {
-        return CarouselConfigParseStatus::missing_field;
-    }
+    candidate.random_seen = random_seen;
     candidate.refresh_minutes_seen = refresh_minutes_seen;
+    candidate.timezone_seen = timezone_seen;
     destination = candidate;
     return CarouselConfigParseStatus::ok;
 }

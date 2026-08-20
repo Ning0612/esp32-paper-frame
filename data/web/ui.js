@@ -41,6 +41,10 @@
   const weatherNtpServer = $("#weather-ntp-server");
   const weatherSave = $("#weather-save");
   const weatherStatus = $("#weather-status");
+  const timezoneForm = $("#timezone-form");
+  const deviceTimezone = $("#device-timezone");
+  const timezoneSave = $("#timezone-save");
+  const timezoneStatus = $("#timezone-status");
   const environmentView = $("#environment-view");
   const systemView = $("#system-view");
   const systemRefresh = $("#system-refresh");
@@ -407,8 +411,11 @@
     }
 
     function syncInputsFromCenter() {
-      weatherLatitude.value = Math.round(state.centerLat * 1e6);
-      weatherLongitude.value = Math.round(state.centerLon * 1e6);
+      // Rounded to 6 decimal places -- the same resolution as the
+      // latitude_e6/longitude_e6 wire format (1 part in 1e6 degree) -- so
+      // the round-trip through the number inputs never drifts.
+      weatherLatitude.value = state.centerLat.toFixed(6);
+      weatherLongitude.value = state.centerLon.toFixed(6);
     }
 
     function renderTiles() {
@@ -640,15 +647,15 @@
       // expected. Drag/click on the map itself always calls
       // syncInputsFromCenter() directly (not through here), since that is
       // inherently a user-driven coordinate edit.
-      setCoordinates(latE6, lonE6, { syncBack = false } = {}) {
-        const lat = Number(latE6);
-        const lon = Number(lonE6);
+      setCoordinates(latDegrees, lonDegrees, { syncBack = false } = {}) {
+        const lat = Number(latDegrees);
+        const lon = Number(lonDegrees);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
         // Clamp to the same +/-85.0511 Web Mercator limit renderTiles()
         // uses, not +/-90 (no real weather location is this far
         // poleward anyway).
-        state.centerLat = clamp(lat / 1e6, -MAX_LAT, MAX_LAT);
-        state.centerLon = normalizeLon(clamp(lon / 1e6, -180, 180));
+        state.centerLat = clamp(lat, -MAX_LAT, MAX_LAT);
+        state.centerLon = normalizeLon(clamp(lon, -180, 180));
         if (syncBack) syncInputsFromCenter();
         if (state.online === null) probeConnectivity();
         else render();
@@ -677,8 +684,10 @@
         throw new Error(payload.error || "weather_config_failed");
       }
       const weather = payload.data.weather;
-      weatherLatitude.value = weather.latitude_e6 ?? "";
-      weatherLongitude.value = weather.longitude_e6 ?? "";
+      weatherLatitude.value =
+        weather.latitude_e6 != null ? (weather.latitude_e6 / 1e6).toFixed(6) : "";
+      weatherLongitude.value =
+        weather.longitude_e6 != null ? (weather.longitude_e6 / 1e6).toFixed(6) : "";
       weatherUnits.value = weather.units || "metric";
       weatherNtpServer.value = weather.ntp_server || "pool.ntp.org";
       weatherApiKey.value = "";
@@ -695,17 +704,21 @@
   weatherForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!csrfToken) return;
-    const values = {
-      latitude_e6: weatherLatitude.value.trim(),
-      longitude_e6: weatherLongitude.value.trim(),
-      units: weatherUnits.value,
-      ntp_server: weatherNtpServer.value.trim(),
-    };
-    if (!values.latitude_e6 || !values.longitude_e6 || !values.ntp_server) {
+    const latitudeDegrees = weatherLatitude.value.trim();
+    const longitudeDegrees = weatherLongitude.value.trim();
+    if (!latitudeDegrees || !longitudeDegrees || !weatherNtpServer.value.trim()) {
       weatherStatus.className = "save-status error";
       weatherStatus.textContent = "請完整填寫經緯度與 NTP server。";
       return;
     }
+    const values = {
+      // Wire format stays latitude_e6/longitude_e6 (whole degrees * 1e6);
+      // only the input field itself shows plain decimal degrees.
+      latitude_e6: String(Math.round(Number(latitudeDegrees) * 1e6)),
+      longitude_e6: String(Math.round(Number(longitudeDegrees) * 1e6)),
+      units: weatherUnits.value,
+      ntp_server: weatherNtpServer.value.trim(),
+    };
     weatherSave.disabled = true;
     weatherStatus.className = "save-status";
     weatherStatus.textContent = "正在保存天氣設定…";
@@ -733,6 +746,72 @@
       weatherStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
     } finally {
       weatherSave.disabled = false;
+    }
+  });
+
+  // /api/v1/config's `random` and `refresh_minutes` fields are optional on
+  // POST (omitting one preserves the carousel's current value server-side --
+  // same convention as the carousel form on the image-library tab), so this
+  // form only ever sends `timezone` and never touches carousel state.
+  async function loadDeviceTimezone() {
+    timezoneStatus.textContent = "正在讀取時區設定…";
+    try {
+      const response = await fetch("/api/v1/config", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      const time = payload.data && payload.data.time;
+      if (!response.ok || !time || typeof time.timezone !== "string") {
+        throw new Error(payload.error || "timezone_config_failed");
+      }
+      deviceTimezone.value = time.timezone;
+      timezoneStatus.textContent = "設定已載入。";
+      timezoneSave.disabled = false;
+    } catch (error) {
+      timezoneStatus.className = "save-status error";
+      timezoneStatus.textContent = `時區設定讀取失敗：${error.message || "請稍後重試"}`;
+    }
+  }
+
+  timezoneForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!csrfToken) return;
+    const timezone = deviceTimezone.value.trim();
+    if (!timezoneForm.checkValidity() || !timezone) {
+      timezoneForm.reportValidity();
+      return;
+    }
+    timezoneSave.disabled = true;
+    timezoneStatus.className = "save-status";
+    timezoneStatus.textContent = "正在保存時區設定…";
+    try {
+      const response = await fetch("/api/v1/config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: new URLSearchParams({ timezone }).toString(),
+      });
+      const payload = await response.json();
+      if (response.status === 401) {
+        showAuthForm(true);
+        return;
+      }
+      if (response.status === 409 && payload.error === "config_read_only") {
+        throw new Error("裝置設定目前為唯讀：開機時無法解讀已儲存的設定，為避免覆寫而暫停儲存。請查看裝置日誌。");
+      }
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "timezone_save_failed");
+      timezoneStatus.className = "save-status success";
+      timezoneStatus.textContent = "時區設定已保存，狀態列會依此換算當地時間。";
+      await loadDeviceTimezone();
+    } catch (error) {
+      timezoneStatus.className = "save-status error";
+      timezoneStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+    } finally {
+      timezoneSave.disabled = false;
     }
   });
 
@@ -2066,7 +2145,10 @@
     });
     if (refresh && view === "dashboard") loadDashboard();
     if (refresh && view === "wifi") scan(true);
-    if (refresh && view === "weather") loadWeatherConfig();
+    if (refresh && view === "weather") {
+      loadWeatherConfig();
+      loadDeviceTimezone();
+    }
     if (refresh && view === "image") {
       loadImageLibrary();
       loadImageCarouselConfig();

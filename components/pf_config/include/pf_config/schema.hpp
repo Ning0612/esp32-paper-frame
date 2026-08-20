@@ -5,12 +5,22 @@
 
 namespace pf_config {
 
-inline constexpr std::uint32_t kCurrentSchemaVersion = 2;
+inline constexpr std::uint32_t kCurrentSchemaVersion = 3;
 inline constexpr std::uint32_t kDefaultRefreshMinutes = 30;
 inline constexpr std::uint32_t kMinimumRefreshMinutes = 10;
 inline constexpr std::uint32_t kMaximumRefreshMinutes = 24U * 60U;
 inline constexpr std::size_t kTimezoneCapacity = 48;
-inline constexpr char kDefaultTimezone[] = "Asia/Taipei";
+// Schema v3: this field changed meaning from an IANA zone name (e.g.
+// "Asia/Taipei") to a plain UTC offset string ("+8", "-5.5", "+5.75") that
+// app_main actually applies to the displayed clock -- versions before v3
+// stored a name here but nothing ever read it back for time conversion
+// (see docs/adr/0005-weather-worker-and-status-bar.md). "+8" is the same
+// real-world offset the old default name represented.
+inline constexpr char kDefaultTimezone[] = "+8";
+// UTC-12 (Baker Island) to UTC+14 (Kiribati's Line Islands): the real-world
+// range of standard time offsets in use today.
+inline constexpr std::int32_t kMinimumTimezoneOffsetMinutes = -720;
+inline constexpr std::int32_t kMaximumTimezoneOffsetMinutes = 840;
 
 enum class SchemaAction {
     initialize_defaults,
@@ -71,6 +81,88 @@ inline bool copy_timezone(
     return true;
 }
 
+// Parses a UTC offset string ("+8", "-5.5", "+5.75", "8") into whole
+// minutes. The fractional part (if present) must resolve to a quarter-hour
+// step (.00/.25/.50/.75) since every real-world half- and 45-minute-offset
+// zone (e.g. Chatham Islands +12:45, Nepal +5:45, India +5:30) lands on one;
+// anything finer has no real timezone behind it and is rejected rather than
+// silently truncated.
+inline bool parse_timezone_offset_minutes(
+    const char* const text,
+    std::int32_t& minutes_out)
+{
+    if (text == nullptr || text[0] == '\0') {
+        return false;
+    }
+
+    std::size_t index = 0;
+    bool negative = false;
+    if (text[0] == '+' || text[0] == '-') {
+        negative = text[0] == '-';
+        index = 1;
+    }
+
+    if (text[index] < '0' || text[index] > '9') {
+        return false;
+    }
+    std::uint32_t hours = 0;
+    std::size_t hour_digits = 0;
+    while (text[index] >= '0' && text[index] <= '9') {
+        if (hour_digits >= 2U) {
+            return false;
+        }
+        hours = hours * 10U + static_cast<std::uint32_t>(text[index] - '0');
+        ++index;
+        ++hour_digits;
+    }
+
+    std::uint32_t frac_hundredths = 0;
+    if (text[index] == '.') {
+        ++index;
+        std::size_t frac_digits = 0;
+        while (text[index] >= '0' && text[index] <= '9') {
+            if (frac_digits >= 2U) {
+                return false;
+            }
+            frac_hundredths = frac_hundredths * 10U +
+                               static_cast<std::uint32_t>(text[index] - '0');
+            ++index;
+            ++frac_digits;
+        }
+        if (frac_digits == 0U) {
+            return false;
+        }
+        if (frac_digits == 1U) {
+            frac_hundredths *= 10U;
+        }
+    }
+
+    if (text[index] != '\0' || frac_hundredths % 25U != 0U) {
+        return false;
+    }
+
+    const std::uint32_t frac_minutes = (frac_hundredths * 60U) / 100U;
+    const std::uint32_t total_minutes = hours * 60U + frac_minutes;
+    const std::uint32_t limit = negative
+                                     ? static_cast<std::uint32_t>(
+                                           -kMinimumTimezoneOffsetMinutes)
+                                     : static_cast<std::uint32_t>(
+                                           kMaximumTimezoneOffsetMinutes);
+    if (total_minutes > limit) {
+        return false;
+    }
+
+    minutes_out = negative ? -static_cast<std::int32_t>(total_minutes)
+                            : static_cast<std::int32_t>(total_minutes);
+    return true;
+}
+
+inline bool valid_timezone_offset_text(const char* const text)
+{
+    std::int32_t minutes = 0;
+    return parse_timezone_offset_minutes(text, minutes);
+}
+
 inline StartupPlan make_startup_plan(const StoredConfig& stored)
 {
     StartupPlan plan{};
@@ -124,6 +216,13 @@ inline StartupPlan make_startup_plan(const StoredConfig& stored)
     }
 
     if (stored.schema_version < kCurrentSchemaVersion) {
+        // Schema v3 changed what this field means (IANA zone name -> UTC
+        // offset string); a pre-v3 record's timezone text was never a valid
+        // offset under the new format (and nothing ever read it back
+        // anyway, see kDefaultTimezone above), so migration resets it to
+        // the new default rather than carrying forward text that would now
+        // fail validation or silently mean something else.
+        copy_timezone(plan.record.timezone, kDefaultTimezone);
         plan.action = SchemaAction::migrate_v1;
         plan.write_required = true;
         return plan;
@@ -131,7 +230,8 @@ inline StartupPlan make_startup_plan(const StoredConfig& stored)
 
     // The current schema is stricter than a migration: a record claiming to be
     // current must have every field present and valid.
-    if (!stored.carousel_random_present || stored.carousel_random > 1U) {
+    if (!stored.carousel_random_present || stored.carousel_random > 1U ||
+        !valid_timezone_offset_text(plan.record.timezone)) {
         plan.action = SchemaAction::reject_corrupt;
         return plan;
     }

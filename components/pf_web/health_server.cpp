@@ -841,6 +841,12 @@ esp_err_t config_handler(httpd_req_t* request)
 
     bool carousel_random = false;
     std::uint32_t carousel_refresh_minutes = 0U;
+    // Snapshotted under carousel_config_mutex like the two fields above --
+    // process_carousel_config() writes this array (via memcpy) under the
+    // same lock, so reading server_access_config.timezone directly here
+    // (after the mutex is released, as MaskedConfig only stores a pointer)
+    // could race a concurrent save and serialize a torn string.
+    char timezone_snapshot[pf_config::kTimezoneCapacity]{};
     if (carousel_config_mutex == nullptr ||
         xSemaphoreTake(
             carousel_config_mutex,
@@ -853,6 +859,10 @@ esp_err_t config_handler(httpd_req_t* request)
     }
     carousel_random = server_access_config.carousel_random;
     carousel_refresh_minutes = server_access_config.refresh_minutes;
+    std::memcpy(
+        timezone_snapshot,
+        server_access_config.timezone,
+        sizeof(timezone_snapshot));
     xSemaphoreGive(carousel_config_mutex);
 
     const MaskedConfig config{
@@ -863,7 +873,7 @@ esp_err_t config_handler(httpd_req_t* request)
             server_access_config.management_password_configured,
         .refresh_minutes = carousel_refresh_minutes,
         .carousel_random = carousel_random,
-        .timezone = server_access_config.timezone,
+        .timezone = timezone_snapshot,
         .weather_configured = server_access_config.weather_configured,
         .weather_api_key_set =
             server_access_config.weather_settings.api_key[0] != '\0',
@@ -945,8 +955,6 @@ esp_err_t process_carousel_config(
             "400 Bad Request",
             response);
     }
-    const bool random = form.random;
-
     pf_config::ConfigRecord candidate{};
     if (carousel_config_mutex == nullptr ||
         xSemaphoreTake(
@@ -957,12 +965,22 @@ esp_err_t process_carousel_config(
             "503 Service Unavailable",
             "{\"ok\":false,\"error\":\"carousel_config_busy\"}");
     }
+    // random is resolved under the same lock as refresh_minutes/timezone
+    // (rather than trusting form.random unconditionally) so a request that
+    // omits it -- e.g. the timezone-only save from the WebUI's time panel --
+    // preserves whatever another request most recently set, instead of
+    // silently resetting it to the struct's default-constructed false.
+    const bool random = form.random_seen
+                            ? form.random
+                            : server_access_config.carousel_random;
     candidate.refresh_minutes = form.refresh_minutes_seen
                                    ? form.refresh_minutes
                                    : server_access_config.refresh_minutes;
-    const bool timezone_copied = pf_config::copy_timezone(
-        candidate.timezone,
-        server_access_config.timezone);
+    const bool timezone_copied = form.timezone_seen
+        ? pf_config::copy_timezone(candidate.timezone, form.timezone)
+        : pf_config::copy_timezone(
+              candidate.timezone,
+              server_access_config.timezone);
     xSemaphoreGive(carousel_config_mutex);
     if (!timezone_copied ||
         !pf_config::refresh_minutes_valid(candidate.refresh_minutes)) {
@@ -1010,19 +1028,34 @@ esp_err_t process_carousel_config(
     }
     server_access_config.refresh_minutes = candidate.refresh_minutes;
     server_access_config.carousel_random = random;
+    std::memcpy(
+        server_access_config.timezone,
+        candidate.timezone,
+        sizeof(server_access_config.timezone));
     xSemaphoreGive(carousel_config_mutex);
 
     pf_runtime::coordinator().request_carousel_mode(
         random,
         candidate.refresh_minutes);
-    char response[128]{};
+    // candidate.timezone always passed valid_timezone_offset_text() above
+    // (either freshly parsed from the form or previously validated when it
+    // was first saved), so this cannot fail; 0 (UTC) would only ever be
+    // used if that invariant were violated.
+    std::int32_t timezone_offset_minutes = 0;
+    pf_config::parse_timezone_offset_minutes(
+        candidate.timezone,
+        timezone_offset_minutes);
+    pf_runtime::coordinator().update_timezone_offset(timezone_offset_minutes);
+
+    char response[160]{};
     std::snprintf(
         response,
         sizeof(response),
         "{\"ok\":true,\"data\":{\"saved\":true,\"random\":%s,"
-        "\"refresh_minutes\":%lu}}",
+        "\"refresh_minutes\":%lu,\"timezone\":\"%s\"}}",
         random ? "true" : "false",
-        static_cast<unsigned long>(candidate.refresh_minutes));
+        static_cast<unsigned long>(candidate.refresh_minutes),
+        candidate.timezone);
     return send_json(
         request,
         nullptr,

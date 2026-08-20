@@ -38,6 +38,7 @@ public:
         InternetState internet,
         const char* ip_address = nullptr);
     void update_time_sync(TimeSyncState time_sync);
+    void update_timezone_offset(std::int32_t offset_minutes);
     void update_weather(
         const pf_weather::Cache& weather,
         const char* units);

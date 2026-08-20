@@ -135,6 +135,31 @@ reading 時，右側室內欄位改顯示天氣圖示與室外溫度。IP 由 `N
 `RuntimeSnapshot`，不由 renderer 直接查詢網路介面。480px 直向狀態列採
 較小點陣字級以保留三區的獨立位置；`^` 是韌體內部的一位元組度數符號。
 
+## Update (2026-08-21)
+
+本段落取代前述「SNTP：最小可用的時間同步」一節裡「不處理未同步狀態的完整診斷分類」
+之外的範圍限制：狀態列現在會換算成使用者設定的當地時間，不再固定顯示 UTC。
+
+- `ConfigRecord.timezone`（`pf_config` schema，`char[kTimezoneCapacity]`）改變意義：
+  schema v2 及以前存的是 IANA 區域名稱（如 `"Asia/Taipei"`），但全專案從未真的拿它換算
+  時間；schema v3 起改存 UTC 偏移字串（`"+8"`、`"-5.5"`、`"+5.75"`），由
+  `pf_config::parse_timezone_offset_minutes()` 解析成分鐘數，支援到 15 分鐘（0.25 小時）
+  精度以涵蓋 Nepal（+5:45）、Chatham Islands（+12:45）等半/45 分鐘時區，範圍
+  UTC-12〜UTC+14。這裡刻意不引入 IANA tzdata／DST 規則：ESP-IDF 沒有內建時區資料庫，
+  韌體只承諾"使用者輸入的固定偏移"，不承諾"跟著地區行事曆自動調整 DST"。
+- 這個偏移值透過 `RuntimeCoordinator::update_timezone_offset()` 鏡射進
+  `RuntimeSnapshot.timezone_offset_minutes`（比照既有 `time_sync`/`internet` 的鏡射慣例）；
+  `build_status_bar_content()`（`src/app_main.cpp`）在 `gmtime_r()` 之前把 SNTP 取得的
+  UTC epoch 加上這個偏移，換算出的日期／星期即為當地時間。除了狀態列這一處，其餘
+  epoch 用途（快取新鮮度、OTA 時間戳記）仍刻意維持 UTC，避免時區偏移污染以「距今
+  多少秒」為準的比較邏輯。
+- WebUI「天氣與時間」頁新增一個獨立的「時區」面板／表單（`data/web/index.html`
+  `#timezone-form`），透過既有 `/api/v1/config`（`CarouselConfigForm` 新增可選的
+  `timezone` 欄位）保存，與 `refresh_minutes`/`random` 共用同一筆 `ConfigRecord`，
+  但各自獨立可省略。
+- Schema 由 v2 bump 到 v3；pre-v3 記錄遷移時，`timezone` 一律重設為新預設值 `"+8"`
+  （不嘗試把舊的 IANA 名稱轉換成偏移——這欄位過去從未生效，沒有需要保留的使用者狀態）。
+
 ## Update (2026-08-04)
 
 本段取代 2026-08-03 段落中的狀態列群組定位方式。依產品 UI 調整，狀態列仍

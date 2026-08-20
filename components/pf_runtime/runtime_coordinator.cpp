@@ -397,6 +397,15 @@ void RuntimeCoordinator::update_time_sync(
     portEXIT_CRITICAL(&snapshot_lock_);
 }
 
+void RuntimeCoordinator::update_timezone_offset(
+    const std::int32_t offset_minutes)
+{
+    portENTER_CRITICAL(&snapshot_lock_);
+    snapshot_.timezone_offset_minutes = offset_minutes;
+    ++snapshot_.sequence;
+    portEXIT_CRITICAL(&snapshot_lock_);
+}
+
 void RuntimeCoordinator::update_weather(
     const pf_weather::Cache& weather,
     const char* const units)

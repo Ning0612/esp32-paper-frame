@@ -157,6 +157,12 @@ struct RuntimeSnapshot {
     std::uint32_t imagefs_used_bytes = 0;
     std::uint32_t carousel_refresh_minutes = 0;
     bool carousel_random = false;
+    // Whole minutes east of UTC (negative = west), parsed from
+    // ConfigRecord::timezone (pf_config::parse_timezone_offset_minutes).
+    // Applied to the status bar's displayed date/weekday only -- every
+    // other epoch-based use in this codebase (cache staleness, OTA
+    // timestamps) stays in UTC on purpose.
+    std::int32_t timezone_offset_minutes = 0;
     // A non-zero request id means the WebUI has requested a new carousel
     // mode and interval. The app_main carousel owner applies them once no
     // refresh is in flight.
