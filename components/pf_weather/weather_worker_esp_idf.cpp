@@ -315,9 +315,34 @@ void WeatherWorker::fetch_once()
             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
             static_cast<unsigned>(
                 heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
+        // A failed perform() is not necessarily a transport problem. ESP-IDF
+        // returns ESP_ERR_NOT_SUPPORTED for any 401 whose response carries no
+        // WWW-Authenticate header (esp_http_client.c: the `auth_header ==
+        // NULL` branch), and OpenWeatherMap's "Invalid API key" reply is
+        // exactly that -- so a mistyped key used to surface as a network
+        // fault, pointing whoever is debugging at the Wi-Fi instead of at the
+        // key. The status line has already been parsed by the time that
+        // branch returns, so classify on it when one is available and only
+        // fall back to `network` when there is genuinely no HTTP response
+        // (status_code stays 0 on a connection-level failure) or when the
+        // status itself is not an error.
+        const int failed_status = esp_http_client_get_status_code(client);
+        pf_weather::Failure failure = pf_weather::Failure::network;
+        bool reached_server = false;
+        if (failed_status > 0) {
+            const pf_weather::Failure classified =
+                pf_weather::classify_http_status(failed_status);
+            if (classified != pf_weather::Failure::none) {
+                failure = classified;
+                reached_server = true;
+                ESP_LOGW(kTag, "weather_http_status=%d", failed_status);
+            }
+        }
         esp_http_client_cleanup(client);
-        apply_failure(pf_weather::Failure::network);
-        report_internet(false);
+        apply_failure(failure);
+        // Reaching the server proves internet works; only a transport-level
+        // failure says otherwise.
+        report_internet(reached_server);
         return;
     }
     const int status_code = esp_http_client_get_status_code(client);
