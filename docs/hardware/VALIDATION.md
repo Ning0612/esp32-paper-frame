@@ -17,7 +17,7 @@
 | Phase 3/4 WebUI | SNTP 失敗側（blank-NVS 進 AP、portal 存取邊界、STA retry exhaustion fallback、browser 出圖與下載均已於 2026-08-20 閉環） | 2026-08-20 AP portal 流程；2026-08-20 破壞性測試 |
 | Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、imagefs preservation 的 fault injection（長時間輪播已於 2026-08-20 由使用者確認） | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
-| Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電（rollback confirmation、OTA worker stack 與 weather+OTA heap 併發已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
+| Phase 8 OTA | OTA 下載途中斷電（rollback fault injection 已於 2026-08-20 閉環——**但同時發現舊 bootloader 無回滾保護，見待決定事項**） | 2026-08-20 rollback fault injection；2026-08-20 v0.9.1 收尾驗證 |
 | AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard（5 分鐘切換已閉環並修好一個缺陷；SSID 像素可讀性由使用者確認） | 2026-08-20 破壞性測試；2026-08-03 AP Mode grace policy |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
@@ -1950,6 +1950,67 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — OTA rollback fault injection：**保護原本並未生效**
+
+ADR-0008 從 Phase 8 起就列著這一項。這次以刻意崩潰的韌體實測，結果分成兩段：
+**同一台裝置先失敗、更新 bootloader 後才成功**。
+
+### 測法
+
+在拋棄式的公開測試 repo 發布一份 crash 韌體（版本 `v0.9.3`，在
+`src/app_main.cpp` 的 `esp_ota_mark_app_valid_cancel_rollback()` **之前**插入
+`abort()`），並把韌體的 `kGithubRepo` 暫時指向該 repo，因此正式 release 串流
+完全未被觸碰。裝置端照常「檢查更新 → 立即更新」。測後 repo 與所有臨時改動都已
+移除。
+
+`abort()` 的位置是關鍵：otadata 會停在 `PENDING_VERIFY`，因此**只需要一次崩潰
+加一次重開**就足以觸發回滾，不必製造長時間 crash-loop。
+
+### 第一次：無限 crash-loop，完全沒有回滾
+
+| 觀察 | 結果 |
+| --- | --- |
+| OTA 寫入 | `esp_https_ota: Writing to <ota_1> partition at offset 0x290000` |
+| 重開後 | `Loaded app from partition at offset 0x290000` → `FAULT_INJECTION` → `abort()` → `Rebooting...` |
+| 再重開 | **仍然** `Loaded app from partition at offset 0x290000`，再次 crash |
+| 結果 | 至少三輪且未停止；裝置無法自行恢復，必須以 esptool 救援 |
+
+**根因**：回滾邏輯在 **bootloader** 裡，而 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`
+是 2026-08-01 的 commit `22b1898`（Phase 8 OTA）才加入 `sdkconfig.defaults` 的。
+這台裝置的 bootloader 是 2026-07-29／30 初次 provisioning 時燒錄的，早於該設定。
+讀回 `0x0` 的 32 KB 與本機建置的 `bootloader.bin` 比對，**31.6% 的位元組不同**
+（22,784 bytes 中有 7,203 bytes 相異）——裝置上的 bootloader 從未包含回滾邏輯。
+
+**而 OTA 只寫 app slot，從不更新 bootloader**，所以這個缺口無法靠 OTA 自行修復。
+
+**這推翻了先前的推論**：本檔多處記錄的 `rollback_confirmed=ESP_OK` 只證明
+**app 呼叫了確認 API**，完全不代表 bootloader 會在異常時回滾。兩件事在此之前
+被當成同一件事看待。
+
+### 第二次：手動更新 bootloader 後，回滾正常運作
+
+以 esptool 寫入 `0x0` 的新 bootloader 與 `0x8000` 的 partition table（`nvs` 與
+`imagefs` 未觸碰），重跑同一個測試：
+
+| 時序 | 事件 |
+| --- | --- |
+| OTA | `Writing to <ota_1> partition at offset 0x290000` |
+| 重開 1 | `Loaded app from partition at offset 0x290000` → `FAULT_INJECTION: aborting before rollback confirmation` → `abort() was called` → `Rebooting...` |
+| 重開 2 | **`Loaded app from partition at offset 0x10000`** ← 回滾到前一版 |
+| 回滾後 | `reboot_reason=panic_or_watchdog`、`rollback_confirmed=ESP_OK`、`/api/v1/device` 回 `v0.9.2` |
+| 資料 | 圖片庫 14 張完好（僅 `current` 因輪播變動），設定與 Wi-Fi 全數保留 |
+
+**ADR-0008 的回滾保護在 bootloader 正確的前提下確實有效**，且如預期只需一次崩潰
+加一次重開。
+
+### 待決定（產品層級，非實作問題）
+
+1. 現場任何在 2026-08-01 之前燒過 bootloader 的裝置**都沒有回滾保護**，且無法
+   透過 OTA 補救。release note 是否需要說明、是否提供重新燒錄 bootloader 的指引？
+2. 是否要在開機時偵測 bootloader 是否具備回滾能力並示警？
+3. `RELEASE_CHECKLIST.md` 的 rollback 項目是否要加上「確認裝置 bootloader 版本」
+   這個前提？
 
 ## 2026-08-20 — AP portal 流程與 STA retry exhaustion
 
