@@ -39,7 +39,7 @@ wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_on
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation |
 | Phase 3／4 WebUI | blank-NVS／fallback AP browser flow、SNTP 失敗側 |
 | Phase 5 storage | compressed PFR1 與 catalog transaction 中斷電、長時間輪播、imagefs preservation fault injection |
-| Phase 6 weather | HTTPS/TLS failure classification（四種分類）、面板狀態列視覺結果 |
+| Phase 6 weather | 面板狀態列視覺結果 |
 | Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
 | Phase 8 OTA | **rollback fault injection**、OTA 下載途中斷電 |
 | AP grace policy | SSID 可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard |

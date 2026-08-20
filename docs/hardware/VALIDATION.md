@@ -16,7 +16,7 @@
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
 | Phase 3/4 WebUI | blank-NVS／fallback AP 的瀏覽器流程、SNTP 失敗側（browser 出圖與下載已於 2026-08-20 閉環） | 2026-08-20 browser 出圖管線；2026-07-30 Phase 3 驗證 |
 | Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、長時間圖片輪播、imagefs preservation 的 fault injection | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
-| Phase 6 weather | `api_key_invalid`／`network`／`http_error`／`parse_error` 四種失敗分類與面板狀態列視覺結果（真實 SNTP 已閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-07-31 Phase 6 |
+| Phase 6 weather | 面板狀態列視覺結果（真實 SNTP 與四種失敗分類已於 2026-08-20 閉環） | 2026-08-20 天氣失敗分類；2026-07-31 Phase 6 |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電（rollback confirmation、OTA worker stack 與 weather+OTA heap 併發已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
@@ -1950,6 +1950,61 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — 天氣失敗分類（Phase 6 本項自此關閉，並修掉一個誤報）
+
+### 測法
+
+`api_key_invalid` 用真實 OpenWeather（真實 TLS）觸發；其餘三種真實 API 不可能
+按需產生，改用臨時測試韌體把 `weather_worker_esp_idf.cpp` 的 URL 指向本機 mock
+端點，回應模式由 mock 的 `/set?mode=` 遠端切換，因此整組只需燒一次測試韌體。
+測完 URL 已還原成正式端點（僅保留下述修正）。
+
+天氣沒有週期計時器（ADR-0014），每個案例都以「啟用一張非目前圖片」觸發面板刷新，
+再由 `request_immediate_refresh()` 帶動抓取。
+
+### 結果
+
+| 情境 | 來源 | `last_failure` | `internet` | serial |
+| --- | --- | --- | --- | --- |
+| 有效 key | 真實 API | `none`（`state=available`、29.4 °C） | reachable | — |
+| 無效 key | 真實 API | `api_key_invalid` | reachable | `weather_http_status=401` |
+| HTTP 500 | mock | `http_error` | reachable | `weather_http_status=500` |
+| 200 但缺 `main`／`weather` | mock | `parse_error` | reachable | — |
+| 200 但 JSON 語法壞掉 | mock | `parse_error` | reachable | — |
+| 連線被拒（mock 停止） | — | `network` | unreachable | `weather_fetch_failed=ESP_ERR_HTTP_CONNECT` |
+
+所有失敗情境下既有快取都保留（`state` 仍為 `available`），符合「不得偽造或丟棄
+既有觀測」的原則。
+
+### 過程中發現並修正的缺陷
+
+**`classify_http_status()` 的 401 分支在真實情境下永遠執行不到。** ESP-IDF 的
+`esp_http_client_perform()` 對「401 且回應未帶 `WWW-Authenticate`」直接回
+`ESP_ERR_NOT_SUPPORTED`（`esp_http_client.c` 中 `auth_header == NULL` 的分支），
+而 OpenWeather 的無效 key 回應正是這種——perform 在狀態碼被檢查之前就失敗，
+於是走了 `apply_failure(Failure::network)`。
+
+後果不只是標籤錯：同一分支還呼叫 `report_internet(false)`，**因此打錯 API key 會讓
+Dashboard 顯示「Internet 無法連線」**，把除錯方向引去查 Wi-Fi 而不是剛輸入的 key。
+修正前後實測對照：
+
+| | 修正前 | 修正後 |
+| --- | --- | --- |
+| `last_failure` | `network` | `api_key_invalid` |
+| `internet` | `unreachable` | `reachable` |
+| serial | 僅 `weather_fetch_failed=ESP_ERR_NOT_SUPPORTED` | 另有 `weather_http_status=401` |
+
+第一版修正還漏掉一個案例（由 codex 審查指出）：伺服器回 2xx 但 body 中途中斷時
+`classify_http_status(200)` 為 `none`，仍會 fallback 成 `network` 並回報
+unreachable。現行規則改為單一判準——**收到任何狀態碼就代表請求離開了 LAN**，
+只有完全沒有回應（status 維持 0）才算 `network`；2xx／殘留 3xx 配上失敗的 perform
+歸為 `http_error`（與既有的「回應被截斷」處理一致）。低於 400 的狀態碼不再送進
+`classify_http_status()`，因為 ESP-IDF 可能留下它內部處理過的 3xx，殘留值不該被
+報成伺服器錯誤。
+
+判定邏輯已抽成 `pf_weather::classify_perform_failure()` 並有 5 個 host test；先前
+放在 worker 內時，native 套件編不到那條 ESP-IDF 路徑，等於修正本身沒有測試守著。
 
 ## 2026-08-20 — browser 出圖管線、webfs heap 差值與 CI 覆蓋
 
