@@ -44,16 +44,21 @@
   `docs/hardware/VALIDATION.md` 記錄原因）。
 - [ ] `.venv/Scripts/pio.exe test -e native` 全綠。
 - [ ] 三個 embedded 測試都至少完成 build-only 驗證；有硬體時應盡量跑實際測試。
-  **`.github/workflows/ci.yml` 只 build 第一個**，另外兩個必須手動跑：
+  CI 與 release workflow 自 2026-08-20 起都會跑這三個（在此之前只跑第一個）：
   - `pio test --project-conf platformio-embedded.ini -e paperframe-s3-embedded-test
     --without-uploading --without-testing`（`test_filter = test_runtime_coordinator`）
   - 同上但 `-e paperframe-s3-display-test`（`test_filter = test_display_task`）
   - 同上但 `-e paperframe-s3-embedded-test -f test_epd7in3e_driver`——
     `test_embedded/test_epd7in3e_driver` **沒有任何 env 的 `test_filter` 涵蓋它**，
-    不加 `-f` 就永遠不會被編譯。
+    不加 `-f` 就永遠不會被編譯。新增 embedded 測試時記得同步這三個步驟。
 - [ ] `node --check data/web/ui.js`（以及其他 `data/web/*.js`）。
-- [ ] `for f in test/web/*.mjs; do node "$f"; done` 全部通過；此項由
-  `.github/workflows/ci.yml` 與 `release.yml` 自動執行。
+- [ ] `for f in test/web/*.mjs; do node "$f"; done` 全部通過。
+- [ ] `for f in test/*.mjs; do node "$f"; done` 全部通過（`test/` 根目錄的
+  contract test，例如 `test_partition_layout.mjs`；它不在 `test/web/` 的迴圈裡，
+  也不是 `pio test -e native` 會執行的 Unity 套件）。
+- [ ] `PYTHONPATH=. python test/test_active_ota_upload.py` 通過（`pio test` 不會
+  跑這個 PlatformIO 工具測試）。
+- 上述三項由 `.github/workflows/ci.yml` 與 `release.yml` 自動執行。
 
 ## 3. 手動 on-device 檢查清單
 

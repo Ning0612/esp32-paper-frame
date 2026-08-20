@@ -40,11 +40,30 @@ jobs:
       - name: Run native tests
         run: python -m platformio test -e native
 
-      - name: Build embedded test environment
+      # Each embedded environment has its own test_filter, so one invocation
+      # only ever builds one suite. test_epd7in3e_driver is not covered by any
+      # environment's filter at all and needs -f to be compiled -- without
+      # these three steps it would never be built in CI.
+      - name: Build embedded test environment (runtime coordinator)
         run: >-
           python -m platformio test
           --project-conf platformio-embedded.ini
           -e paperframe-s3-embedded-test
+          --without-uploading --without-testing
+
+      - name: Build embedded test environment (display task)
+        run: >-
+          python -m platformio test
+          --project-conf platformio-embedded.ini
+          -e paperframe-s3-display-test
+          --without-uploading --without-testing
+
+      - name: Build embedded test environment (panel driver)
+        run: >-
+          python -m platformio test
+          --project-conf platformio-embedded.ini
+          -e paperframe-s3-embedded-test
+          -f test_epd7in3e_driver
           --without-uploading --without-testing
 
       - name: Check WebUI JavaScript syntax
@@ -60,6 +79,20 @@ jobs:
           for test in test/web/*.mjs; do
             node "$test"
           done
+
+      # test/*.mjs sits outside test/web/ and is not picked up by the loop
+      # above, nor by `platformio test -e native` (those are Unity suites).
+      - name: Run repository contract tests
+        shell: bash
+        run: |
+          for test in test/*.mjs; do
+            node "$test"
+          done
+
+      - name: Run PlatformIO tooling tests
+        run: python test/test_active_ota_upload.py
+        env:
+          PYTHONPATH: .
 
       - name: Build ESP32-S3 firmware
         run: python -m platformio run -e paperframe-s3

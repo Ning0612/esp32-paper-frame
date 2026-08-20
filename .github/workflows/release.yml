@@ -53,11 +53,29 @@ jobs:
       - name: Run native tests
         run: python -m platformio test -e native
 
-      - name: Build embedded test environment
+      # One invocation builds one suite (each environment has its own
+      # test_filter), and test_epd7in3e_driver needs -f because no
+      # environment's filter covers it. Mirrors the CI workflow.
+      - name: Build embedded test environment (runtime coordinator)
         run: >-
           python -m platformio test
           --project-conf platformio-embedded.ini
           -e paperframe-s3-embedded-test
+          --without-uploading --without-testing
+
+      - name: Build embedded test environment (display task)
+        run: >-
+          python -m platformio test
+          --project-conf platformio-embedded.ini
+          -e paperframe-s3-display-test
+          --without-uploading --without-testing
+
+      - name: Build embedded test environment (panel driver)
+        run: >-
+          python -m platformio test
+          --project-conf platformio-embedded.ini
+          -e paperframe-s3-embedded-test
+          -f test_epd7in3e_driver
           --without-uploading --without-testing
 
       - name: Check WebUI JavaScript syntax
@@ -73,6 +91,18 @@ jobs:
           for test in test/web/*.mjs; do
             node "$test"
           done
+
+      - name: Run repository contract tests
+        shell: bash
+        run: |
+          for test in test/*.mjs; do
+            node "$test"
+          done
+
+      - name: Run PlatformIO tooling tests
+        run: python test/test_active_ota_upload.py
+        env:
+          PYTHONPATH: .
 
       - name: Build firmware
         shell: bash
