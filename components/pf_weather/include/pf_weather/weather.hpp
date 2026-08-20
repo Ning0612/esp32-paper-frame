@@ -113,7 +113,9 @@ struct PerformFailure {
 };
 
 // `status_code` is esp_http_client_get_status_code() after perform() returned
-// something other than ESP_OK; it is 0 when no response line was ever parsed.
+// something other than ESP_OK. ESP-IDF initialises it to -1 and only assigns
+// a real value once the status line is parsed, so anything <= 0 means no
+// response was ever received.
 PerformFailure classify_perform_failure(int status_code);
 
 bool stale(

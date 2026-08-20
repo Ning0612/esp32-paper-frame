@@ -21,7 +21,7 @@ client 仍記錄到狀態碼的情況。後者存在的原因是 ESP-IDF 對「4
 
 | 情況 | `Failure` | internet |
 | --- | --- | --- |
-| 無狀態碼（DNS／TCP／TLS 失敗） | `network` | unreachable |
+| 無狀態碼（DNS／TCP／TLS 失敗；ESP-IDF 回 `-1`） | `network` | unreachable |
 | 401 | `api_key_invalid` | reachable |
 | 其他 4xx／5xx | `http_error` | reachable |
 | 2xx 或殘留 3xx 但 perform 失敗（body 中斷） | `http_error` | reachable |

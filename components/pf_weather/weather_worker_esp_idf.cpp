@@ -323,7 +323,8 @@ void WeatherWorker::fetch_once()
         // fault, pointing whoever is debugging at the Wi-Fi instead of at the
         // key. The status line is already parsed by the time that branch
         // returns; classify_perform_failure() decides what the recorded
-        // status means (see its host tests).
+        // status means, including ESP-IDF's -1 "no response" sentinel (see
+        // its host tests).
         const int failed_status = esp_http_client_get_status_code(client);
         const pf_weather::PerformFailure classified =
             pf_weather::classify_perform_failure(failed_status);

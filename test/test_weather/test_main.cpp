@@ -232,6 +232,32 @@ void test_classify_perform_failure_separates_transport_from_http()
         static_cast<int>(pf_weather::Failure::http_error),
         static_cast<int>(redirect.failure));
     TEST_ASSERT_TRUE(redirect.reached_server);
+
+    // ESP-IDF's actual "nothing parsed" value is -1, not 0
+    // (esp_http_client.c seeds it that way). Testing only 0 would leave the
+    // real sentinel -- the one every connection-level failure produces --
+    // unpinned.
+    const pf_weather::PerformFailure sentinel =
+        pf_weather::classify_perform_failure(-1);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::network),
+        static_cast<int>(sentinel.failure));
+    TEST_ASSERT_FALSE(sentinel.reached_server);
+
+    // 1xx and out-of-range codes must not fall through to `network`: a status
+    // line of any kind still means the request reached a server.
+    const int others[] = {100, 199, 399, 600, 999};
+    for (const int code : others) {
+        const pf_weather::PerformFailure other =
+            pf_weather::classify_perform_failure(code);
+        TEST_ASSERT_TRUE(other.reached_server);
+        TEST_ASSERT_NOT_EQUAL(
+            static_cast<int>(pf_weather::Failure::network),
+            static_cast<int>(other.failure));
+        TEST_ASSERT_NOT_EQUAL(
+            static_cast<int>(pf_weather::Failure::none),
+            static_cast<int>(other.failure));
+    }
 }
 
 void test_classify_http_status_maps_known_and_unknown_codes()

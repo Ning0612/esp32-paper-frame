@@ -562,6 +562,9 @@ void record_success(
 PerformFailure classify_perform_failure(const int status_code)
 {
     // No status line: the request never reached a server (DNS, TCP, TLS).
+    // ESP-IDF seeds status_code with -1 (esp_http_client.c) and overwrites it
+    // only when the response status is parsed, so the guard covers both that
+    // sentinel and a defensive 0.
     if (status_code <= 0) {
         return {Failure::network, false};
     }
