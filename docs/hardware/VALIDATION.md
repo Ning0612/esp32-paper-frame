@@ -14,11 +14,11 @@
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
-| Phase 3/4 WebUI | 連上 AP 後的 portal 流程（需人看面板讀密碼）、STA retry exhaustion fallback、SNTP 失敗側（blank-NVS 進 AP、browser 出圖與下載已於 2026-08-20 閉環） | 2026-08-20 破壞性測試；2026-08-20 browser 出圖管線 |
+| Phase 3/4 WebUI | SNTP 失敗側（blank-NVS 進 AP、portal 存取邊界、STA retry exhaustion fallback、browser 出圖與下載均已於 2026-08-20 閉環） | 2026-08-20 AP portal 流程；2026-08-20 破壞性測試 |
 | Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、imagefs preservation 的 fault injection（長時間輪播已於 2026-08-20 由使用者確認） | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電（rollback confirmation、OTA worker stack 與 weather+OTA heap 併發已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
-| AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard（5 分鐘切換已於 2026-08-20 閉環並修好一個缺陷） | 2026-08-20 破壞性測試；2026-08-03 AP Mode grace policy |
+| AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard（5 分鐘切換已閉環並修好一個缺陷；SSID 像素可讀性由使用者確認） | 2026-08-20 破壞性測試；2026-08-03 AP Mode grace policy |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
 已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
@@ -1950,6 +1950,60 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — AP portal 流程與 STA retry exhaustion
+
+延續前一段的 blank-NVS 情境：抹除 `nvs` 後由使用者讀出面板上的 AP 密碼（隨機產生、
+只顯示在面板），PC 以 `netsh wlan` 建立 profile 連上 `PaperFrame-Setup-xxxx`
+（取得 `192.168.4.2`），直接對 `192.168.4.1` 測試。測後 profile 連同其中的密碼已刪除，
+NVS 也已寫回原始映像。
+
+### 存取邊界（安全規則的精確驗證）
+
+| 請求 | 未建立管理密碼 | 建立管理密碼後 |
+| --- | --- | --- |
+| `GET /api/v1/auth/status` | 200，`password_configured: false` | 200，`password_configured: true` |
+| `GET /api/v1/device` | 200 | — |
+| `GET /api/v1/health` | 200 | — |
+| **`GET /api/v1/wifi/scan`（未登入）** | **202 scanning（bootstrap 例外生效）** | **401 `authentication_required`** |
+| `GET /api/v1/wifi/scan`（已登入） | — | 200，回傳網路清單 |
+| `GET /api/v1/status`（未登入） | 401 | 401 |
+| `GET /api/v1/images`（未登入） | 401 | 401 |
+
+這正是「wifi scan/config 只有在尚未建立管理密碼且位於首次 provisioning AP 時才可
+未登入 bootstrap」的實機證據：同一個 endpoint 在建立密碼前後分別是 202 與 401。
+
+掃描結果包含實際環境中的兩個網路（含目標 AP，RSSI −29），格式為
+`{ssid, rssi, security}`。首次建立管理密碼經 `POST /api/v1/auth/login` 完成，
+回應 `password_created: true`。
+
+### STA retry exhaustion → 自動 fallback AP
+
+透過 portal 填入**正確 SSID 與刻意錯誤的密碼**（`POST /api/v1/wifi/config` 回
+`202 saving`），裝置寫入憑證後軟體重開（`reboot_reason=software_reset`），接著：
+
+| 時間 | 事件 |
+| --- | --- |
+| 2,337 → 5,367 ms | 第一次連線：`init → auth → assoc → run`，隨後 `run → init (0xf00)` |
+| 7,787 → 10,827 ms | 第二次連線：同樣的循環與失敗 |
+| 11,137 ms | `ap_mode_display_waiting_for_ready`——放棄 STA，開始 AP 流程 |
+| 42,287 ms | `provisioning_screen_ready`（面板刷完 AP 指示頁，約 31 s） |
+| 42,377 ms | `provisioning_ap_ready ssid=... ip=192.168.4.1` + DHCP server 啟動 |
+
+**自動 fallback 行為正確**：連不上時不會卡住，會回到可再次配網的 AP，且同樣是
+先把 AP 指示頁刷上面板才啟動 AP。
+
+**待釐清的觀察**：實機只嘗試了 **2 次**連線就 fallback，而
+`NetworkPolicy::maximum_sta_attempts` 為 3，`test_network_state_machine` 也斷言
+`sta_attempt()` 會遞增到 3。兩次 `run → init (0xf00)` 之間沒有第三次 auth 循環，
+第二次失敗後 310 ms 就進入 AP 流程。可能是一次 WPA2 認證失敗產生多個 disconnect
+事件讓狀態機計數快進，尚未查證。影響輕微（少一次重試等於更快 fallback），但設定值
+與實際行為不一致，值得後續確認。
+
+### 仍未驗證
+
+面板狀態列在 AP 頁上的視覺結果由使用者確認（見同日另一段）；AP/Wi-Fi 併發刷新、
+presence 例外與低 DMA heap guard 仍待驗。
 
 ## 2026-08-20 — 破壞性測試：blank NVS、AP grace window、NVS 損壞
 

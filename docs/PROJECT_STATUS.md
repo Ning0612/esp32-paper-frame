@@ -37,11 +37,11 @@ wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_on
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation |
-| Phase 3／4 WebUI | 連上 AP 後的 portal 流程、STA retry exhaustion fallback、SNTP 失敗側 |
+| Phase 3／4 WebUI | SNTP 失敗側 |
 | Phase 5 storage | compressed PFR1 與 catalog transaction 中斷電、imagefs preservation fault injection |
 | Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
 | Phase 8 OTA | **rollback fault injection**、OTA 下載途中斷電 |
-| AP grace policy | SSID 可讀性、AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard |
+| AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
 2026-08-20 已閉環（證據見[硬體驗證紀錄](hardware/VALIDATION.md)同日段落）：
