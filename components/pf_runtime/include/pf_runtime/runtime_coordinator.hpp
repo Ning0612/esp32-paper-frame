@@ -186,4 +186,12 @@ RuntimeCoordinator& coordinator();
 // post-update reboot so neither duplicates the esp_timer bookkeeping.
 bool schedule_reboot(const char* message);
 
+// True once schedule_reboot() has actually armed the timer. Subsystems use
+// it to stop issuing work that cannot survive the reboot: esp_restart()
+// tears Wi-Fi down on its way out, so a network action started after this
+// point fails with ESP_ERR_WIFI_NOT_STARTED and would otherwise be reported
+// as a genuine fault on an ordinary shutdown path. Never returns to false --
+// the only exit from a pending reboot is the reboot itself.
+bool reboot_pending();
+
 }  // namespace pf_runtime

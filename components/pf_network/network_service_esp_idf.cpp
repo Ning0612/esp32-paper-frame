@@ -383,6 +383,18 @@ void NetworkService::task_main()
 void NetworkService::perform_action_chain(NetworkAction action)
 {
     while (action != NetworkAction::none) {
+        // esp_restart() stops Wi-Fi on its way out, and that stop raises a
+        // disconnect event -- which lands here as a retry_sta that then
+        // fails with ESP_ERR_WIFI_NOT_STARTED. Retrying a radio that is
+        // being torn down cannot succeed, and logging it at ERROR made an
+        // ordinary reboot look like a network fault in every OTA log.
+        if (pf_runtime::reboot_pending()) {
+            ESP_LOGI(
+                kTag,
+                "network_action_skipped_for_reboot action=%u",
+                static_cast<unsigned>(action));
+            return;
+        }
         const esp_err_t result = apply(action);
         NetworkEvent completion =
             NetworkEvent::sta_connect_timeout;
@@ -396,6 +408,20 @@ void NetworkService::perform_action_chain(NetworkAction action)
         }
 
         if (result != ESP_OK) {
+            // The reboot check above and apply() are not atomic: a reboot
+            // can be armed in between, and esp_restart() stops Wi-Fi while
+            // this action is already in flight. That failure is expected
+            // shutdown behaviour, not a fault, so it must not be logged at
+            // ERROR -- doing so is what made every OTA log look like it hit
+            // a network problem.
+            if (pf_runtime::reboot_pending()) {
+                ESP_LOGI(
+                    kTag,
+                    "network_action_failed_during_reboot action=%u error=%s",
+                    static_cast<unsigned>(action),
+                    esp_err_to_name(result));
+                return;
+            }
             ESP_LOGE(
                 kTag,
                 "network_action_failed action=%u error=%s",
@@ -588,7 +614,13 @@ esp_err_t NetworkService::start_access_point()
 
 void NetworkService::begin_scan()
 {
-    if (!scan_allowed_in_mode(state_machine_.mode())) {
+    // A scan queued before the reboot was armed can still be dequeued here.
+    // Starting one against a radio esp_restart() is tearing down produces
+    // driver errors and races the teardown, so fail it closed instead --
+    // the requester gets a definite answer rather than a scan that can
+    // never deliver results before the device goes down.
+    if (pf_runtime::reboot_pending() ||
+        !scan_allowed_in_mode(state_machine_.mode())) {
         fail_scan(ESP_ERR_INVALID_STATE);
         return;
     }
@@ -775,7 +807,9 @@ void NetworkService::publish_state()
 
 void NetworkService::maybe_start_sntp()
 {
-    if (sntp_started_) {
+    // Same reasoning as begin_scan(): starting an SNTP client moments
+    // before esp_restart() cannot complete and only adds teardown races.
+    if (sntp_started_ || pf_runtime::reboot_pending()) {
         return;
     }
 

@@ -1,10 +1,14 @@
 #include "pf_runtime/runtime_coordinator.hpp"
 
+#include <atomic>
+#include <cinttypes>
 #include <cstddef>
 #include <cstring>
 
+#include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "pf_runtime/reboot_policy.hpp"
 
 namespace pf_runtime {
 namespace {
@@ -17,8 +21,76 @@ namespace {
 // called from inside a portMUX critical section).
 esp_timer_handle_t g_reboot_timer = nullptr;
 
+constexpr char kRebootTag[] = "pf_runtime";
+
+// Set once a reboot is actually armed. Other subsystems read it through
+// reboot_pending() to stop starting work that cannot outlive the reboot --
+// esp_restart() tears down Wi-Fi on its way out, so any network action
+// issued after this point is guaranteed to fail.
+std::atomic<bool> g_reboot_pending{false};
+
+// Only ever touched from the timer callback, which ESP_TIMER_TASK
+// dispatches on a single task, so a plain counter is sufficient.
+std::uint32_t g_reboot_deferrals = 0U;
+
 void reboot_timer_callback(void* /*arg*/)
 {
+    RuntimeSnapshot snapshot{};
+    // A refresh in flight owns the panel for ~31 s. Rebooting through it
+    // leaves the user looking at a half-drawn frame until the next refresh
+    // completes after boot, so wait for it -- but only up to the cap, since
+    // a panel that never finishes must not be able to block the reboot.
+    //
+    // "Busy" deliberately covers three cases, not just the active request
+    // id: queued_display_count > 0 means DisplayTask is about to start a
+    // refresh this callback would otherwise cut off microseconds later, and
+    // DisplayState::refreshing is the state the panel owner publishes --
+    // treating either as idle would reintroduce exactly the truncation this
+    // defers to avoid. A residual window remains (a refresh can begin
+    // between this read and esp_restart()); closing it entirely would need
+    // a "no new refreshes" lock inside DisplayTask, which owns that
+    // contract, and is not worth the intrusion for a microsecond-wide race.
+    const bool display_busy =
+        coordinator().read_snapshot(snapshot) &&
+        (snapshot.display == DisplayState::refreshing ||
+         snapshot.display == DisplayState::queued ||
+         snapshot.active_display_request_id != 0U ||
+         snapshot.queued_display_count > 0U);
+    if (should_defer_reboot(display_busy, g_reboot_deferrals)) {
+        ++g_reboot_deferrals;
+        if (g_reboot_deferrals == 1U) {
+            ESP_LOGI(
+                kRebootTag,
+                "reboot_deferred_for_display request=%" PRIu32
+                " queued=%u",
+                snapshot.active_display_request_id,
+                static_cast<unsigned>(snapshot.queued_display_count));
+        }
+        const esp_err_t rearm =
+            esp_timer_start_once(g_reboot_timer, kRebootDelayUs);
+        // ESP_ERR_INVALID_STATE means the timer is already armed -- another
+        // caller scheduled a reboot while this callback was running (the
+        // timer counts as disarmed for the duration of its own callback).
+        // A reboot is still coming, so return and let that one fire;
+        // treating it as a failure would reboot immediately and truncate
+        // the very refresh this deferral exists to protect.
+        if (rearm == ESP_OK || rearm == ESP_ERR_INVALID_STATE) {
+            return;
+        }
+        // Genuinely could not re-arm: reboot now rather than never. The
+        // panel loses this refresh, which is still better than a device
+        // that was told to reboot and silently does not.
+        ESP_LOGW(
+            kRebootTag,
+            "reboot_defer_rearm_failed=%s; rebooting now",
+            esp_err_to_name(rearm));
+    } else if (g_reboot_deferrals > 0U) {
+        ESP_LOGI(
+            kRebootTag,
+            "reboot_proceeding deferrals=%" PRIu32 " display_busy=%d",
+            g_reboot_deferrals,
+            static_cast<int>(display_busy));
+    }
     esp_restart();
 }
 
@@ -619,7 +691,7 @@ bool schedule_reboot(const char* const message)
     }
 
     const esp_err_t start_result =
-        esp_timer_start_once(g_reboot_timer, 500000ULL);
+        esp_timer_start_once(g_reboot_timer, kRebootDelayUs);
     // ESP_ERR_INVALID_STATE means the timer is already running -- i.e. a
     // reboot is already scheduled by a concurrent caller (e.g. the admin
     // clicking "reboot" right as an OTA update finishes). That is not a
@@ -636,7 +708,19 @@ bool schedule_reboot(const char* const message)
         DiagnosticCategory::reboot,
         armed ? DiagnosticSeverity::info : DiagnosticSeverity::error,
         armed ? message : "reboot_schedule_failed");
+    if (armed) {
+        // Publish only after the timer is confirmed armed: a caller that
+        // sees reboot_pending() will stop issuing work, so claiming it
+        // while no reboot is coming would quietly disable that work for
+        // the rest of the session.
+        g_reboot_pending.store(true, std::memory_order_release);
+    }
     return armed;
+}
+
+bool reboot_pending()
+{
+    return g_reboot_pending.load(std::memory_order_acquire);
 }
 
 }  // namespace pf_runtime

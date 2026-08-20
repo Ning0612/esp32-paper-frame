@@ -1659,6 +1659,18 @@ esp_err_t scan_handler(httpd_req_t* request)
         return reject_management_request(request, access, false);
     }
 
+    // A scan started now cannot deliver results before the device goes
+    // down, and answering "scanning" would be worse than refusing: the
+    // browser polls every 900 ms on 202 and re-requests on a failed
+    // snapshot, so it would spin until the reboot instead of telling the
+    // user why scanning is unavailable.
+    if (pf_runtime::reboot_pending()) {
+        return send_json(
+            request,
+            "503 Service Unavailable",
+            "{\"ok\":false,\"error\":\"rebooting\"}");
+    }
+
     pf_network::ScanSnapshot snapshot{};
     if (!pf_network::network_service().scan_snapshot(snapshot)) {
         return send_json(
