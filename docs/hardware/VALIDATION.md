@@ -13,8 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
-| Phase 3/4 WebUI | SNTP 失敗側（blank-NVS 進 AP、portal 存取邊界、STA retry exhaustion fallback、browser 出圖與下載均已於 2026-08-20 閉環） | 2026-08-20 AP portal 流程；2026-08-20 破壞性測試 |
+| Phase 2 display | panel sleep 電流（refresh duration 31.2 s 與 forced-BUSY isolation 已於 2026-08-20 閉環） | 2026-08-20 forced-BUSY；2026-08-20 v0.9.1 收尾驗證 |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard（5 分鐘切換已閉環並修好一個缺陷；SSID 像素可讀性由使用者確認） | 2026-08-20 破壞性測試；2026-08-03 AP Mode grace policy |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
@@ -23,7 +22,8 @@
 兩種 otadata 狀態各驗一次，寫入位址隨 active slot 改變）、`嵌入式 WebUI`
 （2026-08-20 完成 webfs heap 差值量化）、`Phase 6 weather`（2026-08-20 關閉四種
 失敗分類，面板狀態列視覺由使用者確認）、`Phase 5 storage` 與 `Phase 8 OTA`
-（2026-08-20 完成斷電故障注入與 rollback fault injection）。
+（2026-08-20 完成斷電故障注入與 rollback fault injection）、`Phase 3/4 WebUI`
+（2026-08-20 完成 SNTP 失敗側，該領域全數閉環）。
 `mDNS` 從未實作，不列為待驗證項——詳見 2026-08-20 段落。
 
 ## 2026-07-29 — 初始 USB 盤點
@@ -1949,6 +1949,55 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — forced-BUSY isolation 與 SNTP 失敗側
+
+### forced-BUSY：面板卡死時 HTTP 必須照常回應
+
+把面板的 BUSY 訊號從 `GPIO4`（`kPanelBusyGpio`）改接到 GND，驅動的
+`gpio_get_level(kBusyPin) != 0` 因此永遠讀不到 idle。觸發一次刷新，同時每秒
+探測 `/api/v1/health`。
+
+| 檢查 | 結果 |
+| --- | --- |
+| 逾時時間 | serial `carousel_image_queued` → `carousel_request` 相隔 **61.0 s**，符合 `kBusyTimeoutMs = 60'000` |
+| 失敗分類 | `outcome=3`（`busy_timeout`）、`stage=2`（`DriverStage::initial_busy`，reset 後等待面板回報 idle 的第一步） |
+| **HTTP 可用性** | 60 秒期間 **80 次探測全部 200，零非 200** |
+| 系統狀態 | 面板 `failed`，未崩潰、未 boot loop、Wi-Fi 與其他服務不受影響 |
+
+**這是 AGENTS.md「HTTP handler 不得等待面板刷新」那條邊界的直接證據**：
+DisplayTask 整整卡住一分鐘，HTTP 完全沒有被拖累。
+
+同一條邊界的另一面在測試前意外出現：面板刷新期間送出
+`POST /api/v1/weather/config` 得到 **`503 flash_busy`**——handler 立即回報而不是
+等待 flash 鎖釋放。
+
+**恢復**：把 BUSY 接回 `GPIO4` 後，下一次刷新即
+`outcome=1 refreshed_and_slept`、`stage=10 deep_sleep`，面板自行恢復，不需要
+任何額外操作。
+
+**順帶涵蓋到的情境**：測試過程中 BUSY 曾一度既未接地也未接回 GPIO4（浮空）。
+對韌體而言浮空與卡在低電位是同一種故障——**BUSY 線鬆脫等同於面板卡死**——
+連續四次刷新都乾淨地在 60 秒後回報 `busy_timeout`，包含重開機之後。也就是說
+排線鬆脫的症狀是「畫面不再更新，但裝置一切照常回應」，而不是裝置失去回應。
+此時 `carousel.current_image` 維持 `null`，符合「沒成功就不謊報」的原則。
+
+### SNTP 失敗側
+
+把 `ntp_server` 設為 `192.0.2.1`（TEST-NET-1，保證無回應）後重開機：
+
+| 檢查 | 結果 |
+| --- | --- |
+| 時間同步 | `sntp: "syncing"`，超過 `kTimeSyncTimeoutMs`(300 s) 後仍是 `syncing`——持續嘗試而不進入終態失敗 |
+| 其他服務 | `flash`／`psram`／`config`／`imagefs` 全 ready，Wi-Fi connected，`/api/v1/images` 200 |
+| 面板 | 開機刷新正常完成（`refreshed_and_slept`），輪播照常 |
+| 天氣 | serial `time_sync_wait_timeout=300000ms; attempting fetch anyway`，隨後**抓取成功**（`state=available`、`last_failure=none`） |
+
+值得記下的一點：即使本地時鐘未同步，`observed_at_epoch_s` 仍是正確的
+`2026-08-20T14:15:18`——那個值取自 OpenWeather 回應的 `dt` 欄位（伺服器時間），
+不依賴裝置時鐘。因此 SNTP 失效不會讓天氣顯示錯誤的觀測時間。
+
+測後 `ntp_server` 已還原為 `pool.ntp.org`。
 
 ## 2026-08-20 — 斷電故障注入：PFR1 上傳、catalog 交易、OTA 下載
 
