@@ -141,12 +141,12 @@ void WeatherWorker::task_main()
         }
 
         const std::uint64_t after_ms = now_ms_since_boot();
-        // next_attempt_ms == UINT64_MAX means "no automatic retry
-        // scheduled" (see the record_success() call above); computing
-        // pdMS_TO_TICKS() on that magnitude would overflow, so wait
-        // indefinitely for request_immediate_refresh() instead.
+        // kNoAutomaticRetry means "no automatic retry scheduled" (see the
+        // record_success() call above); computing pdMS_TO_TICKS() on that
+        // magnitude would overflow, so wait indefinitely for
+        // request_immediate_refresh() instead.
         TickType_t wait_ticks = portMAX_DELAY;
-        if (cache_.next_attempt_ms != UINT64_MAX) {
+        if (cache_.next_attempt_ms != pf_weather::kNoAutomaticRetry) {
             wait_ticks = cache_.next_attempt_ms > after_ms
                              ? pdMS_TO_TICKS(cache_.next_attempt_ms - after_ms)
                              : pdMS_TO_TICKS(1000U);
@@ -243,7 +243,7 @@ void WeatherWorker::fetch_once()
         // polling on a timer for a key that clearly isn't there yet.
         ESP_LOGW(kTag, "weather_api_key_not_configured; skipping fetch");
         cache_.last_failure = pf_weather::Failure::api_key_invalid;
-        cache_.next_attempt_ms = UINT64_MAX;
+        cache_.next_attempt_ms = pf_weather::kNoAutomaticRetry;
         publish();
         return;
     }
@@ -367,15 +367,14 @@ void WeatherWorker::fetch_once()
     // No periodic follow-up: the next fetch is woken externally by
     // request_immediate_refresh() right after the carousel's next panel
     // refresh is accepted (see app_main.cpp), not by a user-configured
-    // interval.
-    // UINT64_MAX saturates next_attempt_ms so retry_due() stays false
-    // until something calls request_immediate_refresh() again.
+    // interval. Naming the sentinel keeps that intent in the diff -- a
+    // finite interval here would quietly restore the polling ADR-0014 removed.
     pf_weather::record_success(
         cache_,
         parsed.observation,
         static_cast<std::uint64_t>(wall_clock_now),
         now_ms_since_boot(),
-        UINT64_MAX);
+        pf_weather::kNoAutomaticRetry);
     report_internet(true);
     publish();
 }

@@ -13,7 +13,13 @@ inline constexpr std::size_t kLocationCapacity = 48U;
 // echoes back the units it was requested with.
 inline constexpr std::size_t kUnitsCapacity = 9U;
 inline constexpr std::uint64_t kDefaultCacheMaxAgeSeconds = 3600U;
-inline constexpr std::uint64_t kUpdateIntervalMs = 10U * 60U * 1000U;
+// record_success()'s interval_ms for "schedule no automatic follow-up":
+// next_attempt_ms saturates, retry_due() stays false, and only
+// request_immediate_refresh() wakes the worker. This is what the firmware
+// passes -- ADR-0014 replaced the periodic weather timer with a fetch driven
+// by the carousel's panel refresh, so a finite interval here would silently
+// bring the retired polling behaviour back.
+inline constexpr std::uint64_t kNoAutomaticRetry = UINT64_MAX;
 inline constexpr std::uint64_t kInitialRetryMs = 10U * 1000U;
 inline constexpr std::uint64_t kMaximumRetryMs = 60U * 60U * 1000U;
 
@@ -71,12 +77,17 @@ struct Cache {
     Failure last_failure = Failure::none;
 };
 
+// `interval_ms` schedules the next automatic attempt (now_ms + interval_ms,
+// saturating). It is deliberately NOT defaulted: since ADR-0014 the firmware
+// has no periodic weather timer -- the worker passes UINT64_MAX so retry_due()
+// stays false and the next fetch is woken by request_immediate_refresh() after
+// a panel refresh is accepted. Callers must therefore say which they mean.
 void record_success(
     Cache& cache,
     const Observation& observation,
     std::uint64_t success_epoch_s,
     std::uint64_t now_ms,
-    std::uint64_t interval_ms = kUpdateIntervalMs);
+    std::uint64_t interval_ms);
 
 void record_failure(
     Cache& cache,

@@ -103,12 +103,15 @@ void test_cache_preserves_last_success_and_backs_off_failures()
         pf_weather::parse_current_weather(kResponse, sizeof(kResponse) - 1U);
     TEST_ASSERT_TRUE(parsed.ok());
 
+    // An explicit interval: the firmware itself passes UINT64_MAX (no
+    // periodic timer since ADR-0014), but the scheduling arithmetic still has
+    // to hold for a finite one, which is what this case pins down.
+    constexpr std::uint64_t kIntervalMs = 10U * 60U * 1000U;
     pf_weather::Cache cache{};
-    pf_weather::record_success(cache, parsed.observation, 1000U, 5000U);
+    pf_weather::record_success(
+        cache, parsed.observation, 1000U, 5000U, kIntervalMs);
     TEST_ASSERT_TRUE(cache.has_observation);
-    TEST_ASSERT_EQUAL_UINT64(
-        5000U + pf_weather::kUpdateIntervalMs,
-        cache.next_attempt_ms);
+    TEST_ASSERT_EQUAL_UINT64(5000U + kIntervalMs, cache.next_attempt_ms);
     TEST_ASSERT_FALSE(pf_weather::retry_due(cache, 5000U));
     TEST_ASSERT_TRUE(pf_weather::retry_due(cache, cache.next_attempt_ms));
     TEST_ASSERT_FALSE(pf_weather::stale(cache, 1200U, 3600U));
@@ -148,6 +151,38 @@ void test_record_success_honors_custom_interval()
     TEST_ASSERT_EQUAL_UINT64(5000U + 60U * 60U * 1000U, cache.next_attempt_ms);
 }
 
+// The path the firmware actually takes: WeatherWorker passes UINT64_MAX so no
+// automatic follow-up is scheduled (ADR-0014 replaced the periodic timer with
+// a fetch driven by the carousel's panel refresh). Without this case every
+// assertion above covers only the finite-interval behaviour that ADR-0014
+// retired, leaving the shipped scheduling untested.
+void test_record_success_can_schedule_no_automatic_retry()
+{
+    const pf_weather::ParseResult parsed =
+        pf_weather::parse_current_weather(kResponse, sizeof(kResponse) - 1U);
+    TEST_ASSERT_TRUE(parsed.ok());
+
+    pf_weather::Cache cache{};
+    pf_weather::record_success(
+        cache,
+        parsed.observation,
+        1000U,
+        5000U,
+        pf_weather::kNoAutomaticRetry);
+
+    TEST_ASSERT_EQUAL_UINT64(
+        pf_weather::kNoAutomaticRetry, cache.next_attempt_ms);
+    // retry_due() must stay false for every reachable uptime, so the worker
+    // waits on its semaphore until request_immediate_refresh() wakes it.
+    TEST_ASSERT_FALSE(pf_weather::retry_due(cache, 5000U));
+    TEST_ASSERT_FALSE(pf_weather::retry_due(cache, UINT64_MAX - 1U));
+    // The observation itself is still cached and still ages normally.
+    TEST_ASSERT_TRUE(cache.has_observation);
+    TEST_ASSERT_EQUAL_UINT64(1000U, cache.last_success_epoch_s);
+    TEST_ASSERT_FALSE(pf_weather::stale(cache, 1200U, 3600U));
+    TEST_ASSERT_TRUE(pf_weather::stale(cache, 4601U, 3600U));
+}
+
 void test_classify_http_status_maps_known_and_unknown_codes()
 {
     TEST_ASSERT_EQUAL_INT(
@@ -176,6 +211,7 @@ int main()
     RUN_TEST(test_parser_rejects_number_prefixes_with_trailing_garbage);
     RUN_TEST(test_cache_preserves_last_success_and_backs_off_failures);
     RUN_TEST(test_record_success_honors_custom_interval);
+    RUN_TEST(test_record_success_can_schedule_no_automatic_retry);
     RUN_TEST(test_classify_http_status_maps_known_and_unknown_codes);
     return UNITY_END();
 }
