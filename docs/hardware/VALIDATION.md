@@ -14,12 +14,12 @@
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
-| Phase 3/4 WebUI | blank-NVS／fallback AP 的瀏覽器流程、SNTP 失敗側（browser 出圖與下載已於 2026-08-20 閉環） | 2026-08-20 browser 出圖管線；2026-07-30 Phase 3 驗證 |
+| Phase 3/4 WebUI | 連上 AP 後的 portal 流程（需人看面板讀密碼）、STA retry exhaustion fallback、SNTP 失敗側（blank-NVS 進 AP、browser 出圖與下載已於 2026-08-20 閉環） | 2026-08-20 破壞性測試；2026-08-20 browser 出圖管線 |
 | Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、imagefs preservation 的 fault injection（長時間輪播已於 2026-08-20 由使用者確認） | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電（rollback confirmation、OTA worker stack 與 weather+OTA heap 併發已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
-| AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
-| 設定降級邊界 | `nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗（`409 config_read_only` 端到端已閉環） | 2026-08-20 設定降級邊界修正；2026-08-20 v0.9.1 收尾驗證 |
+| AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard（5 分鐘切換已於 2026-08-20 閉環並修好一個缺陷） | 2026-08-20 破壞性測試；2026-08-03 AP Mode grace policy |
+| 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
 已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
 兩種 otadata 狀態各驗一次，寫入位址隨 active slot 改變）、`嵌入式 WebUI`
@@ -1950,6 +1950,62 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — 破壞性測試：blank NVS、AP grace window、NVS 損壞
+
+### 讓破壞性測試可逆
+
+先以 `esptool read-flash 0x9000 0x4000` 把整個 `nvs` 分割區 dump 成映像
+（16,384 bytes，3 頁有資料），測完再 `write-flash` 寫回。因此不需要知道 Wi-Fi
+密碼——API 只回報 `ssid_set`，讀不到 SSID 與密碼——也不必事後重新配網。
+還原後 `/api/v1/config`、`/api/v1/weather/config`、`/api/v1/sensors/config`、
+`/api/v1/images` 四個回應與備份**位元相同**，裝置連回原 IP，管理密碼可用。
+圖片不受影響（`imagefs` 在 `0x630000`，與 `nvs` 無關）。
+
+### blank NVS → provisioning AP（Phase 3/4，部分關閉）
+
+| 檢查 | 結果 |
+| --- | --- |
+| 啟動決策 | `config_schema=2 action=initialize_defaults` |
+| 憑證狀態 | `network_credentials_configured=false`、`management_password_configured=false` |
+| 面板 | `ap_mode_display_waiting_for_ready` → `provisioning_screen_ready request=1`（32.7 s，一次完整刷新） |
+| AP 啟動 | `provisioning_ap_ready ssid=PaperFrame-Setup-3AED ip=192.168.4.1`，**在面板刷新完成之後**才啟動 |
+| 對外可見 | PC `netsh wlan show networks` 掃到該 SSID，**WPA2-Personal + CCMP**（非開放網路） |
+| 密碼保護 | AP 密碼由 `esp_fill_random()` 產生 12 bytes 熵（`PF-` + 12 字元，32 字母表），**不可由 MAC／SSID 推導**，且不出現在 log 中 |
+
+**仍未驗證**：連上 AP 之後的 portal 流程（未建密碼時的 `auth/status`、bootstrap
+未登入 `wifi/scan`、建立管理密碼、填入 Wi-Fi）。AP 密碼只顯示在面板上，自動化
+測試讀不到，需要有人看著面板操作。
+
+### AP grace window（AP grace policy，5 分鐘切換關閉）
+
+`ap_mode_display_window_started` @ 33,559 ms → `ap_mode_display_window_expired`
+@ 333,559 ms，**正好 300,000 ms**，與 `kApModeImageTimeoutMs` 一致。
+
+**但這次實測抓到 grace window 從來沒有真正生效**（詳見下節）。修正後同一情境：
+window 過期後 **270 ms** 就 `carousel_image_queued id=15 request=2`，接著
+`carousel_request=2 outcome=1` 完成刷新。
+
+`docs/hardware/VALIDATION.md` 2026-08-03 段落當時只做 host/build 驗證，抓不到
+這個缺陷——它需要一台 blank-NVS 裝置在 AP 模式停留超過五分鐘才會現形。
+
+### NVS 損壞：`nvs_flash_init()` 失敗實際上無法觸發
+
+ADR-0017 的 `nvs_initialized == false` 分支試了兩種破壞方式：
+
+| 寫入 `0x9000` 的內容 | 結果 |
+| --- | --- |
+| 16 KB 隨機資料 | `action=initialize_defaults`，ESP-IDF 自動格式化 |
+| 16 KB 全 `0x00` | 同上 |
+
+兩次都伴隨 `phy_init: failed to load RF calibration data (0x1102)`，佐證 NVS 確實
+被重寫過。結論：**`nvs_flash_init()` 會把任何無效內容視為未初始化並自我修復**，
+因此在凍結的 partition 配置下該分支不可觸發，屬防禦性程式碼。要真正觸發需要
+分割區本身缺失或大小為 0，而 partition table 由 ADR-0004 凍結。
+
+「NVS 滿導致 `pf_config` 開啟失敗」仍未驗證：需要構造一份塞滿的 NVS 映像或
+用縮小 `nvs` 的自訂 partition 建置測試韌體。考量 16 KB 只存少量設定、該情境
+實務罕見，暫列為已知未驗證的低風險項。
 
 ## 2026-08-20 — 面板狀態列視覺與長時間輪播（使用者實機確認）
 
