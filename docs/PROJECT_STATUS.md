@@ -38,8 +38,7 @@ wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_on
 | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation |
 | Phase 3／4 WebUI | blank-NVS／fallback AP browser flow、SNTP 失敗側 |
-| Phase 5 storage | compressed PFR1 與 catalog transaction 中斷電、長時間輪播、imagefs preservation fault injection |
-| Phase 6 weather | 面板狀態列視覺結果 |
+| Phase 5 storage | compressed PFR1 與 catalog transaction 中斷電、imagefs preservation fault injection |
 | Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
 | Phase 8 OTA | **rollback fault injection**、OTA 下載途中斷電 |
 | AP grace policy | SSID 可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard |
@@ -50,7 +49,9 @@ OTA 端到端與 rollback confirmation、WebUI 隨韌體換版、reboot persiste
 OTA worker stack high-water、active OTA upload wrapper 的 slot 選擇、面板刷新
 耗時（31.2 s）、真實 SNTP、`409 config_read_only`、認證邊界、System 頁瀏覽器
 操作，以及 OTA／面板刷新／天氣三者併發下的 heap（天氣在該情境下會因 SSL
-配置失敗而降級，屬容量限制而非缺陷）。`mDNS` 從未實作，已不列為待驗證項。
+配置失敗而降級，屬容量限制而非缺陷）、browser 出圖與下載、webfs heap 差值、
+天氣四種失敗分類，以及由使用者實機確認的面板狀態列視覺與長時間輪播。
+`mDNS` 從未實作，已不列為待驗證項。
 
 每完成一項，先更新 [硬體驗證紀錄](hardware/VALIDATION.md) 的頂端未完成索引，
 再同步本表；不要只把 checkbox 改成完成。

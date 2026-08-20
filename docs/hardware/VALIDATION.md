@@ -15,8 +15,7 @@
 | --- | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
 | Phase 3/4 WebUI | blank-NVS／fallback AP 的瀏覽器流程、SNTP 失敗側（browser 出圖與下載已於 2026-08-20 閉環） | 2026-08-20 browser 出圖管線；2026-07-30 Phase 3 驗證 |
-| Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、長時間圖片輪播、imagefs preservation 的 fault injection | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
-| Phase 6 weather | 面板狀態列視覺結果（真實 SNTP 與四種失敗分類已於 2026-08-20 閉環） | 2026-08-20 天氣失敗分類；2026-07-31 Phase 6 |
+| Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、imagefs preservation 的 fault injection（長時間輪播已於 2026-08-20 由使用者確認） | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電（rollback confirmation、OTA worker stack 與 weather+OTA heap 併發已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
@@ -24,7 +23,8 @@
 
 已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
 兩種 otadata 狀態各驗一次，寫入位址隨 active slot 改變）、`嵌入式 WebUI`
-（2026-08-20 完成 webfs heap 差值量化）。
+（2026-08-20 完成 webfs heap 差值量化）、`Phase 6 weather`（2026-08-20 關閉四種
+失敗分類，面板狀態列視覺由使用者確認）。
 `mDNS` 從未實作，不列為待驗證項——詳見 2026-08-20 段落。
 
 ## 2026-07-29 — 初始 USB 盤點
@@ -1950,6 +1950,21 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — 面板狀態列視覺與長時間輪播（使用者實機確認）
+
+以下兩項由使用者在實機上確認通過，本節記錄結論與其證據粒度。
+
+| 項目 | 結論 | 證據粒度 |
+| --- | --- | --- |
+| 面板狀態列視覺結果（Phase 6） | 通過 | 使用者目視確認；未留存照片或分狀態（正常／失敗／無網路）的逐項對照 |
+| 長時間圖片輪播（Phase 5） | 通過 | 使用者實機確認；未留存 serial log、實際時長與 heap 走勢 |
+
+**這兩筆與本檔其他段落的證據強度不同**，據實標示以免日後被當成有完整量測依據：
+沒有 serial log、時長數字或 heap 趨勢可回溯。若之後要把長時間輪播升級為可追溯的
+證據，需要的是連續錄製的 serial log（`carousel_request=<id> outcome=1` 是否每期
+不漏拍、internal heap 是否單向下滑）與實際運行時數；面板狀態列則需要天氣正常、
+天氣失敗與無網路三種狀態各一張照片。
 
 ## 2026-08-20 — 天氣失敗分類（Phase 6 本項自此關閉，並修掉一個誤報）
 
