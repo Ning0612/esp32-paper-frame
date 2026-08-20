@@ -5,7 +5,7 @@
 測試時，請以目前硬體 profile、命令與 acceptance 描述為準。歷史段落保留時間
 順序與測試結論；後續新增紀錄仍採 append-only，頂端索引代表目前狀態。
 
-## Current unresolved hardware evidence（2026-08-19）
+## Current unresolved hardware evidence（2026-08-20）
 
 本檔以下內容是 append-only 的歷史證據；本節只整理目前仍未閉環的項目，
 避免把早期「尚未驗證」誤讀成目前狀態，也避免把 host/build 結果當成實機
@@ -13,15 +13,19 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 2 display | refresh duration、panel sleep 電流、forced-BUSY isolation | 2026-07-30 Phase 2 panel-driver 驗證；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 2 checkpoint |
-| Phase 3/4 WebUI | blank-NVS／STA browser flow、SNTP/mDNS、browser image 產出與下載收尾 | 2026-07-30 Phase 3 驗證；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 3–4 checkpoint |
-| Phase 5 storage | compressed PFR1 transaction 中斷電、長時間圖片輪播與 imagefs preservation fault injection | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
-| Phase 6 weather | 真實 SNTP、HTTPS/TLS 診斷狀態與面板狀態列視覺結果 | 2026-07-31 Phase 6；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 6 checkpoint |
+| Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
+| Phase 3/4 WebUI | blank-NVS／fallback AP 的瀏覽器流程、browser image 產出與下載收尾、SNTP 失敗側 | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 3 驗證 |
+| Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、長時間圖片輪播、imagefs preservation 的 fault injection | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
+| Phase 6 weather | `api_key_invalid`／`network`／`http_error`／`parse_error` 四種失敗分類與面板狀態列視覺結果（真實 SNTP 已閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-07-31 Phase 6 |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
-| Phase 8 OTA | 真實 rollback fault injection、rollback confirmation、OTA worker stack high-water mark、weather+OTA heap 併發 | 2026-08-01 Phase 8；2026-08-03 GitHub Release 驗證 |
+| Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電、weather+OTA heap 併發（rollback confirmation 與 OTA worker stack 已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
-| active OTA upload wrapper | wrapper 的真實硬體寫入尚未以本次版本重跑；手動 active-slot 寫入已有證據 | 2026-08-03 active OTA slot upload |
-| 嵌入式 WebUI | 僅剩「移除 webfs 掛載後的 heap 差值量化」（缺改動前對照值）；OTA 後前端同步換版已於 v0.9.0 閉環 | 2026-08-19 v0.9.0 OTA 端到端驗證 |
+| 嵌入式 WebUI | 僅剩「移除 webfs 掛載後的 heap 差值量化」（缺改動前對照值） | 2026-08-19 v0.9.0 OTA 端到端驗證 |
+| 設定降級邊界 | `nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗（`409 config_read_only` 端到端已閉環） | 2026-08-20 設定降級邊界修正；2026-08-20 v0.9.1 收尾驗證 |
+
+已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
+兩種 otadata 狀態各驗一次，寫入位址隨 active slot 改變，本項閉環）。
+`mDNS` 從未實作，不列為待驗證項——詳見 2026-08-20 段落。
 
 ## 2026-07-29 — 初始 USB 盤點
 
@@ -1697,3 +1701,203 @@ tag `v0.9.0` 推送後 release workflow 成功（4m56s）。資產：
 - `nvs_flash_init()` 失敗、以及 NVS 滿導致 `pf_config` 開啟失敗這兩條路徑。
 - 真實的 OTA rollback fault injection（刻意燒一個在 rollback confirmation 前
   crash-loop 的版本）——這仍是 ADR-0008 從 Phase 8 起就列著的待驗證項。
+
+## 2026-08-20 — v0.9.1 收尾驗證：OTA 端到端、upload wrapper、刷新耗時
+
+本次一併關閉 `active OTA upload wrapper`、Phase 8 的 rollback confirmation 與
+OTA worker stack、Phase 2 的 refresh duration、Phase 3/4 的真實 SNTP，以及
+2026-08-20 設定降級段落遺留的 `409 config_read_only` 端到端路徑。
+
+### 測試環境
+
+- 裝置韌體 `v0.9.1`（ESP-IDF 6.0.0），ESP32-S3 rev v0.2、flash boya QIO 16 MB、
+  PSRAM 8 MB octal @80 MHz，7.3 吋 E6 面板已接。
+- 應用程式 console 為 native USB（`VID_303A&PID_1001`）；同一台工作站上另有一台
+  **非本專案**的裝置佔用 CP210x 埠，辨識 port 時必須依 USB hardware ID 確認，
+  不能只看埠號。
+- serial 擷取腳本開埠前先設 `dtr=False`／`rts=False`：pyserial 預設開埠會拉
+  DTR/RTS，等同對 ESP32 送 reset（本次因此意外重置過一台鄰近裝置）。
+
+### 離線／自動化結果
+
+| 項目 | 結果 |
+| --- | --- |
+| `pio run -e paperframe-s3` | 成功；RAM 106,688 bytes（32.6%）、Flash 1,293,233 bytes（49.3%） |
+| `pio test -e native` | 308/308 通過 |
+| embedded build gate（`paperframe-s3-embedded-test`） | `test_runtime_coordinator` build 通過 |
+| embedded build gate（`paperframe-s3-display-test`） | `test_display_task` build 通過 |
+| `test_epd7in3e_driver`（需 `-f` 指定） | build 通過 |
+| `node --check data/web/*.js` | 5/5 |
+| `test/web/*.mjs` | 9/9 |
+| `node test/test_partition_layout.mjs` | 3/3 |
+| `test/test_active_ota_upload.py`（需 `PYTHONPATH=.`） | 4/4 |
+| release 資產 | `v0.9.1` 四個資產齊全，檔名符合 OTA 需求 |
+| OTA 固定 URL | `releases/latest/download/paperframe-firmware.bin` → HTTP 200、1,293,616 bytes、SHA-256 與 `SHA256SUMS` 相符 |
+| partition CSV | release 版與本機 `partitions/paperframe-dev.csv` 位元相同，SHA-256 為 ADR-0004 凍結值 |
+
+`pio test -e native` 一度回報 `test_storage_worker ERRORED`，根因是同時間另有一個
+PlatformIO 指令在跑，清 `.pio/build` 觸發 `WinError 145`。單獨重跑該套件 8/8，
+完整套件乾淨重跑 308/308。**PlatformIO 指令不可併發執行。**
+
+### active OTA upload slot wrapper（本項自此關閉）
+
+`tools/platformio_active_ota_upload.py` 先前只有 synthetic metadata 測試與一次
+手動 esptool 寫入，缺少「wrapper 本身依 otadata 改變寫入位址」的實機證據。
+
+| active slot | wrapper 輸出 | esptool 實際寫入 |
+| --- | --- | --- |
+| `ota_0` | `Uploading active ota_0 app slot at 0x10000` | `0x00010000` |
+| `ota_1`（經一次真實 OTA 切換後） | `Uploading active ota_1 app slot at 0x290000` | `Wrote 1293072 bytes ... at 0x00290000` |
+
+同一條 `pio run --target upload` 指令在兩種 otadata 狀態下寫到不同位址，且開機
+log 的 `Loaded app from partition at offset ...` 與 wrapper 選定的 slot 一致，
+排除了「固定寫 PlatformIO 預設 `0x10000`」的可能。本次共執行七次 upload
+（含臨時 instrumentation、OTA probe 與降級測試韌體），每次之後 `imagefs`、
+NVS 與 partition table 都未被觸碰。
+
+### OTA 端到端（v0.9.1 的 release checklist §3）
+
+測試韌體以目前程式碼建置，版本字串改為 `v0.9.0-probe`、`index.html` 開頭插入
+`<!-- OTA-PROBE-LOCAL-BUILD -->` 標記，使「前端是否真的換版」成為可直接觀測的事實。
+
+| 檢查 | 結果 |
+| --- | --- |
+| 檢查更新 | `check_state=update_available`、`latest_version=v0.9.1` |
+| 立即更新 | 回 202；`downloading` → `writing` 1%→94%，約 30 秒 |
+| 寫入位置 | `esp_https_ota: Writing to <ota_1> partition at offset 0x290000` |
+| 重開後版本 | `v0.9.1`，`Loaded app from partition at offset 0x290000` |
+| 前端標記 | **已消失**——WebUI 隨韌體整包換版 |
+| boot validation | `rollback_confirmed=ESP_OK` |
+| **再次重開機** | 仍為 `v0.9.1`、仍從 `0x290000` 開機、標記仍不存在 → rollback confirmation 確實生效 |
+| 圖片庫 | 14 張，id 集合與 `file_bytes`／尺寸／`order`／`enabled` 全部不變；唯一差異是 `current` 由 id 25 移到 27（輪播正常換圖） |
+| imagefs | `used=1257472` 在七次 upload、一次 OTA 與多次重開機後皆不變 |
+| OTA worker stack | check 後 `ota_worker_stack_free_bytes=12140`、update 後 `=11948`（配置 16,384，峰值用量約 27%） |
+| OTA heap headroom | `point=update_now_start internal_free=116051 internal_largest=31744 dma_free=108167 dma_largest=31744`；`point=before_esp_https_ota_begin internal_free=112927 dma_free=105139` |
+
+reboot persistence 另外單獨驗過：API 觸發重啟後 `/api/v1/images` 與
+`/api/v1/config` 回應位元相同，`reboot_reason` 正確轉為 `software_reset`。
+
+### 面板刷新耗時（Phase 2 的 refresh duration 自此關閉）
+
+程式碼原本沒有任何刷新計時輸出。量測方式是在
+`components/pf_display/include/pf_display/display_task_esp_idf.hpp` 的
+`EpdPanel::refresh_and_sleep` 前後包 `esp_timer_get_time()` 並加一行 log，
+**不可以加在 `epd7in3e.hpp`**——那個 header 也被 native env 編譯，加
+`ESP_LOGI` 會弄壞 host build。量測後已還原並重燒乾淨韌體確認 log 消失。
+
+| 樣本 | 圖片 id | 結果 |
+| --- | --- | --- |
+| 1 | 25 | `panel_refresh_ms=31203 status=0 stage=10` |
+| 2 | 25 | `panel_refresh_ms=31221 status=0 stage=10` |
+| 3 | 15 | `panel_refresh_ms=31244 status=0 stage=10` |
+
+全刷加 deep sleep 約 **31.2 秒**，三次差距 ±20 ms，且不同圖片耗時幾乎相同，
+表示耗時由面板本身主導、與影像內容無關。刷新間隔的實際下限是
+`pf_config::kMinimumRefreshMinutes = 10` 分鐘（WebUI 的
+`#image-carousel-refresh-minutes` 也是 `min="10" max="1440"`，兩者一致），
+因此有約 19 倍餘裕。**注意 `CLAUDE.md` 目前寫「下限 5 分鐘」，與程式碼和
+WebUI 都不符**，應以 `schema.hpp` 為準。
+
+`carousel_request=<id> outcome=<n>` 的 `outcome` 對應
+`pf_runtime::DisplayOutcome`：0 `none`、**1 `refreshed_and_slept`**、
+2 `invalid_lease`、3 `busy_timeout`、4 `transport_error`、5 `panel_state_error`。
+成功刷新是 `outcome=1`，不是 0。
+
+### 設定降級邊界的 409 路徑（2026-08-20 前一段的遺留項）
+
+以 `kCurrentSchemaVersion = 1` 建置，使 NVS 中既有的 version 2 記錄看起來像未來
+版本，精確重現 OTA rollback 情境；測後已還原為 2 並重燒，裝置回到
+`config_schema=2 action=use_current`。
+
+| 檢查 | 結果 |
+| --- | --- |
+| `/api/v1/health` | `status=degraded`、`config=degraded`，`wifi=connected`、`flash`／`psram`／`imagefs` 皆 ready |
+| 錯誤密碼登入 | **401** `invalid_credentials`（服務已啟動並實際驗證，不是 503） |
+| 正確密碼登入 | 成功取得 session 與 CSRF token |
+| `POST /api/v1/config` | **409** `{"ok":false,"error":"config_read_only"}` |
+| `GET /api/v1/config` | 200，但 `refresh_minutes: null`、`timezone: "unknown"`——缺值誠實標示，不偽造預設 |
+| serial | 無 `provisioning_ap_ready`；`network_credentials_configured=true`、`management_password_configured=true`，STA 正常連線 |
+
+### 認證邊界與公開面
+
+| 請求 | 結果 |
+| --- | --- |
+| `POST /api/v1/auth/login` 錯誤密碼 | 401 `invalid_credentials` |
+| `GET /api/v1/wifi/scan` 未登入（已建密碼） | 401 `authentication_required` |
+| `POST /api/v1/system/reboot` 未登入 | 401 |
+| `GET /api/v1/status`／`/images`／`/sensors`／`/system/ota/status` 未登入 | 401 |
+| `GET /api/v1/health`／`/api/v1/device`／`/api/v1/auth/status` | 200（公開面僅此三者） |
+| `HEAD /` | 405（靜態 route 只註冊 `HTTP_GET`） |
+
+### WebUI 資產與真實瀏覽器
+
+裝置端 8 個資產（`/`、`/style.css`、`/ui.js`、`/image_pipeline.js`、
+`/image_quantizer.js`、`/image_pfr1.js`、`/image_quantize_worker.js`、
+`/favicon.svg`）全部 200 且 `Content-Encoding: gzip`，解壓後與 `data/web/*`
+**位元相同**。
+
+Chromium 實測：登入流程正常；Dashboard 顯示韌體 v0.9.1、Wi-Fi 已連線、
+Internet 可連線、SNTP synced、面板「休眠」、最後刷新 `refreshed_and_slept`、
+imagefs 1.2 MB / 9.8 MB、四服務皆正常、天氣「可用」。System 頁四個操作
+（重新啟動、重設管理密碼、檢查更新、立即更新）都在；點「檢查更新」得到
+`up_to_date`、`latest_version=v0.9.1`，「立即更新」正確維持 disabled。
+**全站沒有任何手動 Recovery AP 入口**，與既定設計一致。診斷事件面板顯示
+「尚無診斷事件」，與 API 的 counter 全為 0 一致。
+
+console 出現兩則 `Applying inline style violates ... 'style-src 'self''`，
+但那兩則沒有檔名，且 `ui.js` 的 OTA 進度條實測正常
+（`el.style.width='42%'` 後 `getComputedStyle` 亦為 `42%`）——CSSOM 寫入不受
+`style-src` 限制，是測試工具注入造成的假陽性，不是韌體端問題。
+
+### 真實 SNTP
+
+`/api/v1/status` 回 `"sntp":"synced"`，重開機後 15 秒內恢復；OTA 檢查的
+`last_check_epoch_s` 與天氣的 `observed_at_epoch_s` 都是當下真實時間。
+**mDNS 沒有實作**（`grep -rn mdns components/ src/` 零命中，`paperframe.local`
+只出現在 `docs/archive/Guild.md`），因此「SNTP/mDNS」這一項自此只保留 SNTP 的
+失敗側；mDNS 屬於未實作功能，不是待驗證項。
+
+### 本次新發現
+
+1. **CI 的 embedded build gate 只涵蓋三個 embedded 測試中的一個**。
+   `.github/workflows/ci.yml` 只 build `-e paperframe-s3-embedded-test`，而該 env 的
+   `test_filter = test_runtime_coordinator`；`paperframe-s3-display-test`
+   （`test_display_task`）沒有在 CI 跑，`test_embedded/test_epd7in3e_driver`
+   **沒有任何 env 的 filter 涵蓋**。三者本機手動 build 都通過，所以不是壞掉，
+   是覆蓋缺口。
+2. **Dashboard 有寫死的過時文案（已於同日修正）**：`data/web/index.html` 的
+   `<div><dt>SNTP</dt><dd>尚未接入</dd></div>` 沒有 id，`ui.js` 不會更新它，
+   而同一畫面的 `#dashboard-sntp`（`ui.js` 會更新）已顯示 `SNTP：synced`——
+   同頁同時出現「synced」與「尚未接入」。同卡片的「光敏電阻：未安裝」同樣是
+   寫死的，Phase 7 接上感測器後也會是錯的。
+   修正：刪除重複的 SNTP 列（NETWORK 卡片已有同一資訊，留兩處只會再次不同步），
+   光敏電阻改為 `id="light-sensor-state"` 並由 `labelSensorStatus(sensors.light_status)`
+   更新。新增 `test/web/test_dashboard_ui_contract.mjs` 防止同類漂移：斷言 `ui.js`
+   的每個 `$("#id")` 都存在於 `index.html`（否則 `null.textContent` 會中斷整個 render
+   函式，該行之後的欄位全部停止更新），並斷言該卡片內每個 `<dd>` 都帶 id。
+   該測試以還原舊標記的方式做過紅綠驗證。實機複驗：全頁 SNTP 只剩
+   `SNTP：synced`，卡片顯示「天氣快取: 可用 / 溫溼度: 未啟用 / 光敏電阻: 未啟用」，
+   最後一項由 `light_status="disabled"` 動態產生。
+3. **`reboot_reason` 在 esptool USB reset 之後回報 `brownout`**；同一台裝置經 API
+   觸發重啟時正確回報 `software_reset`，另一次 upload 後回報 `other`。未進一步
+   歸因，僅在日後看到 `brownout` **且伴隨刷新失敗**時才需追查供電。
+4. **本機重建的 image 與 release 資產非位元一致**：同一 commit 下本機
+   `firmware.bin` 為 1,293,648 bytes、release 資產為 1,293,616 bytes。未歸因；
+   OTA 使用的是 release 資產且校驗值已驗過，不影響本次結論，但若要主張
+   reproducible build 需另行調查。
+
+### 仍未驗證
+
+- Phase 2：panel sleep 電流、forced-BUSY isolation。
+- Phase 3/4：blank-NVS／fallback AP 的瀏覽器流程、browser 出圖與下載收尾、
+  SNTP 失敗側。
+- Phase 5：壓縮 PFR1 交易中斷電、catalog 交易中斷電、長時間輪播、
+  imagefs preservation 的 fault injection（本次只證明正常 upload／OTA 不動它）。
+- Phase 6：weather 的 `api_key_invalid`／`network`／`http_error`／`parse_error`
+  四種分類、面板狀態列視覺結果。
+- Phase 7：整段（感測器尚未接上）。
+- Phase 8：**rollback fault injection**（仍是唯一沒有證據的核心保護機制）、
+  OTA 下載途中斷電、weather 與 OTA 併發時的 heap。
+- AP grace policy：整段。
+- 嵌入式 WebUI：移除 webfs 掛載後的 heap 差值量化（缺改動前對照值）。
+- 設定降級：`nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗。

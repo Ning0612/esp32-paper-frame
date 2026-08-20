@@ -1,6 +1,6 @@
 # PaperFrame 專案狀態
 
-- 最後整理：2026-08-10
+- 最後整理：2026-08-20
 - 本文件是目前進度的唯一摘要入口；詳細實機證據仍保留在
   [硬體驗證紀錄](hardware/VALIDATION.md)。
 - `已完成` 代表程式／host/build 已完成；只有明確標成 `已驗證` 才代表有實機
@@ -8,10 +8,12 @@
 
 ## 一分鐘結論
 
-Phase 1–8 的主要程式、host tests 與韌體 build 已完成，部分 boot、mount、
-面板 pattern 與 STA smoke 已有實機證據。專案目前仍不是 release-ready；剩餘
-工作主要是實機 acceptance、公開 release security profile 與 MVP 以外功能的
-產品決策。
+Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026-08-20，OTA
+端到端（含 rollback confirmation 與 WebUI 隨韌體換版）、active-slot upload
+wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_only` 路徑與
+認證邊界都已有實機證據。專案目前仍不是 release-ready；剩餘工作主要是**故障
+注入類**的實機 acceptance（rollback fault injection、各種斷電路徑）、尚未接線
+的感測器整段、公開 release security profile，以及 MVP 以外功能的產品決策。
 
 ## 已完成或已決定
 
@@ -34,15 +36,21 @@ Phase 1–8 的主要程式、host tests 與韌體 build 已完成，部分 boot
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 2 display | refresh duration、panel sleep 電流、forced-BUSY isolation |
-| Phase 3／4 WebUI | blank-NVS／fallback AP browser flow、SNTP/mDNS、browser image 產出與下載 |
-| Phase 5 storage | compressed PFR1 transaction 中斷電、長時間輪播、imagefs preservation fault injection |
-| Phase 6 weather | 真實 SNTP、HTTPS/TLS failure classification、面板狀態列視覺結果 |
-| Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為 |
-| Phase 8 OTA | 真實 GitHub download、rollback fault injection／confirmation、worker stack、weather+OTA heap、System page |
-| AP grace policy | SSID 可讀性、AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard |
-| active OTA upload wrapper | 以目前版本重新完成真實硬體寫入流程 |
-| 嵌入式 WebUI | 移除 webfs 掛載後的 heap 差值量化（其餘已於 2026-08-19 實機驗證，OTA 端到端已於 v0.9.0 閉環） |
+| Phase 2 display | panel sleep 電流、forced-BUSY isolation |
+| Phase 3／4 WebUI | blank-NVS／fallback AP browser flow、browser image 產出與下載、SNTP 失敗側 |
+| Phase 5 storage | compressed PFR1 與 catalog transaction 中斷電、長時間輪播、imagefs preservation fault injection |
+| Phase 6 weather | HTTPS/TLS failure classification（四種分類）、面板狀態列視覺結果 |
+| Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
+| Phase 8 OTA | **rollback fault injection**、OTA 下載途中斷電、weather+OTA heap 併發 |
+| AP grace policy | SSID 可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard |
+| 嵌入式 WebUI | 移除 webfs 掛載後的 heap 差值量化 |
+| 設定降級邊界 | `nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗 |
+
+2026-08-20 已閉環（證據見[硬體驗證紀錄](hardware/VALIDATION.md)同日段落）：
+OTA 端到端與 rollback confirmation、WebUI 隨韌體換版、reboot persistence、
+OTA worker stack high-water、active OTA upload wrapper 的 slot 選擇、面板刷新
+耗時（31.2 s）、真實 SNTP、`409 config_read_only`、認證邊界與 System 頁瀏覽器
+操作。`mDNS` 從未實作，已不列為待驗證項。
 
 每完成一項，先更新 [硬體驗證紀錄](hardware/VALIDATION.md) 的頂端未完成索引，
 再同步本表；不要只把 checkbox 改成完成。

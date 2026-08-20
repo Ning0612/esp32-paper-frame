@@ -43,10 +43,14 @@
   使用率；若較上次 release 有明顯跳動，需在 release note 或
   `docs/hardware/VALIDATION.md` 記錄原因）。
 - [ ] `.venv/Scripts/pio.exe test -e native` 全綠。
-- [ ] `.venv/Scripts/pio.exe test --project-conf platformio-embedded.ini
-  -e paperframe-s3-embedded-test --without-uploading --without-testing`
-  （以及其他 embedded test environment）至少完成 build-only 驗證；有
-  硬體時應盡量跑實際測試。
+- [ ] 三個 embedded 測試都至少完成 build-only 驗證；有硬體時應盡量跑實際測試。
+  **`.github/workflows/ci.yml` 只 build 第一個**，另外兩個必須手動跑：
+  - `pio test --project-conf platformio-embedded.ini -e paperframe-s3-embedded-test
+    --without-uploading --without-testing`（`test_filter = test_runtime_coordinator`）
+  - 同上但 `-e paperframe-s3-display-test`（`test_filter = test_display_task`）
+  - 同上但 `-e paperframe-s3-embedded-test -f test_epd7in3e_driver`——
+    `test_embedded/test_epd7in3e_driver` **沒有任何 env 的 `test_filter` 涵蓋它**，
+    不加 `-f` 就永遠不會被編譯。
 - [ ] `node --check data/web/ui.js`（以及其他 `data/web/*.js`）。
 - [ ] `for f in test/web/*.mjs; do node "$f"; done` 全部通過；此項由
   `.github/workflows/ci.yml` 與 `release.yml` 自動執行。
