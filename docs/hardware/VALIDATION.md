@@ -1951,6 +1951,38 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
 
+## 2026-08-20 — v0.9.2 release 與 OTA 驗證
+
+本次 release 包含 Dashboard 狀態顯示修正、天氣定期抓取遺留清理，以及重開機
+延後與網路關機路徑修正。
+
+### Release 資產
+
+| 檢查 | 結果 |
+| --- | --- |
+| CI / Release workflow | 皆 success |
+| 資產 | `paperframe-firmware.bin`、`paperframe-partitions.csv`、`paperframe-licenses.zip`、`SHA256SUMS` |
+| OTA 固定 URL | `releases/latest/download/paperframe-firmware.bin` → HTTP 200、1,294,448 bytes |
+| firmware SHA-256 | `378312c6ddaeb6ebd30e47a6c0db8051b976dba148fd10c2650ca5f29b768405`，與 `SHA256SUMS` 相符 |
+| partition CSV SHA-256 | `427fd414…5870`，仍等於 ADR-0004 凍結值 |
+| `kFirmwareVersion` | `v0.9.2`，與 tag 一致 |
+
+### 端到端 OTA（v0.9.1 → v0.9.2）
+
+| 檢查 | 結果 |
+| --- | --- |
+| 檢查更新 | `update_available`、`latest_version=v0.9.2` |
+| 下載與寫入 | 0%→92%，約 26 秒；`Writing to <ota_0> partition at offset 0x10000` |
+| 重開後版本 | **`v0.9.2`**，`Loaded app from partition at offset 0x10000` |
+| boot validation | `rollback_confirmed=ESP_OK` |
+| **再次重開機** | 仍為 `v0.9.2`、仍自 `0x10000` 開機 → rollback confirmation 生效 |
+| 圖片庫 | 14 張，重開前後 id 集合一致；`imagefs used=1257472` 不變 |
+| 前端換版 | 裝置供出的 `/` 含本次新增的 `light-sensor-state`，確認 WebUI 隨韌體換版 |
+| **本次修正在 OTA 路徑生效** | 重開機時出現 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**（修正前此處必定出現 `E network_action_failed action=2`） |
+
+這是重開機修正第一次走真實 OTA 路徑，確認延後與網路抑制邏輯在 OTA 觸發的重開機
+上與管理員觸發的行為一致。
+
 ### 仍未驗證
 
 - Phase 2：panel sleep 電流、forced-BUSY isolation。
