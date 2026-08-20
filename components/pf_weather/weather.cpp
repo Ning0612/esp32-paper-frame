@@ -559,6 +559,28 @@ void record_success(
     cache.last_failure = Failure::none;
 }
 
+PerformFailure classify_perform_failure(const int status_code)
+{
+    // No status line: the request never reached a server (DNS, TCP, TLS).
+    if (status_code <= 0) {
+        return {Failure::network, false};
+    }
+    // 4xx/5xx: ESP-IDF gives up on some of these before perform() returns --
+    // notably a 401 carrying no WWW-Authenticate header, which is exactly
+    // what OpenWeatherMap sends for a bad key. Classifying on the status is
+    // the whole point of this function.
+    if (status_code >= 400) {
+        return {classify_http_status(status_code), true};
+    }
+    // A 2xx (or a 3xx left over from a redirect ESP-IDF handled internally)
+    // together with a failed perform() means the response itself was cut
+    // short. That is an HTTP-level problem, matching how a truncated
+    // response body is already reported -- and crucially not `network`,
+    // since the server plainly answered. Reporting it as a network fault is
+    // what made a mistyped API key look like the internet was down.
+    return {Failure::http_error, true};
+}
+
 Failure classify_http_status(const int status_code)
 {
     if (status_code == 200) {

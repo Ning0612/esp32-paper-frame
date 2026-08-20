@@ -321,28 +321,20 @@ void WeatherWorker::fetch_once()
         // NULL` branch), and OpenWeatherMap's "Invalid API key" reply is
         // exactly that -- so a mistyped key used to surface as a network
         // fault, pointing whoever is debugging at the Wi-Fi instead of at the
-        // key. The status line has already been parsed by the time that
-        // branch returns, so classify on it when one is available and only
-        // fall back to `network` when there is genuinely no HTTP response
-        // (status_code stays 0 on a connection-level failure) or when the
-        // status itself is not an error.
+        // key. The status line is already parsed by the time that branch
+        // returns; classify_perform_failure() decides what the recorded
+        // status means (see its host tests).
         const int failed_status = esp_http_client_get_status_code(client);
-        pf_weather::Failure failure = pf_weather::Failure::network;
-        bool reached_server = false;
-        if (failed_status > 0) {
-            const pf_weather::Failure classified =
-                pf_weather::classify_http_status(failed_status);
-            if (classified != pf_weather::Failure::none) {
-                failure = classified;
-                reached_server = true;
-                ESP_LOGW(kTag, "weather_http_status=%d", failed_status);
-            }
+        const pf_weather::PerformFailure classified =
+            pf_weather::classify_perform_failure(failed_status);
+        if (classified.reached_server) {
+            ESP_LOGW(kTag, "weather_http_status=%d", failed_status);
         }
         esp_http_client_cleanup(client);
-        apply_failure(failure);
-        // Reaching the server proves internet works; only a transport-level
-        // failure says otherwise.
-        report_internet(reached_server);
+        apply_failure(classified.failure);
+        // Any HTTP status proves the request left the LAN; only a failure
+        // with no response at all says the internet is unreachable.
+        report_internet(classified.reached_server);
         return;
     }
     const int status_code = esp_http_client_get_status_code(client);

@@ -101,6 +101,21 @@ bool retry_due(const Cache& cache, std::uint64_t now_ms);
 // before a status code exists are always Failure::network).
 Failure classify_http_status(int status_code);
 
+// What a failed esp_http_client_perform() means, given the status code the
+// client managed to record. Split out from the worker so the reasoning is
+// host-testable: the ESP-IDF path it guards cannot be exercised by the
+// native suite.
+struct PerformFailure {
+    Failure failure = Failure::network;
+    // Whether the server answered at all. Drives internet reachability --
+    // an HTTP status, even an error one, proves the request left the LAN.
+    bool reached_server = false;
+};
+
+// `status_code` is esp_http_client_get_status_code() after perform() returned
+// something other than ESP_OK; it is 0 when no response line was ever parsed.
+PerformFailure classify_perform_failure(int status_code);
+
 bool stale(
     const Cache& cache,
     std::uint64_t now_epoch_s,

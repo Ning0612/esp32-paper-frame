@@ -183,6 +183,57 @@ void test_record_success_can_schedule_no_automatic_retry()
     TEST_ASSERT_TRUE(pf_weather::stale(cache, 4601U, 3600U));
 }
 
+// The ESP-IDF worker's perform()-failure branch cannot be reached from the
+// native suite, so its decision is factored into classify_perform_failure()
+// and pinned down here instead.
+void test_classify_perform_failure_separates_transport_from_http()
+{
+    // No status line at all: DNS/TCP/TLS never produced a response.
+    const pf_weather::PerformFailure none =
+        pf_weather::classify_perform_failure(0);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::network),
+        static_cast<int>(none.failure));
+    TEST_ASSERT_FALSE(none.reached_server);
+
+    // 401 without WWW-Authenticate makes ESP-IDF abandon perform() before the
+    // normal status handling runs; a rejected key must not read as a network
+    // fault, and the server plainly answered.
+    const pf_weather::PerformFailure unauthorized =
+        pf_weather::classify_perform_failure(401);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::api_key_invalid),
+        static_cast<int>(unauthorized.failure));
+    TEST_ASSERT_TRUE(unauthorized.reached_server);
+
+    const pf_weather::PerformFailure server_error =
+        pf_weather::classify_perform_failure(500);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::http_error),
+        static_cast<int>(server_error.failure));
+    TEST_ASSERT_TRUE(server_error.reached_server);
+
+    // A 2xx with a failed perform() means the body was cut short: an HTTP
+    // problem, not a transport one. Reporting it as `network` would claim the
+    // internet is down while the server is demonstrably answering.
+    const pf_weather::PerformFailure truncated =
+        pf_weather::classify_perform_failure(200);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::http_error),
+        static_cast<int>(truncated.failure));
+    TEST_ASSERT_TRUE(truncated.reached_server);
+
+    // A 3xx can linger from a redirect ESP-IDF followed internally. It must
+    // not be classified as an API-key or server error, but it still proves
+    // the request reached a server.
+    const pf_weather::PerformFailure redirect =
+        pf_weather::classify_perform_failure(302);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(pf_weather::Failure::http_error),
+        static_cast<int>(redirect.failure));
+    TEST_ASSERT_TRUE(redirect.reached_server);
+}
+
 void test_classify_http_status_maps_known_and_unknown_codes()
 {
     TEST_ASSERT_EQUAL_INT(
@@ -212,6 +263,7 @@ int main()
     RUN_TEST(test_cache_preserves_last_success_and_backs_off_failures);
     RUN_TEST(test_record_success_honors_custom_interval);
     RUN_TEST(test_record_success_can_schedule_no_automatic_retry);
+    RUN_TEST(test_classify_perform_failure_separates_transport_from_http);
     RUN_TEST(test_classify_http_status_maps_known_and_unknown_codes);
     return UNITY_END();
 }
