@@ -14,17 +14,17 @@
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
-| Phase 3/4 WebUI | blank-NVS／fallback AP 的瀏覽器流程、browser image 產出與下載收尾、SNTP 失敗側 | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 3 驗證 |
+| Phase 3/4 WebUI | blank-NVS／fallback AP 的瀏覽器流程、SNTP 失敗側（browser 出圖與下載已於 2026-08-20 閉環） | 2026-08-20 browser 出圖管線；2026-07-30 Phase 3 驗證 |
 | Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、長時間圖片輪播、imagefs preservation 的 fault injection | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
 | Phase 6 weather | `api_key_invalid`／`network`／`http_error`／`parse_error` 四種失敗分類與面板狀態列視覺結果（真實 SNTP 已閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-07-31 Phase 6 |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電（rollback confirmation、OTA worker stack 與 weather+OTA heap 併發已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
-| 嵌入式 WebUI | 僅剩「移除 webfs 掛載後的 heap 差值量化」（缺改動前對照值） | 2026-08-19 v0.9.0 OTA 端到端驗證 |
 | 設定降級邊界 | `nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗（`409 config_read_only` 端到端已閉環） | 2026-08-20 設定降級邊界修正；2026-08-20 v0.9.1 收尾驗證 |
 
 已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
-兩種 otadata 狀態各驗一次，寫入位址隨 active slot 改變，本項閉環）。
+兩種 otadata 狀態各驗一次，寫入位址隨 active slot 改變）、`嵌入式 WebUI`
+（2026-08-20 完成 webfs heap 差值量化）。
 `mDNS` 從未實作，不列為待驗證項——詳見 2026-08-20 段落。
 
 ## 2026-07-29 — 初始 USB 盤點
@@ -1950,6 +1950,69 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — browser 出圖管線、webfs heap 差值與 CI 覆蓋
+
+### 瀏覽器出圖與下載（Phase 3/4 本項自此關閉）
+
+以無外部函式庫產生的 PNG 測試圖（漸層＋飽和色塊＋格線，讓 dither、palette
+snapping 與方向錯誤都可見）在 Chromium 實際跑完整條管線。
+
+| 檢查 | 橫向來源 1200×800 | 直向來源 800×1200 |
+| --- | --- | --- |
+| 處理後 canvas | 800×440 | 480×760（需在 `#image-orientation` 選 portrait） |
+| frame 預覽 | 800×480 | 480×800 |
+| 上傳結果 | ID 31 `landscape.pfr1`、46,070 bytes | ID 32 `portrait.pfr1`、54,000 bytes |
+| catalog metadata | 800×440、`orientation=landscape`、`corrupt=false` | 480×760、`orientation=portrait`、`corrupt=false` |
+| 下載 `/download` | HTTP 200，位元組數與 catalog 一致 | 同左 |
+| PFR1 header | magic `PFR1`、version 1、header_size 32、palette 1、dithering 1、reserved 皆 0 | 同左 |
+| `header_crc32` / `payload_crc32` | 皆通過 | 皆通過 |
+| 壓縮 | `flags=0x0008`，解壓後 **176,000** = 800×440/2 | 解壓後 **182,400** = 480×760/2 |
+| 壓縮率 | 26.2% | — |
+
+palette index 僅出現 0–6，符合 E6 六色。輸出 profile **不會依來源圖方向自動切換**，
+必須在 UI 選擇；直向來源在預設的 landscape profile 下會被 fit 成 800×440，這是既有
+設計而非缺陷。
+
+測後兩張測試圖已刪除，catalog 回到原本 14 張、`current=25`，
+`imagefs_used_bytes` 回到 1,257,472（與上傳前完全相同），順帶確認刪除交易會正確
+回收空間。
+
+過程中踩到一次 session 失效：以 curl 登入會撤銷瀏覽器既有 session。這是
+[AUTHENTICATION.md](../AUTHENTICATION.md) 已載明的設計（裝置只保留一組 server-side
+session），不是缺陷——但混用 curl 與瀏覽器測試時必須注意。
+
+### 移除 webfs 掛載後的 heap 差值（嵌入式 WebUI 本項自此關閉）
+
+在兩個版本的 `src/app_main.cpp` 相同位置（`rollback_confirmed` 之後、所有服務已啟動、
+尚未服務任何 WebUI 請求）插入同一段臨時量測，各燒錄開機一次；量完即還原。
+
+| 版本 | webfs | internal_free | internal_largest | dma_free | psram_free |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `v0.8.2` | 掛載（`total=1048576 used=200704`） | 134,755 | 61,440 | 126,967 | 7,632,104 |
+| `v0.9.2` | 未掛載 | 136,327 | 63,488 | 128,539 | 7,632,168 |
+| 差值 | | **+1,572** | **+2,048** | +1,572 | +64 |
+
+移除 webfs 掛載後 internal free heap 多出約 **1.5 KB**，最大連續區塊多出 2 KB
+（LittleFS 的 cache buffer 配置在 internal heap，PSRAM 幾乎不受影響）。
+
+**這個數字的限制要講清楚**：它是 `v0.8.2` 到 `v0.9.2` 的**淨差**，其間還包含
+OTA、WebUI 與重開機邏輯等其他變更，不是 webfs 掛載的單獨貢獻。要精確隔離必須在
+同一 commit 上做「有／無掛載」的 A/B，那需要把已被 ADR-0016 移除的掛載程式碼加回
+來，成本高於這個數字的價值。
+
+### CI 覆蓋缺口（已修）
+
+`.github/workflows/ci.yml` 與 `release.yml` 原本只 build 一個 embedded 測試環境。
+每個 environment 有各自的 `test_filter`，因此 `test_display_task` 從未在 CI 編譯，
+而 `test_epd7in3e_driver` **不被任何 environment 的 filter 涵蓋**，必須加 `-f` 才會
+被建置——它自撰寫以來從未在 CI 編譯過。另外 `test/*.mjs`（如
+`test_partition_layout.mjs`）既不在 `test/web/*.mjs` 的迴圈裡，也不是
+`pio test -e native` 會執行的 Unity 套件；`test/test_active_ota_upload.py` 同樣沒有
+被任何 CI 步驟涵蓋。
+
+三者本機都能通過，所以是覆蓋缺口而非壞掉。修正後 CI 實跑確認六個新步驟全部
+success（run 32347525634）。
 
 ## 2026-08-20 — v0.9.2 release 與 OTA 驗證
 
