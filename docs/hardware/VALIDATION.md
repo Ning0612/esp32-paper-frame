@@ -15,16 +15,15 @@
 | --- | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation（refresh duration 已於 2026-08-20 實測 31.2 s） | 2026-08-20 v0.9.1 收尾驗證；2026-07-30 Phase 2 panel-driver 驗證 |
 | Phase 3/4 WebUI | SNTP 失敗側（blank-NVS 進 AP、portal 存取邊界、STA retry exhaustion fallback、browser 出圖與下載均已於 2026-08-20 閉環） | 2026-08-20 AP portal 流程；2026-08-20 破壞性測試 |
-| Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、imagefs preservation 的 fault injection（長時間輪播已於 2026-08-20 由使用者確認） | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
-| Phase 8 OTA | OTA 下載途中斷電（rollback fault injection 已於 2026-08-20 閉環——**但同時發現舊 bootloader 無回滾保護，見待決定事項**） | 2026-08-20 rollback fault injection；2026-08-20 v0.9.1 收尾驗證 |
 | AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard（5 分鐘切換已閉環並修好一個缺陷；SSID 像素可讀性由使用者確認） | 2026-08-20 破壞性測試；2026-08-03 AP Mode grace policy |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
 已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
 兩種 otadata 狀態各驗一次，寫入位址隨 active slot 改變）、`嵌入式 WebUI`
 （2026-08-20 完成 webfs heap 差值量化）、`Phase 6 weather`（2026-08-20 關閉四種
-失敗分類，面板狀態列視覺由使用者確認）。
+失敗分類，面板狀態列視覺由使用者確認）、`Phase 5 storage` 與 `Phase 8 OTA`
+（2026-08-20 完成斷電故障注入與 rollback fault injection）。
 `mDNS` 從未實作，不列為待驗證項——詳見 2026-08-20 段落。
 
 ## 2026-07-29 — 初始 USB 盤點
@@ -1950,6 +1949,44 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — 斷電故障注入：PFR1 上傳、catalog 交易、OTA 下載
+
+由使用者實際拔除 USB 電源，共五次，每次事後比對同一組基線：14 張圖、
+id 集合 `[15,16,17,19,20,21,22,23,25,26,27,28,29,30]`、
+`imagefs_used_bytes = 1257472`。
+
+### 測試檔與命中時機的做法
+
+上傳測試用一份**未壓縮**的 PFR1（176,051 bytes，800×440）：壓縮版只有 90 KB，
+在區網上傳太快、來不及拔電；未壓縮的 payload 又正好是原始 packed nibbles，
+順帶驗證韌體對「宣告尺寸 vs 實際 payload 長度」的檢查。以
+`curl --limit-rate 1500` 把單次上傳拉長到約 117 秒，拔電時機才可控。
+
+catalog 的單次寫入只有幾毫秒，無法瞄準，因此改成每 0.4 秒交替兩種排序連續改寫，
+讓 `.catalog.pfc1.part` → rename 交易成為裝置大部分時間都在做的事。
+
+### 結果
+
+| # | 情境 | 中斷點 | 結果 |
+| --- | --- | --- | --- |
+| 1 | PFR1 上傳 | 64.4 s（約 55%） | catalog 14 張不變、無 `powerfail` 項目洩漏、無 corrupt、`imagefs_used` 回到 1257472 |
+| 2 | PFR1 上傳 | 69.4 s（約 59%） | 同上；開機 log 為 `storage_worker_ready recovery=none action=no_change` |
+| 3 | PFR1 上傳 | 前段 | 同上，`recovery=none` |
+| 4 | catalog 交易 | 第 83 次寫入（前 82 次已完成） | 排序落在**原始順序**——兩個有效狀態之一，不是半套；metadata 零漂移、無 corrupt、`recovery=none` |
+| 5 | OTA 下載 | 寫入 `ota_1` 期間 | 復電後**仍是 `v0.9.1-probe`**，半寫入的 slot 未被啟用；`update_state=idle` 沒有卡住；圖片與 imagefs 不受影響 |
+
+第 5 項另外驗證了「中斷不會讓 OTA 永久壞掉」：緊接著重新觸發更新，
+0%→100% 正常完成，重開後 `Loaded app from partition at offset 0x290000`、
+`reboot_reason=software_reset`、`rollback_confirmed=ESP_OK`、版本為 `v0.9.2`。
+
+### 值得記下的一點
+
+三次 PFR1 上傳中斷後，開機都是 `recovery=none action=no_change`——**不是**「recovery
+清掉了殘留」，而是根本沒有殘留可清。`.upload.part` 的內容在通過驗證前不會進入
+catalog，因此中途斷電連痕跡都不留。這比「靠開機清理來補救」更強：清理路徑只會
+在更窄的時窗（檔案已建立但未完成驗證）才需要，而正常的斷電不會走到那裡。
+`imagefs_used_bytes` 五次都精確回到 1,257,472，沒有任何空間洩漏。
 
 ## 2026-08-20 — OTA rollback fault injection：**保護原本並未生效**
 

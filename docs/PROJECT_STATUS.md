@@ -38,9 +38,7 @@ wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_on
 | --- | --- |
 | Phase 2 display | panel sleep 電流、forced-BUSY isolation |
 | Phase 3／4 WebUI | SNTP 失敗側 |
-| Phase 5 storage | compressed PFR1 與 catalog transaction 中斷電、imagefs preservation fault injection |
 | Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
-| Phase 8 OTA | OTA 下載途中斷電 |
 | AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
@@ -60,18 +58,23 @@ OTA worker stack high-water、active OTA upload wrapper 的 slot 選擇、面板
 
 以下項目不是目前的實作 blocker，必須先有產品／release 決策：
 
-1. **舊 bootloader 沒有回滾保護**：`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` 於
-   2026-08-01 才加入，早於此的裝置其 bootloader 不含回滾邏輯，且 OTA 不更新
-   bootloader，因此無法自行補救（2026-08-20 實測：舊 bootloader 下崩潰的新韌體
-   會無限 crash-loop；更新 bootloader 後回滾正常）。需決定 release note 說明、
-   使用者重新燒錄指引，以及是否於開機時示警。
-2. **Production security profile**：是否啟用 Secure Boot、Flash Encryption／
+1. **Production security profile**：是否啟用 Secure Boot、Flash Encryption／
    NVS Encryption，以及對應的燒錄、key custody、recovery 與 release 流程。
-3. **MVP release gate**：是否要求所有上表硬體證據關閉後才發布第一個公開版。
-4. **MVP 以外的 P1 功能**：多 Wi-Fi profile、批次上傳、週排程、歷史圖表、
+2. **MVP release gate**：是否要求所有上表硬體證據關閉後才發布第一個公開版。
+3. **MVP 以外的 P1 功能**：多 Wi-Fi profile、批次上傳、週排程、歷史圖表、
    Discord 通知、自動清圖、MQTT、蜂鳴器、音效與 AI 功能是否要進入後續 roadmap。
 
 在這些決策完成前，不新增對應設定旗標、API 或預留式抽象層。
+
+## 已決定不做
+
+- **舊 bootloader 缺回滾保護的對外說明與開機示警**（2026-08-20 決定）：
+  `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` 於 2026-08-01 才加入，早於此燒錄
+  bootloader 的裝置沒有回滾保護，且 OTA 不更新 bootloader。決定不加 release note
+  警語、也不加開機示警——目前僅擁有者本人使用，該裝置的 bootloader 已於同日更新，
+  而後續使用者都會從新裝置開始，首次燒錄即包含當前 bootloader。判斷方式與更新
+  步驟已寫入 [FLASHING.md](hardware/FLASHING.md)，release checklist 也已加入前置
+  確認項，這兩者保留。
 
 ## 明確不納入目前 MVP
 
