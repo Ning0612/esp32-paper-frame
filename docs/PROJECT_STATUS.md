@@ -38,7 +38,7 @@ wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_on
 | --- | --- |
 | Phase 2 display | panel sleep 電流 |
 | Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
-| AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard |
+| AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
 2026-08-20 已閉環（證據見[硬體驗證紀錄](hardware/VALIDATION.md)同日段落）：

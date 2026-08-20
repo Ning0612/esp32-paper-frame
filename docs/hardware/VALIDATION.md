@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | Phase 2 display | panel sleep 電流（refresh duration 31.2 s 與 forced-BUSY isolation 已於 2026-08-20 閉環） | 2026-08-20 forced-BUSY；2026-08-20 v0.9.1 收尾驗證 |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
-| AP grace policy | AP/Wi-Fi 併發刷新、presence 例外與低 DMA heap guard（5 分鐘切換已閉環並修好一個缺陷；SSID 像素可讀性由使用者確認） | 2026-08-20 破壞性測試；2026-08-03 AP Mode grace policy |
+| AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
 已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
@@ -1949,6 +1949,47 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — AP page 與 Wi-Fi 啟動的併發刷新：實作上是序列化的
+
+2026-08-03 列出這一項時的疑慮是：AP radio 啟動需要大量 DMA-capable heap
+（2026-08-01 曾因此在 Espressif 閉源 blob 內崩潰），而面板刷新同時持有 DMA
+buffer，兩者若併發可能重演。這次以實機量測時序回答。
+
+### 時序：radio 在面板刷完之後才啟動
+
+由使用者以手機完成完整 provisioning（連上 AP、建立管理密碼、填入自己的
+Wi-Fi 憑證並送出；密碼由使用者在手機端輸入，未經過本紀錄）。
+
+| 時間 | 事件 |
+| --- | --- |
+| 1,071 ms | `display_task: panel transport ready` |
+| 2,431 ms | `ap_mode_display_waiting_for_ready` |
+| 32,561 ms | `provisioning_screen_ready request=1`（面板刷新完成，約 31 s） |
+| **32,691 ms** | `wifi:mode : sta + softAP` → `provisioning_ap_ready`（radio 啟動） |
+
+**AP radio 在面板刷新完成後 130 ms 才切換模式**，兩者並未同時競爭 DMA。這是刻意
+設計——先把 SSID 與密碼顯示在面板上，再開放連線，否則使用者連上時還讀不到憑證。
+因此原本擔心的「AP 啟動與面板刷新併發」在目前實作下不會發生。
+
+### 真正的併發已在別處驗證
+
+「AP radio 運作中同時進行面板刷新」確實會發生，但時機是 grace window 過期之後：
+同日的 AP grace window 測試裡，裝置持續處於 AP 模式（無憑證），window 到期時
+`carousel_image_queued` → `carousel_request outcome=1`，刷新在 AP radio 活躍狀態下
+正常完成。那次也是修好 submission gate 缺陷之後的驗證。
+
+### 本次觀察到的訊息
+
+- 全程**無 SPI／transport 錯誤、無 `ap_start_low_heap`、無 DMA 相關告警**。
+- 提交 Wi-Fi 後裝置以 `software_reset` 重開，重開後才連線 STA
+  （2,327 → 3,377 ms 完成，`sta_network ip=…`），因此「AP 與 STA 併存並同時刷新」
+  也不會在這條路徑上出現。
+- 唯一的 W 級是手機離開 AP 後的 `httpd_sock_err: error in recv : 113`
+  （EHOSTUNREACH）三次，屬 socket 清理，非缺陷。
+
+結論：本項不再列為待驗證——併發被實作刻意排除，而唯一真實存在的併發情境
+（AP 活躍時的輪播刷新）已有成功證據。
 
 ## 2026-08-20 — forced-BUSY isolation 與 SNTP 失敗側
 
