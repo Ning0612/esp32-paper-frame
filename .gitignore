@@ -23,6 +23,7 @@ sdkconfig.*
 .vscode/ipch/
 .idea/
 .serena/
+.playwright-mcp/
 .vscode/
 .DS_Store
 Thumbs.db
