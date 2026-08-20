@@ -307,6 +307,7 @@
     $("#sensor-state").textContent = data.sensors && data.sensors.temperature_c != null
       ? `${data.sensors.temperature_c} °C`
       : labelSensorStatus((data.sensors || {}).environment_status);
+    $("#light-sensor-state").textContent = labelSensorStatus((data.sensors || {}).light_status);
     $("#dashboard-current-image").textContent = carousel.current_image == null
       ? "尚未輪播"
       : `圖片 #${carousel.current_image}`;
