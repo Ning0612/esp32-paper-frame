@@ -18,7 +18,7 @@
 | Phase 5 storage | compressed PFR1 與 catalog 交易中斷電、長時間圖片輪播、imagefs preservation 的 fault injection | 2026-08-02 PFR1／catalog 彙整；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 5 acceptance |
 | Phase 6 weather | `api_key_invalid`／`network`／`http_error`／`parse_error` 四種失敗分類與面板狀態列視覺結果（真實 SNTP 已閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-07-31 Phase 6 |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
-| Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電、weather+OTA heap 併發（rollback confirmation 與 OTA worker stack 已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
+| Phase 8 OTA | **真實 rollback fault injection**、OTA 下載途中斷電（rollback confirmation、OTA worker stack 與 weather+OTA heap 併發已於 2026-08-20 閉環） | 2026-08-20 v0.9.1 收尾驗證；2026-08-01 Phase 8 |
 | AP grace policy | SSID 像素可讀性、AP/Wi-Fi 併發刷新、5 分鐘切換、presence 例外與低 DMA heap guard | 2026-08-03 AP Mode grace policy |
 | 嵌入式 WebUI | 僅剩「移除 webfs 掛載後的 heap 差值量化」（缺改動前對照值） | 2026-08-19 v0.9.0 OTA 端到端驗證 |
 | 設定降級邊界 | `nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗（`409 config_read_only` 端到端已閉環） | 2026-08-20 設定降級邊界修正；2026-08-20 v0.9.1 收尾驗證 |
@@ -1886,6 +1886,54 @@ console 出現兩則 `Applying inline style violates ... 'style-src 'self''`，
    OTA 使用的是 release 資產且校驗值已驗過，不影響本次結論，但若要主張
    reproducible build 需另行調查。
 
+### OTA、面板刷新與天氣併發時的 heap（Phase 8 的 weather+OTA heap，本項自此關閉）
+
+**測法的前提要先講清楚**：天氣沒有週期計時器（ADR-0014）。
+`WeatherWorker` 成功後把 `next_attempt_ms` 設為飽和值，只有
+`request_immediate_refresh()` 能喚醒它，而那是 `app_main` 在 **carousel 刷新
+被接受的當下**呼叫的。所以「等 10 分鐘讓天氣自己抓」是錯的測法——第一次嘗試
+就是這樣落空的：OTA 下載窗口內完全沒有天氣連線，那批數據不算數。
+
+改用強制對齊：先觸發 OTA，6 秒後（下載已進入 writing）呼叫
+`POST /api/v1/images/<name>/activate`。啟用圖片會讓 app_main 走
+`carousel.force_immediate()`，提交被接受後隨即觸發天氣抓取，於是三件事同時在飛：
+HTTPS 下載寫入非 active slot、31 秒的面板 SPI 全刷、天氣的 TLS session。
+
+| 時間點 | 事件 | internal_free | internal_largest | dma_free | dma_largest |
+| --- | --- | ---: | ---: | ---: | ---: |
+| OTA 起始 | `ota_heap_headroom point=update_now_start` | 112,431 | 31,744 | 104,547 | 31,744 |
+| OTA TLS 前 | `point=before_esp_https_ota_begin` | 110,479 | 31,744 | 102,983 | 31,744 |
+| 刷新已排入、OTA 寫入中 | `weather_fetch_failed`（第 1 次） | **24,547** | **7,680** | 16,759 | 5,376 |
+| 同上，11 秒後 | `weather_fetch_failed`（第 2 次） | **11,855** | **5,376** | 11,759 | 5,376 |
+
+**結果：天氣抓取在併發下失敗兩次**，錯誤鏈為
+`mbedtls_ssl_setup returned -0x008D`（`MBEDTLS_ERR_SSL_ALLOC_FAILED`）→
+`create_ssl_handle failed` → `ESP_ERR_HTTP_CONNECT`。largest free block 從
+31,744 掉到 5,376，不足以建立 SSL context。
+
+判定：**這是容量限制，不是缺陷**——降級行為正確。天氣以 `W` 級記錄
+`weather_fetch_failed=`、保留既有快取、走既有退避重試，沒有崩潰、沒有偽造數值，
+也沒有觸發 provisioning AP；OTA 本身全程不受影響，`ota_worker_stack_free_bytes=11944`
+與單獨執行時（11,948）幾乎相同，下載完成後正常重開機並載入新版本。
+若日後要讓天氣在這種時刻也能成功，需要的是預留 SSL context 的記憶體或把兩者
+互斥，而不是調整重試邏輯。
+
+### 併發測試順帶暴露的兩點
+
+1. **進行中的面板刷新會被 OTA 的重開機截斷**。`carousel_image_queued id=15
+   request=2` 之後沒有對應的 `carousel_request=2 outcome=`：刷新需要約 31 秒，
+   而 OTA 在其後約 25 秒就重開機了。E-paper 中斷刷新本身不損傷面板，重開機後
+   也會重新排一次刷新（log 可見 `carousel_image_queued id=15 request=1`），但
+   使用者會看到一次殘影或半更新的畫面。是否要讓 OTA 重開機等待 in-flight 刷新
+   完成，屬於產品決策，尚未決定。
+2. **`network_action_failed action=2 error=ESP_ERR_WIFI_NOT_STARTED` 會出現在
+   每次 OTA 重開機路徑上**（兩次獨立 OTA 都重現）。`action=2` 是
+   `NetworkAction::retry_sta`（`state_machine.hpp:50`）：關閉 Wi-Fi 產生的
+   disconnect 事件讓狀態機排了一次 STA 重試，而 Wi-Fi 已經停止。功能上無害
+   （下一行就重開機了），但它以 **ERROR 級**記在正常關機路徑上，日後看 log
+   會被誤判為真的網路故障。建議在關機路徑抑制該重試，或把這個特定錯誤降為
+   `W`／`I`。
+
 ### 仍未驗證
 
 - Phase 2：panel sleep 電流、forced-BUSY isolation。
@@ -1897,7 +1945,7 @@ console 出現兩則 `Applying inline style violates ... 'style-src 'self''`，
   四種分類、面板狀態列視覺結果。
 - Phase 7：整段（感測器尚未接上）。
 - Phase 8：**rollback fault injection**（仍是唯一沒有證據的核心保護機制）、
-  OTA 下載途中斷電、weather 與 OTA 併發時的 heap。
+  OTA 下載途中斷電。
 - AP grace policy：整段。
 - 嵌入式 WebUI：移除 webfs 掛載後的 heap 差值量化（缺改動前對照值）。
 - 設定降級：`nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗。
