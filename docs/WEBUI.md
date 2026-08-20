@@ -48,10 +48,19 @@ API route、handler、access policy 與 WebUI 按鈕，細節見
 | `PUT /api/v1/images/order` | 已登入 + CSRF | 非同步保存 `{ "ids": [ ... ] }` 輪播順序 |
 | `GET /api/v1/images/{name}/download` | 已登入 | 下載已驗證的 PFR1 |
 | `GET /api/v1/events` | 已登入 | 讀取 diagnostics ring buffer（`?since=<sequence_id>` 分頁；`since` 存在但無效回 400） |
-| `POST /api/v1/system/reboot` | 已登入 + CSRF | 排程約 500ms 後重開機（`schedule_reboot()`），成功才回 `{"ok":true}` |
+| `POST /api/v1/system/reboot` | 已登入 + CSRF | 排程約 500ms 後重開機（`schedule_reboot()`），成功才回 `{"ok":true}`；面板刷新進行中會延後，見下 |
 | `GET /api/v1/system/ota/status` | 已登入 | 讀取 OTA 檢查／更新狀態、進度、最後錯誤 |
 | `POST /api/v1/system/ota/check` | 已登入 | 觸發 GitHub Releases 版本檢查（唯讀，不寫 flash） |
 | `POST /api/v1/system/ota/update` | 已登入 + CSRF | 觸發下載並寫入韌體；已在進行中回 `409 Conflict` |
+
+**重開機會等待進行中的面板刷新**（管理員觸發與 OTA 完成後的重開機共用
+`schedule_reboot()`，兩者行為一致）：計時器到期時若 snapshot 顯示
+`display=refreshing`、有 active request 或仍有排隊的刷新，就每 500 ms 重試一次，
+直到面板閒置為止。因此 `{"ok":true}` 之後裝置**不一定**在 500 ms 內斷線——一次
+完整刷新約 31 秒，實測從觸發到斷線約 36 秒。最壞情況是初始的 500 ms 再加上
+`pf_runtime::kMaxRebootDeferrals`（90）次 500 ms 重試，**約 45.5 秒**，逾時仍會
+無條件重開，避免卡死的面板讓裝置無法重啟。UI 或腳本若要等待裝置下線，逾時值
+必須大於 45.5 秒。
 
 所有 JSON 使用 `{ "ok": true, "data": ... }` 或 `{ "ok": false,
 "error": ... }`，並設定 `Cache-Control: no-store`、`nosniff` 與同源 CSP。
@@ -107,6 +116,13 @@ node --check data\web\image_pipeline.js
 圖片庫的「Random／隨機輪播」與「輪播間隔」可由圖片頁設定；間隔限制為 10 分鐘至
 24 小時，設定保存於裝置並在安全時機套用到 carousel scheduler；關閉隨機時依圖片庫
 排序輪播。
+
+**新間隔從下一輪開始生效**：`CarouselScheduler::configure()` 只更新間隔本身，
+不會重算已經排定的 `next_due_ms`，也不會在刷新進行中套用（`in_flight` 時直接
+拒絕）。把 30 分鐘改成 10 分鐘後，仍會先等完當前那一輪剩下的時間，之後才改用
+10 分鐘。這是刻意的：重算 deadline 等於讓「改設定」變成「立刻刷新面板」，而完整
+刷新要 31 秒並消耗面板壽命。要立即換圖請用圖片庫的「設為目前圖片」，那條路徑走
+`force_immediate()`。
 
 `data/web/image_pfr1.js` 將固定 profile 的 quantized result 打包成
 `application/vnd.paperframe.pfr1`，重用同一組 filename、flags、dithering、

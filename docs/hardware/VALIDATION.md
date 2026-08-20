@@ -1920,19 +1920,36 @@ HTTPS 下載寫入非 active slot、31 秒的面板 SPI 全刷、天氣的 TLS s
 
 ### 併發測試順帶暴露的兩點
 
-1. **進行中的面板刷新會被 OTA 的重開機截斷**。`carousel_image_queued id=15
-   request=2` 之後沒有對應的 `carousel_request=2 outcome=`：刷新需要約 31 秒，
-   而 OTA 在其後約 25 秒就重開機了。E-paper 中斷刷新本身不損傷面板，重開機後
-   也會重新排一次刷新（log 可見 `carousel_image_queued id=15 request=1`），但
-   使用者會看到一次殘影或半更新的畫面。是否要讓 OTA 重開機等待 in-flight 刷新
-   完成，屬於產品決策，尚未決定。
-2. **`network_action_failed action=2 error=ESP_ERR_WIFI_NOT_STARTED` 會出現在
-   每次 OTA 重開機路徑上**（兩次獨立 OTA 都重現）。`action=2` 是
-   `NetworkAction::retry_sta`（`state_machine.hpp:50`）：關閉 Wi-Fi 產生的
-   disconnect 事件讓狀態機排了一次 STA 重試，而 Wi-Fi 已經停止。功能上無害
-   （下一行就重開機了），但它以 **ERROR 級**記在正常關機路徑上，日後看 log
-   會被誤判為真的網路故障。建議在關機路徑抑制該重試，或把這個特定錯誤降為
-   `W`／`I`。
+1. **進行中的面板刷新會被 OTA 的重開機截斷**（**已於同日修正**）。
+   `carousel_image_queued id=15 request=2` 之後沒有對應的
+   `carousel_request=2 outcome=`：刷新需要約 31 秒，而 OTA 在其後約 25 秒就
+   重開機了，使用者會看到殘影或半更新畫面。
+2. **`network_action_failed action=2 error=ESP_ERR_WIFI_NOT_STARTED` 出現在
+   每次重開機路徑上**（**已於同日修正**，兩次獨立 OTA 都重現過）。`action=2` 是
+   `NetworkAction::retry_sta`：關閉 Wi-Fi 產生的 disconnect 事件讓狀態機排了一次
+   STA 重試，而 Wi-Fi 已經停止。功能上無害，但以 **ERROR 級**記在正常關機路徑上，
+   日後看 log 會被誤判為真的網路故障。
+
+### 上述兩點的修正與驗證（2026-08-20）
+
+兩者同源：重開機不知道系統正在忙。`schedule_reboot()`（管理員觸發與 OTA 完成
+共用）現在會在 timer 到期時檢查 runtime snapshot，若面板 `refreshing`／`queued`、
+有 active request 或仍有排隊刷新，就每 500 ms 重試一次，直到面板閒置；上限
+`kMaxRebootDeferrals`（90 次，最壞約 45.5 秒）之後無條件重開，避免卡死的面板
+讓裝置無法重啟。決策邏輯抽成 header-only 的 `pf_runtime::should_defer_reboot()`
+並有 5 個 host test（含「面板卡死仍會重開」與「上限必須大於一次完整刷新」）。
+
+同時新增 `pf_runtime::reboot_pending()`：`schedule_reboot()` 確認 timer armed 後
+才設定。網路側據此停止發出注定失敗的動作——`perform_action_chain()` 直接返回、
+`begin_scan()` fail closed、`maybe_start_sntp()` 略過，`/api/v1/wifi/scan` 也回
+`503 rebooting`（否則前端收到 202 會每 900 ms 重試到裝置重開為止）。
+
+實機驗證：activate 觸發刷新 → 3.6 秒後確認 `display state=refreshing
+active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。serial 依序為
+`reboot_deferred_for_display request=2 queued=0`、
+`reboot_proceeding deferrals=58 display_busy=0`、
+`network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
+重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
 
 ### 仍未驗證
 
