@@ -106,22 +106,29 @@ struct AccessPointPresenterContext {
     SemaphoreHandle_t display_submission_mutex = nullptr;
 };
 
+// `ap_screen_owns_panel` is the caller's view of whether the AP instruction
+// page still has the panel -- i.e. should_hold_access_point_screen() is
+// still true. Gating on that rather than on "is Wi-Fi in AP mode at all"
+// matters: with no credentials stored the device stays in AP mode forever,
+// so the broader test made the five-minute grace window unreachable. The
+// window would expire, ap_mode_display_window_expired would be logged, and
+// every following tick would fail this gate -- leaving the panel on the AP
+// page and emitting a carousel_*_submission_gate_busy warning every second
+// for as long as the device ran (240 of them in the run that found this).
 bool try_lock_carousel_submission_gate(
-    AccessPointPresenterContext& presenter)
+    AccessPointPresenterContext& presenter,
+    const bool ap_screen_owns_panel)
 {
     if (presenter.display_submission_mutex == nullptr ||
         xSemaphoreTake(presenter.display_submission_mutex, 0) != pdTRUE) {
         return false;
     }
 
+    // A snapshot that cannot be read means the carousel cannot tell whether
+    // the panel is free, so it must not take it.
     pf_runtime::RuntimeSnapshot snapshot{};
-    const bool snapshot_read =
-        pf_runtime::coordinator().read_snapshot(snapshot);
-    const bool ap_mode =
-        snapshot_read &&
-        (snapshot.wifi == pf_runtime::WifiState::starting_ap ||
-         snapshot.wifi == pf_runtime::WifiState::provisioning);
-    if (!snapshot_read || ap_mode) {
+    if (!pf_runtime::coordinator().read_snapshot(snapshot) ||
+        ap_screen_owns_panel) {
         xSemaphoreGive(presenter.display_submission_mutex);
         return false;
     }
@@ -1047,7 +1054,8 @@ extern "C" void app_main()
         if (active_blank_request_id != 0U) {
             return true;
         }
-        if (!try_lock_carousel_submission_gate(ap_presenter)) {
+        if (!try_lock_carousel_submission_gate(
+                ap_presenter, ap_screen_hold_active)) {
             return false;
         }
         pf_display::FrameWriteLease blank_frame =
@@ -1401,7 +1409,8 @@ extern "C" void app_main()
         if (display_started &&
             decision.kind ==
                 pf_carousel::DecisionKind::display_welcome) {
-            if (!try_lock_carousel_submission_gate(ap_presenter)) {
+            if (!try_lock_carousel_submission_gate(
+                    ap_presenter, ap_screen_hold_active)) {
                 carousel.abandon(decision, now_ms + kCarouselRetryMs);
                 ESP_LOGW(
                     kTag,
@@ -1481,7 +1490,8 @@ extern "C" void app_main()
         } else if (
             display_started &&
             decision.kind == pf_carousel::DecisionKind::display_image) {
-            if (!try_lock_carousel_submission_gate(ap_presenter)) {
+            if (!try_lock_carousel_submission_gate(
+                    ap_presenter, ap_screen_hold_active)) {
                 carousel.abandon(decision, now_ms + kCarouselRetryMs);
                 ESP_LOGW(
                     kTag,
