@@ -951,6 +951,13 @@ extern "C" void app_main()
     bool ap_mode_ready = false;
     std::uint64_t ap_mode_started_ms = 0U;
     bool ap_screen_hold_active = false;
+    // Last observed "there is something the carousel could show". The
+    // authoritative value is recomputed from the catalog further down the
+    // loop, but the AP-ownership question is asked earlier than that (by the
+    // presence path) and by the submission gate, so the previous tick's value
+    // is what they can see. The catalog only changes on an upload/delete, so
+    // being one tick behind cannot flip the answer in practice.
+    bool last_has_displayable_image = false;
     const std::uint64_t boot_ms = monotonic_ms();
     pf_sensors::PresenceState previous_presence =
         pf_sensors::PresenceState::unknown;
@@ -1050,12 +1057,31 @@ extern "C" void app_main()
     // reservation pool. Returns true if a blank refresh is already
     // in flight or was just accepted (nothing left to retry); false if
     // the attempt failed and should be retried on a later tick.
-    const auto submit_presence_away_blank = [&]() -> bool {
+    // Whether the AP instruction page owns the panel at `now`. Every consumer
+    // asks this rather than "is Wi-Fi in AP mode": a device with no stored
+    // credentials stays in AP mode forever, so that broader question would
+    // never let the panel be handed back once the grace window expired.
+    // Evaluated per call rather than read from ap_screen_hold_active, which
+    // is only refreshed near the end of the loop -- the presence path and the
+    // submission gate run before that and would otherwise act on the previous
+    // tick's answer.
+    const auto ap_screen_owns_panel = [&](const std::uint64_t now) {
+        return ap_mode_active &&
+               (!ap_mode_ready ||
+                pf_network::should_hold_access_point_screen(
+                    true,
+                    last_has_displayable_image,
+                    now,
+                    ap_mode_started_ms));
+    };
+
+    const auto submit_presence_away_blank =
+        [&](const std::uint64_t now) -> bool {
         if (active_blank_request_id != 0U) {
             return true;
         }
         if (!try_lock_carousel_submission_gate(
-                ap_presenter, ap_screen_hold_active)) {
+                ap_presenter, ap_screen_owns_panel(now))) {
             return false;
         }
         pf_display::FrameWriteLease blank_frame =
@@ -1149,7 +1175,7 @@ extern "C" void app_main()
                     pending_presence_away_blank = true;
                 } else {
                     pending_presence_away_blank =
-                        !submit_presence_away_blank();
+                        !submit_presence_away_blank(now_ms);
                 }
             } else if (current_presence ==
                        pf_sensors::PresenceState::present) {
@@ -1177,7 +1203,7 @@ extern "C" void app_main()
         // still away and nothing is currently in flight.
         if (pending_presence_away_blank &&
             previous_presence == pf_sensors::PresenceState::away) {
-            pending_presence_away_blank = !submit_presence_away_blank();
+            pending_presence_away_blank = !submit_presence_away_blank(now_ms);
         }
 
         if (active_blank_request_id != 0U) {
@@ -1311,7 +1337,7 @@ extern "C" void app_main()
         // the last successfully observed presence (see the snapshot read
         // above), not necessarily this tick's value.
         if (previous_presence != pf_sensors::PresenceState::away ||
-            ap_mode_active) {
+            ap_screen_owns_panel(now_ms)) {
         std::size_t carousel_item_count = 0U;
         if (storage_worker.ready()) {
             CarouselCatalogContext catalog_context{
@@ -1340,6 +1366,7 @@ extern "C" void app_main()
                 break;
             }
         }
+        last_has_displayable_image = has_displayable_image;
         const bool hold_ap_screen =
             ap_mode_active &&
             (!ap_mode_ready ||
@@ -1410,7 +1437,7 @@ extern "C" void app_main()
             decision.kind ==
                 pf_carousel::DecisionKind::display_welcome) {
             if (!try_lock_carousel_submission_gate(
-                    ap_presenter, ap_screen_hold_active)) {
+                    ap_presenter, ap_screen_owns_panel(now_ms))) {
                 carousel.abandon(decision, now_ms + kCarouselRetryMs);
                 ESP_LOGW(
                     kTag,
@@ -1491,7 +1518,7 @@ extern "C" void app_main()
             display_started &&
             decision.kind == pf_carousel::DecisionKind::display_image) {
             if (!try_lock_carousel_submission_gate(
-                    ap_presenter, ap_screen_hold_active)) {
+                    ap_presenter, ap_screen_owns_panel(now_ms))) {
                 carousel.abandon(decision, now_ms + kCarouselRetryMs);
                 ESP_LOGW(
                     kTag,
