@@ -73,9 +73,22 @@
   於 2026-08-01 才加入，早於此燒錄的裝置會在新韌體崩潰時無限 crash-loop 而不回滾
   （2026-08-20 實測）。判斷與更新方式見
   [FLASHING.md](hardware/FLASHING.md#bootloader-是否具備回滾保護)。
-- [ ] Rollback fault injection：刻意驗證新版本在確認前 crash-loop 時能回滾，並記錄
-  斷電／網路中斷等必要失敗路徑。**注意 `rollback_confirmed=ESP_OK` 只代表 app
-  呼叫了確認 API，不代表 bootloader 會在異常時回滾**——兩者必須分別驗證。
+- [ ] Rollback fault injection（**條件觸發，非每次 release 都要做**）：刻意讓新版本
+  在確認前 crash-loop，驗證 bootloader 真的會回滾，並記錄斷電／網路中斷等必要失敗
+  路徑。這項驗證的是**該測試裝置 bootloader 本身**的回滾能力，OTA／一般 upload
+  不會動到 bootloader（`0x0`）或 partition table（`0x8000`），所以能力一旦在某台
+  裝置上確認過就不會因為燒新的 app 版本而退化。只在下列任一情況才需要重跑：
+  - 換一台 bootloader 回滾能力**尚未有實機驗證紀錄**的裝置；
+  - 這次 release 刻意重燒了 bootloader 或 partition table；
+  - 這次 release 改動了 `sdkconfig.defaults` 的 rollback 相關設定，或
+    `app_main.cpp` 呼叫 `esp_ota_mark_app_valid_cancel_rollback()` 的位置／時機。
+
+  已用同一台裝置驗證過的紀錄見 `docs/hardware/VALIDATION.md`
+  「2026-08-20 — OTA rollback fault injection」段落；不在上述任一情況時，
+  在這裡記一句「沿用 YYYY-MM-DD 該裝置的驗證紀錄，本次未觸及 bootloader/rollback
+  相關程式碼」即可跳過，不必重新注入。**注意 `rollback_confirmed=ESP_OK` 只代表
+  app 呼叫了確認 API，不代表 bootloader 會在異常時回滾**——兩者必須分別驗證，
+  這正是 2026-08-20 那次測試發現的落差。
 - [ ] WebUI 版本一致性：確認 OTA 完成後瀏覽器載入的就是本次 release 的
   前端（前端已編入 app image，見 ADR-0016，不需也不應另外燒錄）。
 - [ ] System 頁四個 current 操作（重新啟動、重設管理密碼、檢查更新、立即
