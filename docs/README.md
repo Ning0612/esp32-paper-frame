@@ -34,7 +34,9 @@ PaperFrame 的文件分成「目前狀態」、「現行契約」、「設計決
 ## 證據與操作
 
 - [hardware/VALIDATION.md](hardware/VALIDATION.md)：append-only 實機證據與目前未閉環項目。
-- [hardware/FLASHING.md](hardware/FLASHING.md)：燒錄與 imagefs 保護操作。
+- [hardware/FLASHING.md](hardware/FLASHING.md)：燒錄與 imagefs 保護操作，
+  包含**新裝置首次燒錄**（日常 upload 只寫 app slot，不含 bootloader，
+  空白板無法只靠它開機）與**判斷 bootloader 是否具備 OTA 回滾保護**。
 
 這兩份文件回答「實際測了什麼」與「如何操作」，不取代
 [PROJECT_STATUS.md](PROJECT_STATUS.md) 的進度摘要。

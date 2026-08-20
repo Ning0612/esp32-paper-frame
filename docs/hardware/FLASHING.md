@@ -45,6 +45,82 @@ RGB demo、native USB 被停用，或 app 已損壞到無法接受 `usb_reset`�
 `docs/hardware/VALIDATION.md` 對應日期記錄。WebUI 改為編入韌體之後，
 這個指令**更沒有任何正當用途**：跑它只會毀掉 `imagefs`。
 
+## 新裝置首次燒錄（含 bootloader）
+
+**日常命令不會寫 bootloader。** `tools/platformio_native_usb_upload.py` 刻意
+把 PlatformIO 原本附加在 flash-size 之後的 bootloader、partition table 與初始
+OTA metadata 全部移除，只留下 app image 的 esptool flags——這正是 active-slot
+上傳的前提。因此：
+
+- 全新或已抹除的板子**只跑 `pio run -t upload` 會燒不起來**：flash 裡沒有
+  bootloader，晶片無從啟動。
+- 既有裝置**無論更新幾次韌體、做過幾次 OTA，bootloader 都不會改變**。它只來自
+  這一節的首次燒錄。
+
+新板子（或 bootloader 需要更新時）用下列流程。先建置，再一次寫入三個區段：
+
+```powershell
+.\.venv\Scripts\pio.exe run -e paperframe-s3
+if ($LASTEXITCODE -ne 0) {
+  throw 'Firmware build failed; do not continue to write-flash.'
+}
+
+.\.venv\Scripts\python.exe -m esptool --chip esp32s3 --port <COM> `
+  --before usb-reset --after hard-reset write-flash `
+  0x0 .pio\build\paperframe-s3\bootloader.bin `
+  0x8000 .pio\build\paperframe-s3\partitions.bin `
+  0x10000 .pio\build\paperframe-s3\firmware.bin
+```
+
+三個區段都應回報 `Hash of data verified.`。這個範圍**刻意不含**
+`nvs`（`0x9000`）與 `imagefs`（`0x630000`）：既有裝置照這個流程更新 bootloader
+不會遺失 Wi-Fi 憑證、管理密碼、天氣設定或使用者圖片。
+
+全新板子還需要兩件事：
+
+1. **重設 OTA metadata**，讓 bootloader 從 `ota_0` 啟動（既有裝置若 otadata
+   指向一個已被覆寫的 slot 也需要）：
+   ```powershell
+   .\.venv\Scripts\python.exe -m esptool --chip esp32s3 --port <COM> `
+     --before usb-reset --after hard-reset erase-region 0xd000 0x2000
+   ```
+2. **factory imagefs image**（只有新機或明確要清空圖片時才做，見本文件的
+   imagefs 章節）。
+
+之後的日常更新就回到開頭那一個 PlatformIO 命令。
+
+## bootloader 是否具備回滾保護
+
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` 在 2026-08-01 才加入
+`sdkconfig.defaults`。**回滾邏輯位於 bootloader，而 OTA 與日常 upload 都不會更新
+bootloader**，所以在那之前燒錄過 bootloader 的裝置沒有回滾保護：OTA 裝上一個會在
+`esp_ota_mark_app_valid_cancel_rollback()` 之前崩潰的韌體時，它會無限 crash-loop
+而不是退回舊版，只能靠 esptool 救援。2026-08-20 已在實機上重現這個情形，並確認
+更新 bootloader 後回滾恢復正常（見
+[VALIDATION.md](VALIDATION.md) 同日的 rollback fault injection 段落）。
+
+要判斷手上的裝置是否受保護，把 flash 開頭讀回來與本機建置的 bootloader 比對：
+
+```powershell
+.\.venv\Scripts\pio.exe run -e paperframe-s3
+.\.venv\Scripts\python.exe -m esptool --chip esp32s3 --port <COM> `
+  --before usb-reset --after no-reset read-flash 0x0 0x8000 device_bootloader.bin
+
+.\.venv\Scripts\python.exe -c @'
+import hashlib, pathlib
+local = pathlib.Path(r'.pio/build/paperframe-s3/bootloader.bin').read_bytes()
+device = pathlib.Path('device_bootloader.bin').read_bytes()[:len(local)]
+print('match:', device == local)
+print('local :', hashlib.sha256(local).hexdigest()[:32])
+print('device:', hashlib.sha256(device).hexdigest()[:32])
+'@
+```
+
+讀回的是整個 `0x8000` 區塊，因此只比對前 `len(bootloader.bin)` bytes。
+`match: False` 代表 bootloader 與目前程式碼不同步——若該裝置需要回滾保護，就依
+上一節重寫 `0x0`。注意這個比對只回答「是否與目前建置相同」，不單獨回答「是否
+啟用回滾」；兩者不同步時最省事的處理就是直接更新。
+
 ## USB 介面
 
 | 介面 | Windows hardware ID | 用途 |

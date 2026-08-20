@@ -81,6 +81,12 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 與 [release checklist](docs/RELEASE_CHECKLIST.md) 執行。請勿把 host/build 結果
 當成實機驗證。
 
+**拿到全新板子時，`pio run -t upload` 不足以讓它開機**：日常上傳只寫 app slot，
+不含 bootloader。首次燒錄與 bootloader 更新見
+[新裝置首次燒錄](docs/hardware/FLASHING.md#新裝置首次燒錄含-bootloader)；
+OTA 的回滾保護取決於 bootloader 版本，判斷方式見
+[bootloader 是否具備回滾保護](docs/hardware/FLASHING.md#bootloader-是否具備回滾保護)。
+
 ## 硬體
 
 完整元件清單、接線與腳位限制見 [硬體規格與接線](docs/hardware/HARDWARE.md)；
@@ -177,6 +183,10 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements-dev.txt
 自動重置。首次、RGB demo 或 app 損壞無法自動 reset 時，才需在 reset 同時拉低
 GPIO0、GPIO46。完整安全步驟、app-only slot 限制與測試後恢復方式見
 [ESP32-S3 燒錄操作](docs/hardware/FLASHING.md)。
+
+這條路徑**不會更新 bootloader 或 partition table**——新板子的首次燒錄、以及
+既有裝置要取得 OTA 回滾保護時的 bootloader 更新，都在同一份文件的
+[新裝置首次燒錄](docs/hardware/FLASHING.md#新裝置首次燒錄含-bootloader)一節。
 
 ## 文件
 

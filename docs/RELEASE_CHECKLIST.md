@@ -68,8 +68,14 @@
 - [ ] 全新開機（reboot persistence：設定、圖片、順序、目前圖片都保留）。
 - [ ] OTA functional：檢查更新 → 立即更新 → 自動重開機，確認新版本正常啟動。
 - [ ] Boot validation：確認開機後 `rollback_confirmed=ESP_OK` 出現在 console log。
+- [ ] **先確認測試裝置的 bootloader 具備回滾能力**，再做下一項。回滾邏輯在
+  bootloader，而 OTA 與日常 upload 都不會更新它：`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`
+  於 2026-08-01 才加入，早於此燒錄的裝置會在新韌體崩潰時無限 crash-loop 而不回滾
+  （2026-08-20 實測）。判斷與更新方式見
+  [FLASHING.md](hardware/FLASHING.md#bootloader-是否具備回滾保護)。
 - [ ] Rollback fault injection：刻意驗證新版本在確認前 crash-loop 時能回滾，並記錄
-  斷電／網路中斷等必要失敗路徑。
+  斷電／網路中斷等必要失敗路徑。**注意 `rollback_confirmed=ESP_OK` 只代表 app
+  呼叫了確認 API，不代表 bootloader 會在異常時回滾**——兩者必須分別驗證。
 - [ ] WebUI 版本一致性：確認 OTA 完成後瀏覽器載入的就是本次 release 的
   前端（前端已編入 app image，見 ADR-0016，不需也不應另外燒錄）。
 - [ ] System 頁四個 current 操作（重新啟動、重設管理密碼、檢查更新、立即
