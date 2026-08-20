@@ -8,12 +8,12 @@
 
 ## 一分鐘結論
 
-Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026-08-20，OTA
-端到端（含 rollback confirmation 與 WebUI 隨韌體換版）、active-slot upload
-wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_only` 路徑與
-認證邊界都已有實機證據。專案目前仍不是 release-ready；剩餘工作主要是**故障
-注入類**的實機 acceptance（rollback fault injection、各種斷電路徑）、尚未接線
-的感測器整段、公開 release security profile，以及 MVP 以外功能的產品決策。
+Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026-08-20，
+Phase 2／3／4／5／6／8 的實機證據全數閉環——涵蓋 OTA 端到端與 rollback fault
+injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出圖管線、天氣四種
+失敗分類、forced-BUSY 隔離與面板 sleep 電流。**剩餘的硬體驗證只有 Phase 7 感測器
+整段**（DHT22 與光敏電阻尚未接線）與兩個低風險項。其餘待辦是公開 release
+security profile 與 MVP 以外功能的產品決策。
 
 ## 已完成或已決定
 
@@ -36,7 +36,6 @@ wrapper、面板刷新耗時、真實 SNTP、設定降級的 `409 config_read_on
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 2 display | panel sleep 電流 |
 | Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |

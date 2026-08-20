@@ -13,7 +13,6 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 2 display | panel sleep 電流（refresh duration 31.2 s 與 forced-BUSY isolation 已於 2026-08-20 閉環） | 2026-08-20 forced-BUSY；2026-08-20 v0.9.1 收尾驗證 |
 | Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
@@ -23,7 +22,8 @@
 （2026-08-20 完成 webfs heap 差值量化）、`Phase 6 weather`（2026-08-20 關閉四種
 失敗分類，面板狀態列視覺由使用者確認）、`Phase 5 storage` 與 `Phase 8 OTA`
 （2026-08-20 完成斷電故障注入與 rollback fault injection）、`Phase 3/4 WebUI`
-（2026-08-20 完成 SNTP 失敗側，該領域全數閉環）。
+（2026-08-20 完成 SNTP 失敗側，該領域全數閉環）、`Phase 2 display`
+（2026-08-20 完成 forced-BUSY 與 sleep 電流量測）。
 `mDNS` 從未實作，不列為待驗證項——詳見 2026-08-20 段落。
 
 ## 2026-07-29 — 初始 USB 盤點
@@ -1949,6 +1949,36 @@ active_request=2` → 觸發 reboot → 裝置直到 **t+37.1 秒**才下線。s
 `reboot_proceeding deferrals=58 display_busy=0`、
 `network_action_skipped_for_reboot action=2`，**全程無任何 E 級 log**，
 重開後 `reboot_reason=software_reset` 且 Wi-Fi 正常重連。
+
+## 2026-08-20 — 面板 sleep 電流（Phase 2 本項自此關閉）
+
+以 USB 電流電壓表串在 ESP32 供電端量測，因此是**整機電流**（ESP32 + Wi-Fi +
+面板），不是面板單獨。有意義的是各狀態之間的差值，不是絕對值。
+
+| 狀態 | 電流 | 相對閒置的增量 |
+| --- | ---: | ---: |
+| 閒置（面板 `deep_sleep`、Wi-Fi 連線） | 9 mA | — |
+| 刷新中（最低） | 30 mA | +21 mA |
+| 刷新中（最高） | **110 mA** | +101 mA |
+| 剛刷完（deep sleep 指令送出後） | 12 mA | +3 mA |
+| 刷完一分鐘後 | **10 mA** | +1 mA |
+
+**`0x07` + `0xA5` 的 deep sleep 序列確實生效**：刷新峰值 110 mA 在結束後回到
+10 mA，與閒置基線相同量級。若該指令未生效，面板會維持在刷新等級的耗電而不會
+降回來——這正是本項要排除的失效模式。
+
+閒置的 9 mA 本身也是一個佐證：ESP32-S3 維持 Wi-Fi 連線通常是數十 mA，9 mA 表示
+modem sleep 有生效（開機 log 的 `wifi:pm start, type: 1`）。
+
+### 耗電結構
+
+以刷新平均約 70 mA、單次 31 秒估算，一次刷新約 **0.6 mAh**；閒置則是 9 mA 持續，
+即 **9 mAh/小時**。預設 30 分鐘刷新一次的話，每小時兩次刷新約 1.2 mAh——
+**待機耗電是刷新的七倍以上**。這符合 e-paper 的特性（畫面本身不耗電），也代表
+若要省電，方向在 MCU／Wi-Fi 待機而不是降低刷新頻率。
+
+量測限制：整機讀數含 ESP32 與 Wi-Fi，無法分離面板單獨功耗；Wi-Fi TX 尖峰也會
+疊加在讀數上。要取得面板單獨數據需將電表串在 HAT 的 3.3 V 供電線上。
 
 ## 2026-08-20 — AP page 與 Wi-Fi 啟動的併發刷新：實作上是序列化的
 
