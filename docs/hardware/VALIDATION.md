@@ -2747,3 +2747,26 @@ GPIO5 維持 2587（門檻 500 → 判定為亮），`away_duration_s` 降為 10
 門檻 1200 在 AND 語意下是安全的：開燈時 GPIO5 約 2587、GPIO7 約 2120，兩者都
 高於門檻；關燈時兩者都低於 30。單顆被遮（例如 GPIO7 降到 730）不再會拖累判定，
 因此門檻可以設得比 OR 時代的 500 更靈敏。
+
+### 同日補充：DHT22 拔除後的降級行為（僅驗證一條路徑）
+
+拔掉 DHT22 資料線後讀 `GET /api/v1/sensors`：
+
+```
+dht=probing       t=None rh=None
+dht=not_detected  t=None rh=None
+```
+
+溫溼度回傳 JSON `null`，**沒有偽造 `0`，也沒有沿用拔除前的 26.2 °C / 62.7 %**，
+符合 optional-sensor contract。狀態在 `probing` 與 `not_detected` 之間交替，
+對應 `EnvironmentCache` 的 retry backoff。
+
+**但這只驗證了兩條路徑中的一條。** 當時 `uptime_ms = 109928`，裝置在拔除前後
+重開過，因此快取是空的，走的是「開機後從未成功讀取」→ `has_reading == false`
+→ 值為 `null`。
+
+**尚未驗證**：讀到過之後才拔掉（`has_reading == true`）。依
+`dashboard_serializer.hpp` 的實作，該路徑會回傳**舊值加上 `stale: true` 標記**、
+狀態轉 `stale`——這是 ADR-0006 的設計（帶標記的舊值不等於偽造的新鮮值），但沒有
+實跑過。要關掉這一項需要：插回 DHT22 → 等一次成功讀取 → **不斷電**直接拔除 →
+確認狀態為 `stale` 且 `stale: true` 旗標存在。
