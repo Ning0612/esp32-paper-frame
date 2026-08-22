@@ -31,6 +31,20 @@ void test_newer_major_minor_patch_each_detected()
     TEST_ASSERT_EQUAL_INT(1, compare_semver("v1.2.3", "v1.2.4").order);
 }
 
+// The classic lexical-vs-numeric trap, and one this project is about to
+// walk into for real: string comparison puts "0.10.0" below "0.9.3", which
+// would make every device decide it is already up to date and silently
+// stop offering updates. Components are parsed as numbers, and this pins
+// that down before the 0.9 -> 0.10 transition rather than after.
+void test_double_digit_components_compare_numerically()
+{
+    TEST_ASSERT_EQUAL_INT(1, compare_semver("v0.9.3", "v0.10.0").order);
+    TEST_ASSERT_EQUAL_INT(-1, compare_semver("v0.10.0", "v0.9.3").order);
+    TEST_ASSERT_EQUAL_INT(1, compare_semver("v0.9.9", "v0.10.0").order);
+    TEST_ASSERT_EQUAL_INT(1, compare_semver("v1.2.9", "v1.2.10").order);
+    TEST_ASSERT_EQUAL_INT(1, compare_semver("v9.0.0", "v10.0.0").order);
+}
+
 void test_older_candidate_detected()
 {
     const VersionCompareResult result = compare_semver("v1.2.3", "v1.2.2");
@@ -112,6 +126,7 @@ int main(int, char**)
     RUN_TEST(test_equal_versions_compare_equal);
     RUN_TEST(test_missing_v_prefix_is_tolerated);
     RUN_TEST(test_newer_major_minor_patch_each_detected);
+    RUN_TEST(test_double_digit_components_compare_numerically);
     RUN_TEST(test_older_candidate_detected);
     RUN_TEST(test_prerelease_has_lower_precedence_than_same_numbered_release);
     RUN_TEST(test_two_prereleases_with_same_numbers_compare_equal);
