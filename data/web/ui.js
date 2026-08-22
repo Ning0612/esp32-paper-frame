@@ -127,6 +127,7 @@
   let imageSelectionRevision = 0;
   let activeQuantizeWorker = null;
   let imageLibraryRevision = 0;
+  let environmentPollTimer = null;
   let systemOtaPollTimer = null;
   let systemOtaPollAttemptsRemaining = 0;
   let systemOtaStatusRequestId = 0;
@@ -852,11 +853,53 @@
       environmentStatus.textContent = `感測器設定讀取失敗：${error.message || "請稍後重試"}`;
     }
     await loadSensorReadings();
+    // Only the readings are polled, never the config: re-fetching the config
+    // would overwrite the threshold/duration inputs and silently discard
+    // whatever the user was in the middle of typing.
+    startEnvironmentPoll();
+  }
+
+  // The device samples both light channels every 2 s and reports them
+  // through an 8-sample moving average, so a step change in light takes
+  // ~16 s to settle. A single reading fetched at page-switch time is
+  // therefore useless for calibrating a threshold -- you would have to
+  // leave and re-enter the page for every lighting condition. 3 s sits just
+  // above the device's own sampling period, so each poll can return
+  // something new without spinning on unchanged data.
+  const environmentPollMs = 3000;
+
+  function stopEnvironmentPoll() {
+    if (environmentPollTimer) {
+      clearInterval(environmentPollTimer);
+      environmentPollTimer = null;
+    }
+  }
+
+  function startEnvironmentPoll() {
+    stopEnvironmentPoll();
+    environmentPollTimer = setInterval(() => {
+      if (currentView !== "environment") {
+        stopEnvironmentPoll();
+        return;
+      }
+      // Nothing to see in a background tab, but keep the timer alive so
+      // coming back to the tab resumes without another page switch.
+      if (document.hidden) return;
+      loadSensorReadings();
+    }, environmentPollMs);
   }
 
   async function loadSensorReadings() {
     try {
       const response = await fetch("/api/v1/sensors", { cache: "no-store" });
+      if (response.status === 401) {
+        // The session expired underneath the poll; stop rather than
+        // retrying every 3 s forever against an endpoint that will keep
+        // refusing.
+        stopEnvironmentPoll();
+        showAuthForm(true);
+        return;
+      }
       const payload = await response.json();
       if (!response.ok || !payload.data) return;
       const environment = payload.data.environment || {};

@@ -100,4 +100,40 @@ for (const id of [
   );
 }
 
+// Live readings have to refresh on their own. The device samples every 2 s
+// through an 8-sample moving average, so calibrating a threshold against a
+// value fetched once at page-switch time would mean leaving and re-entering
+// the page for every lighting condition.
+assert.ok(
+  /environmentPollTimer\s*=\s*setInterval\(/.test(js),
+  "the environment page must poll live readings on a timer",
+);
+assert.ok(
+  /currentView\s*!==\s*"environment"[\s\S]{0,120}stopEnvironmentPoll\(\)/.test(
+    js,
+  ),
+  "the poll must stop once the environment page is no longer shown",
+);
+// Polling the config too would overwrite the threshold/duration inputs and
+// discard whatever the user was typing.
+const pollBody = js.slice(
+  js.indexOf("function startEnvironmentPoll("),
+  js.indexOf("async function loadSensorReadings("),
+);
+assert.ok(pollBody.length > 0, "expected startEnvironmentPoll before the loader");
+assert.ok(
+  pollBody.includes("loadSensorReadings()"),
+  "the poll must refresh the readings",
+);
+assert.ok(
+  !pollBody.includes("loadEnvironmentConfig()"),
+  "the poll must not re-fetch the config: it would clobber unsaved input",
+);
+// A poll that keeps hammering an endpoint returning 401 is worse than no
+// poll at all.
+assert.ok(
+  /status\s*===\s*401[\s\S]{0,200}stopEnvironmentPoll\(\)/.test(js),
+  "an expired session must stop the poll rather than retry forever",
+);
+
 console.log("sensor form contract: ok");
