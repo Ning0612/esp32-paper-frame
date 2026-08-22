@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | 僅剩正式 180／30 debounce 的實際計時（機制已以 10／1 縮時驗證）。DHT22 讀值與拔除降級（兩條路徑）、雙通道 ADC 校正、AWAY/PRESENT 轉換、AND 合併語意、白屏與返回重繪均已於 2026-08-23 實機閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
+| ~~Phase 7 sensors~~ | **已全部閉環（2026-08-23）**：DHT22 讀值與兩條拔除降級路徑、雙通道 ADC 校正、AND 合併語意、AWAY/PRESENT 轉換（縮時與正式 180／30）、白屏與返回重繪 | 2026-08-23 Phase 7 感測器實機驗證 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
@@ -2839,3 +2839,35 @@ host tests：新增 4 個 `test_environment_sensor` 案例（失敗後不再 cur
 恢復後回到 online、年齡本身仍會使其非 current、空快取回 probing）與 1 個
 `test_dashboard_serializer` 案例（`status` 與 `stale` 不得矛盾）。已 mutation
 驗證：改回「只看年齡」的舊邏輯後 2 個測試如預期變紅。全專案 356/356 通過。
+
+### 同日補充：正式 180／30 debounce 實際計時 — Phase 7 全部閉環
+
+先前的轉換驗證用縮時值（10／1 秒）。本次以正式設定實測，設定為門檻 1200／1200、
+`away_duration_s=180`、`return_duration_s=30`。
+
+**離席（away）**
+
+```
+[  0.1s] combined LIGHT raw=2381 thr=1200 deciding=1
+[115.4s] combined DARK  raw=1160 thr=1200 deciding=1
+[296.7s] presence -> away        ← 跨越後 181.3 秒
+```
+
+實測 **181.3 秒** vs 設定 180 秒，誤差 1.3 秒，落在 2 秒取樣粒度內。
+
+`deciding=1` 表示較亮的 GPIO5 是最後一個跨過門檻的——**AND 語意正確**：倒數從
+「連最亮的通道都變暗」才開始，而不是第一顆變暗就開始。
+
+**返回（present）**
+
+```
+[ 0.1s] combined DARK  raw=110  thr=1200
+[28.1s] combined LIGHT raw=1227 thr=1200
+[56.6s] presence -> present
+```
+
+觀察到的跨越點到轉換為 **28.5 秒** vs 設定 30 秒。取樣粒度 2 秒，實際跨越可能
+早於觀察時刻，與設定相符。
+
+至此 Phase 7 感測器**全部項目實機閉環**：DHT22 讀值與兩條拔除降級路徑、雙通道
+ADC 校正、AND 合併語意、AWAY／PRESENT 轉換（縮時與正式值）、離席白屏與返回重繪。

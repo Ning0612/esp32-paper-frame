@@ -37,7 +37,7 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 7 sensors | 僅剩正式 180/30 debounce 計時與 v1→v2 設定遷移的實機路徑；其餘已於 2026-08-23 實機閉環 |
+| Phase 7 sensors | 僅剩 `SensorSettings` v1→v2 遷移的實機路徑；感測器行為已於 2026-08-23 全部實機閉環 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
