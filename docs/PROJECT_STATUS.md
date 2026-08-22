@@ -12,8 +12,8 @@ Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026
 Phase 2／3／4／5／6／8 的實機證據全數閉環——涵蓋 OTA 端到端與 rollback fault
 injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出圖管線、天氣四種
 失敗分類、forced-BUSY 隔離與面板 sleep 電流。Phase 7 感測器已於 2026-08-23 接線
-並完成主要實機驗證（DHT22 讀值、雙光敏通道校正、AWAY/PRESENT 轉換、多通道
-合併判定、白屏與返回重繪）。**剩餘的硬體驗證只有三個小項與兩個低風險項**。其餘
+並完成主要實機驗證（DHT22 讀值、雙光敏通道校正、AWAY/PRESENT 轉換、白屏與
+返回重繪）。**剩餘的硬體驗證只有三個小項與兩個低風險項**。其餘
 待辦是公開 release security profile 與 MVP 以外功能的產品決策。
 
 ## 已完成或已決定
@@ -37,7 +37,7 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 7 sensors | 僅剩 DHT22 拔除後回 null、正式 180/30 debounce 計時、v1→v2 設定遷移的實機路徑；其餘已於 2026-08-23 實機閉環 |
+| Phase 7 sensors | 剩 DHT22 拔除後回 null、AND 合併語意的行為驗證、正式 180/30 debounce 計時、v1→v2 設定遷移的實機路徑；其餘已於 2026-08-23 實機閉環 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 

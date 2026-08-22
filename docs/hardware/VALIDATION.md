@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | 僅剩 **DHT22 拔除後回 `null`**（需拔線）與正式 180／30 debounce 的實際計時；DHT22 讀值、雙通道 ADC 校正、AWAY/PRESENT 轉換、「任一通道變暗」、白屏與返回重繪均已於 2026-08-23 實機閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
+| Phase 7 sensors | 剩 **DHT22 拔除後回 `null`**（需拔線）、**AND 合併語意的行為驗證**（遮一顆、另一顆亮時須維持 present；目前只確認 `deciding_channel` 已跟隨較亮通道）、正式 180／30 debounce 的實際計時。DHT22 讀值、雙通道 ADC 校正、AWAY/PRESENT 轉換、白屏與返回重繪已於 2026-08-23 實機閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
