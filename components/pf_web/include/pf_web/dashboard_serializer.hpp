@@ -216,9 +216,17 @@ inline SerializeResult serialize_status(
     // was disabled (CLAUDE.md: never report a stale/historical value as
     // if it were current); the cache itself is intentionally not wiped
     // so a re-enable can resume backoff/daily-stat state.
+    //
+    // `stale` is hidden here too, unlike in serialize_sensors(). This is a
+    // summary with no room for a qualifier -- the dashboard renders a bare
+    // "26.8 °C" from whatever number it gets -- so a value with no way to
+    // mark it as old would read as the current temperature. Dropping it
+    // makes the dashboard fall back to the status label instead, and the
+    // environment page still shows the value with its stale flag.
     const bool environment_reading_visible =
         snapshot_valid && snapshot.environment.has_reading &&
-        snapshot.environment_status != pf_sensors::SensorStatus::disabled;
+        snapshot.environment_status != pf_sensors::SensorStatus::disabled &&
+        snapshot.environment_status != pf_sensors::SensorStatus::stale;
     char environment_temperature[16]{};
     char environment_humidity[16]{};
     char light_adc[16]{};
@@ -606,14 +614,16 @@ inline SerializeResult serialize_sensors(
     // stat state.
     const bool environment_has_reading =
         !environment_disabled && snapshot.environment.has_reading;
-    // Same predicate the sensor task derives its status from, so the two
-    // can never contradict each other. Reported whenever a value is being
-    // served that is no longer current -- including after a read failure,
-    // not only once the cache has aged out.
+    // Derived from the published status rather than recomputed here, so the
+    // two cannot disagree by construction. Recomputing looked equivalent
+    // but was not: the status comes from a snapshot the sensor task wrote
+    // up to a tick ago, while this runs at request time, so the two could
+    // straddle the cache-age boundary. It also disagreed before the first
+    // SNTP sync, where environment_stale() treats an epoch of 0 as old even
+    // though the reading had just been taken.
     const bool environment_stale_flag =
         environment_has_reading &&
-        !pf_sensors::environment_reading_current(
-            snapshot.environment, now_epoch_s);
+        snapshot.environment_status == pf_sensors::SensorStatus::stale;
     const bool light_online =
         snapshot_valid &&
         snapshot.light_decision.status ==

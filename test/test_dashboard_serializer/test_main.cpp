@@ -440,6 +440,21 @@ void test_serialize_sensors_marks_a_failed_sensors_reading_stale()
     TEST_ASSERT_NULL(std::strstr(output, "\"stale\":false"));
     // The value itself is still served -- flagged, not fabricated away.
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":26.8"));
+
+    // The dashboard summary has no room for a qualifier, so there it is
+    // dropped rather than rendered as a bare "26.8 °C" that reads as the
+    // current temperature.
+    char status_output[2048]{};
+    const pf_web::SerializeResult status_result = pf_web::serialize_status(
+        data, true, 123456, 1700000001U, status_output,
+        sizeof(status_output));
+    TEST_ASSERT_TRUE(status_result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"environment_status\":\"stale\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"temperature_c\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"humidity_percent\":null"));
 }
 
 void test_sensors_hide_stale_reading_after_environment_disabled()
