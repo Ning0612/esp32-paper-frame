@@ -224,13 +224,12 @@ void SensorTask::sample_environment(
                                        : pf_sensors::SensorStatus::not_detected;
         }
     } else {
-        environment_status_ =
-            environment_cache_.has_reading
-                ? (pf_sensors::environment_stale(
-                       environment_cache_, now_epoch_s)
-                       ? pf_sensors::SensorStatus::stale
-                       : pf_sensors::SensorStatus::online)
-                : pf_sensors::SensorStatus::probing;
+        // Not a retry tick. The status still has to account for failures
+        // already recorded, not just the cache age -- otherwise a sensor
+        // that has stopped answering reads back as `online` on every tick
+        // between retries for the whole cache window.
+        environment_status_ = pf_sensors::environment_cached_status(
+            environment_cache_, now_epoch_s);
     }
 
     if (runtime_ != nullptr) {

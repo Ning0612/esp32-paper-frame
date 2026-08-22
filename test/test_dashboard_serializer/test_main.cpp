@@ -413,6 +413,35 @@ void test_serialize_sensors_reports_null_when_never_read()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"unknown\""));
 }
 
+// Regression, measured on hardware 2026-08-23: after the DHT22 was
+// unplugged the API served `"status":"stale"` alongside `"stale":false` in
+// the same object, because the flag was gated on the status being online --
+// exactly when it cannot be stale. A reading that is being served while no
+// longer current must say so.
+void test_serialize_sensors_marks_a_failed_sensors_reading_stale()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.environment.has_reading = true;
+    data.environment.reading.temperature_c = 26.8F;
+    data.environment.reading.humidity_percent = 64.2F;
+    data.environment.last_success_epoch_s = 1700000000U;
+    // One failed read: the sensor has stopped answering, but the cache is
+    // still well inside its max age.
+    data.environment.consecutive_failures = 1U;
+    data.environment_status = pf_sensors::SensorStatus::stale;
+
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        data, true, 1700000001U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"status\":\"stale\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"stale\":true"));
+    TEST_ASSERT_NULL(std::strstr(output, "\"stale\":false"));
+    // The value itself is still served -- flagged, not fabricated away.
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":26.8"));
+}
+
 void test_sensors_hide_stale_reading_after_environment_disabled()
 {
     // Regression: disabling the sensor after it had a valid reading must
@@ -728,6 +757,7 @@ int main(int, char**)
     RUN_TEST(test_serialize_sensors_reports_null_threshold_before_first_sample);
     RUN_TEST(test_serialize_sensors_ignores_a_missing_second_channel);
     RUN_TEST(test_serialize_sensors_reports_null_when_never_read);
+    RUN_TEST(test_serialize_sensors_marks_a_failed_sensors_reading_stale);
     RUN_TEST(test_sensors_hide_stale_reading_after_environment_disabled);
     RUN_TEST(test_device_is_safe_and_uses_snapshot_capacity);
     RUN_TEST(test_masked_config_never_returns_secret_values);

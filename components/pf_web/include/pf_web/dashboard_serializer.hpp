@@ -596,9 +596,6 @@ inline SerializeResult serialize_sensors(
     const char* const presence = pf_sensors::to_string(
         snapshot_valid ? snapshot.presence
                         : pf_sensors::PresenceState::unknown);
-    const bool environment_online =
-        snapshot_valid &&
-        snapshot.environment_status == pf_sensors::SensorStatus::online;
     const bool environment_disabled =
         !snapshot_valid ||
         snapshot.environment_status == pf_sensors::SensorStatus::disabled;
@@ -609,9 +606,14 @@ inline SerializeResult serialize_sensors(
     // stat state.
     const bool environment_has_reading =
         !environment_disabled && snapshot.environment.has_reading;
+    // Same predicate the sensor task derives its status from, so the two
+    // can never contradict each other. Reported whenever a value is being
+    // served that is no longer current -- including after a read failure,
+    // not only once the cache has aged out.
     const bool environment_stale_flag =
         environment_has_reading &&
-        pf_sensors::environment_stale(snapshot.environment, now_epoch_s);
+        !pf_sensors::environment_reading_current(
+            snapshot.environment, now_epoch_s);
     const bool light_online =
         snapshot_valid &&
         snapshot.light_decision.status ==
@@ -803,7 +805,7 @@ inline SerializeResult serialize_sensors(
         environment_status,
         temperature_c,
         humidity_percent,
-        environment_online && environment_stale_flag ? "true" : "false",
+        environment_stale_flag ? "true" : "false",
         today_temp_min,
         today_temp_max,
         today_temp_avg,
