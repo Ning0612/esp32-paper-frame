@@ -12,8 +12,8 @@ Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026
 Phase 2／3／4／5／6／8 的實機證據全數閉環——涵蓋 OTA 端到端與 rollback fault
 injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出圖管線、天氣四種
 失敗分類、forced-BUSY 隔離與面板 sleep 電流。Phase 7 感測器已於 2026-08-23 接線
-並完成主要實機驗證（DHT22 讀值、雙光敏通道校正、AWAY/PRESENT 轉換、「任一通道
-變暗」、白屏與返回重繪）。**剩餘的硬體驗證只有三個小項與兩個低風險項**。其餘
+並完成主要實機驗證（DHT22 讀值、雙光敏通道校正、AWAY/PRESENT 轉換、多通道
+合併判定、白屏與返回重繪）。**剩餘的硬體驗證只有三個小項與兩個低風險項**。其餘
 待辦是公開 release security profile 與 MVP 以外功能的產品決策。
 
 ## 已完成或已決定
@@ -26,7 +26,7 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 | Phase 4 PFR1 | format、validator、browser pipeline、quantizer、packer 與 host tests 已完成 | [PFR1](formats/PFR1.md) |
 | Phase 5 storage／catalog／carousel | partition、transaction、catalog、image API 與 runtime 接線已完成 | [Storage](STORAGE.md) |
 | Phase 6 weather | parser、cache、設定與 worker 程式已完成；實機證據另列於下表 | [Weather](WEATHER.md) |
-| Phase 7 sensors／presence | optional sensor contract、driver、filter、debounce 與 WebUI schema 已完成；2026-08-23 擴充為兩個獨立光敏通道（任一變暗即判定為暗）並完成接線與主要實機驗證 | [ADR-0018](adr/0018-dual-photoresistor-channels.md)、[歷史 Implementation Plan](archive/IMPLEMENTATION_PLAN.md) |
+| Phase 7 sensors／presence | optional sensor contract、driver、filter、debounce 與 WebUI schema 已完成；2026-08-23 擴充為兩個獨立光敏通道（兩顆都暗才判定為暗）並完成接線與主要實機驗證 | [ADR-0018](adr/0018-dual-photoresistor-channels.md)、[歷史 Implementation Plan](archive/IMPLEMENTATION_PLAN.md) |
 | Phase 8 diagnostics／OTA | diagnostics、System UI、OTA worker 與 release checklist 已完成程式；實機 release gate 未關閉 | [OTA ADR](adr/0008-ota-github-releases-and-rollback.md) |
 | 認證 | PBKDF2 10,000 iterations、同步登入、session／CSRF contract 已決定 | [ADR-0007](adr/0007-auth-pbkdf2-iterations-and-sync-login.md) |
 | OTA／partition | GitHub Releases、A/B rollback、`imagefs` preservation 已決定 | [ADR-0004](adr/0004-freeze-image-preserving-partitions.md)、[ADR-0008](adr/0008-ota-github-releases-and-rollback.md) |

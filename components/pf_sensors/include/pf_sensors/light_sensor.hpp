@@ -75,7 +75,8 @@ private:
 // Two photoresistor channels, each its own voltage-divider branch with
 // nothing shared but 3V3 and ground (ADR-0018): channel 0 on GPIO5/ADC1_CH4,
 // channel 1 on GPIO7/ADC1_CH6. Each has its own enable flag and its own
-// threshold, and presence reads "either channel is dark" as darkness.
+// threshold, and presence reads "every channel is dark" as darkness --
+// equivalently, any single lit channel keeps the device awake.
 inline constexpr std::size_t kLightChannelCount = 2U;
 
 // The GPIO each channel is wired to, reported through GET /api/v1/sensors so
@@ -140,12 +141,25 @@ constexpr std::uint8_t light_status_rank(const LightSensorStatus status)
 // A channel that is not `online` is ignored outright as long as some
 // other channel is online: an absent or broken second photoresistor must
 // not disable a working first one (AGENTS.md -- sensors are optional and
-// have to degrade rather than fail the feature). Among online channels
-// the smallest signed margin (raw - threshold) wins, which makes "any
-// channel reads dark" fall out of one comparison, because the minimum
-// margin is negative exactly when at least one channel sits below its own
-// threshold. Reporting that channel's raw/threshold also tells the user
-// which sensor is driving the decision.
+// have to degrade rather than fail the feature).
+//
+// Among online channels the *largest* signed margin (raw - threshold)
+// wins. Because presence is a single threshold comparison, that one choice
+// fixes both directions: darkness needs every channel below its own
+// threshold, and any single lit channel is enough to read as light. Put
+// the other way round -- both sensors must agree it is dark before the
+// panel sleeps, and either one seeing light wakes it.
+//
+// Two sensors mounted in different places see genuinely different light
+// (measured 2026-08-23: one channel sat at ~42% of the other in the same
+// room), so "this one spot is dark" is not the same question as "the room
+// is dark". Requiring agreement also makes the wrong kind of error the
+// rare one: blanking the panel while someone is sitting there is far more
+// annoying than failing to blank it after they leave.
+//
+// The reported channel is therefore the brightest one -- the sensor
+// currently keeping the device awake, which is the useful thing to show
+// when someone is working out why it has not slept.
 inline LightDecision combine_light_channels(
     const LightChannelState (&channels)[kLightChannelCount])
 {
@@ -166,7 +180,7 @@ inline LightDecision combine_light_channels(
             static_cast<std::int32_t>(channel.raw_filtered) -
             static_cast<std::int32_t>(channel.threshold);
         if (decision.channel_index == kLightChannelCount ||
-            margin < best_margin) {
+            margin > best_margin) {
             best_margin = margin;
             decision.channel_index = index;
             decision.raw_filtered = channel.raw_filtered;

@@ -1,4 +1,4 @@
-# ADR-0018：光敏電阻擴充為兩個獨立通道，任一變暗即判定為暗
+# ADR-0018：光敏電阻擴充為兩個獨立通道，兩顆都暗才判定為暗
 
 - Status: accepted
 - Date: 2026-08-23
@@ -14,9 +14,12 @@
 它的擺放位置：被外殼陰影、支架或灰塵遮住時無法區分「環境真的變暗」與「這顆
 被擋住了」，而裝置會據此白屏休眠。
 
-使用者要求改為兩顆光敏電阻，各自設定閾值與顯示目前讀值，**任一顆低於自己的
-閾值就觸發休眠／離席**。這是刻意選擇的 OR 語意：目的是提高「偵測到遮蔽」的
-靈敏度，而不是用兩顆互相佐證來降低誤判。此取捨已在實作前向使用者確認。
+使用者要求改為兩顆光敏電阻，各自設定閾值與顯示目前讀值。
+
+**合併規則最初定為 OR**（任一顆低於自己的閾值就休眠），目的是提高「偵測到
+遮蔽」的靈敏度。實機接線後當天即改為 **AND**（兩顆都暗才休眠），理由與實測
+數據見本文件末的「修訂 2026-08-23：OR → AND」。以下 Decision 描述的是現行的
+AND 規則。
 
 ADR-0006 的 Consequences 明文要求「未來若要加入多感測器合併的 presence 判斷
 邏輯，需要新的 superseding ADR」——本 ADR 即為該文件。
@@ -68,7 +71,7 @@ GPIO1／GPIO2 保留為備援：若板子排針佈局不便可改用它們，但
 
 兩路完全分離：各自一顆 LDR、各自一顆 `R_fix`，只共用 3V3 與 GND。
 **同一個分壓節點不可同時接到 GPIO5 與 GPIO7**——那樣兩個 ADC 讀到的是同一個
-訊號，雙通道各自的 threshold 與 OR 判定就失去意義。
+訊號，雙通道各自的 threshold 與合併判定就失去意義。
 
 可選的抑制雜訊電容也是各自一顆：由各自的 ADC 節點對 GND 接 100nF，
 貼近 ESP32 的腳位。
@@ -91,10 +94,11 @@ debounce 消費的單一 `(status, raw, threshold)` triple：
 - **非 `online` 的通道被忽略**，只要還有其他通道 `online`。未安裝或故障的
   第二顆不得讓正常運作的第一顆失效（AGENTS.md：感測器是可選的，必須降級而非
   讓功能整個失敗）。
-- **`online` 通道中取 signed margin（`raw - threshold`）最小者**。這讓
-  「任一通道變暗」由單一比較得出：最小 margin 為負，等價於至少一個通道低於
-  它自己的閾值。回報該通道的 `raw`／`threshold`／`deciding_channel`，使用者
-  才知道是哪一顆在主導判定。
+- **`online` 通道中取 signed margin（`raw - threshold`）最大者**。因為
+  presence 是單一門檻比較，這一個選擇同時決定了兩個方向：**每個通道都低於
+  自己的閾值才算暗，任何一顆看到光就算亮**。換句話說——兩顆都同意暗，面板
+  才休眠；任一顆見光就喚醒。回報的是**最亮的那顆**，也就是目前讓裝置保持
+  清醒的感測器，那正是「為什麼還沒睡」最有用的答案。
 - **完全沒有 `online` 通道時**回報最需要處理的狀態，排序為
   `error` > `saturated` > `not_detected` > `disabled`，且不附帶任何讀值
   （`channel_index == kLightChannelCount`，`raw`／`threshold` 皆為 `null`）。
@@ -151,9 +155,10 @@ NVS blob 版本由 1 升為 2，欄位改為每通道獨立：
 
 ## Consequences
 
-- **OR 語意會提高誤判離席的機率**：任一顆被遮蔽就整台休眠。這是使用者明確
-  選擇的行為，不是缺陷；若日後要改為「兩顆都暗才算離席」，需要新的 ADR 與
-  對應的閾值重新校正。
+- **AND 語意會降低偵測遮蔽的靈敏度**：單顆被外殼陰影或灰塵擋住時不會休眠。
+  這是刻意的取捨——誤判離席（使用者在場卻白屏）比漏判離席（該睡沒睡）代價高
+  得多。若某一顆長期被燈直射或故障卡在亮值，會導致永遠不休眠；症狀明顯
+  （一直不睡），且 WebUI 的 `deciding_channel` 會直接指出是哪一顆。
 - **兩顆感測器各自需要校正**：擺放位置不同就看到不同的光，共用一組閾值沒有
   意義。WebUI 同時顯示兩顆的即時 raw 與各自 threshold 就是為了支援這個流程。
 - `RuntimeSnapshot` 改存 `light_channels[2]` 與 `light_decision`，取代原本的
@@ -164,27 +169,71 @@ NVS blob 版本由 1 升為 2，欄位改為每通道獨立：
   `test_sensor_settings` 的尺寸測試同時把關。
 - `kSensorConfigBodyCapacity` 由 160 提高到 224：新表單在所有數值欄位都填滿
   7 位數時為 162 bytes，原上限會回 413。
-- 實機驗證仍未完成。兩個通道的 ADC 校正、AWAY／PRESENT 轉換與「任一顆變暗」
-  的實際行為都必須在感測器接線後補驗，狀態以
+- 實機驗證已於 2026-08-23 完成主要項目（ADC 校正、AWAY／PRESENT 轉換、
+  合併判定、離席白屏與返回重繪）；剩餘項目與已接受的風險以
   [VALIDATION.md](../hardware/VALIDATION.md) 為準。
 
 ## Verification
 
 - Host tests（`pio test -e native`）：
   - `test_light_sensor_filter` — `combine_light_channels()` 的通道選擇
-    （較暗者勝、各自比對自己的閾值）、單通道故障時另一通道存活、無 online
-    通道時的狀態排序與空讀值。
+    （較亮者勝、單一亮通道即維持亮、全部暗才算暗、各自比對自己的閾值）、
+    單通道故障時另一通道存活、無 online 通道時的狀態排序與空讀值。
   - `test_sensor_settings` — v2 round-trip 與 CRC、每通道 boolean 驗證、
     v1 遷移、v1／v2 不得互相解碼、兩個 blob 尺寸不得相同。
   - `test_sensor_config_form` — 兩組獨立 enable、第二個 threshold 為必填、
     舊欄位名視為 `unknown_field`、逾長數值拒收。
-  - `test_dashboard_serializer` — 兩通道 JSON、`deciding_channel`、任一通道
-    可主導判定、缺席通道被忽略、snapshot 不可用時全 `null`。
+  - `test_dashboard_serializer` — 兩通道 JSON、`deciding_channel`、單一亮
+    通道主導判定、缺席通道被忽略、snapshot 未 publish 時 threshold 為 `null`。
 - Web contract（`node test/web/test_sensor_form_contract.mjs`）：ui.js 送出的
   欄位名與 C++ parser 接受的欄位名雙向一致；兩組 threshold input 的
   `min`／`max`／`required` 與韌體的 ADC 範圍一致；每通道讀值元素存在且由
   ui.js 更新。已用 mutation 驗證此測試會變紅。
 - Embedded build（`test_runtime_coordinator`）：兩通道寫入 snapshot 後
-  `light_decision` 指向較暗的通道。
-- **尚未驗證**：任何需要實體光敏電阻的項目。接線與校正步驟見
+  `light_decision` 指向合併規則選出的通道。
+- **實機驗證（2026-08-23）**：兩通道與 DHT22 接線後完成 ADC 校正、
+  AWAY／PRESENT 轉換、離席白屏與返回重繪。完整數據見
+  [VALIDATION.md](../hardware/VALIDATION.md) 同日段落。接線與校正步驟見
   [HARDWARE.md](../hardware/HARDWARE.md)。
+
+## 修訂 2026-08-23：OR → AND（同日，實機接線後）
+
+### 為什麼改
+
+本 ADR 原本定為 OR（任一顆低於自己的閾值就休眠）。感測器實際接上後，同一天
+的實機量測推翻了這個選擇：
+
+```
+GPIO5 2442（亮）   GPIO7 1022   共用門檻 1400   → presence=away
+```
+
+燈是亮的、GPIO5 讀到 2442，但 GPIO7 擺在較暗的位置（同環境下只有 GPIO5 的
+約 42%），單獨低於門檻就把整台拖進離席。OR 邏輯本身沒做錯——GPIO7 確實低於
+它自己的閾值——問題在於**兩顆感測器看到的光本來就不同**，而 OR 讓任何一顆的
+局部條件都能代表整個房間。
+
+使用者據此改變需求，以「**兩顆都暗才睡、任一顆亮就醒**」重新表述。
+
+### 決定
+
+`combine_light_channels()` 由取**最小** margin 改為取**最大** margin。因為
+presence 是單一門檻比較，這兩個方向必然互補——不可能同時要「任一顆暗就睡」
+又「任一顆亮就醒」，那在一亮一暗時會自相矛盾。
+
+理由：
+
+- **語意正確**：要偵測的是「房間暗了」，那是全域狀態。兩顆擺在不同位置本來
+  就會看到不同的光，「兩顆都說暗」才等於房間暗了。
+- **錯誤代價不對稱**：誤判離席（使用者在場卻白屏）遠比漏判離席（該睡沒睡）
+  惱人。AND 減少的正是比較貴的那一種。
+- **不犧牲真實偵測力**：實測關燈時兩顆都掉到 30 以下，AND 照樣觸發。
+
+### 影響範圍
+
+實作上只是比較方向反轉，其餘規則完全不變：非 `online` 通道仍被忽略（單顆
+故障不影響功能）、狀態排序不變、`deciding_channel` 仍然回報主導的那顆——只是
+語意由「最暗的那顆」變成「**最亮的那顆**，也就是讓裝置保持清醒的原因」，
+對診斷反而更有用。
+
+host tests 的斷言方向同步反轉，並新增「單一亮通道維持亮」與「全部暗才算暗」
+兩個案例；使用者可見文案（WebUI 環境頁、README、HARDWARE.md）一併更新。

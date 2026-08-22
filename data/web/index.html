@@ -276,7 +276,7 @@
                 <h2>環境與在場</h2>
               </div>
             </div>
-            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與兩顆光敏電阻都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。兩顆光敏電阻各自設定 threshold，任一顆低於自己的 threshold 就判定為暗；未啟用或讀值異常的那顆會被忽略，不影響另一顆。</p>
+            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與兩顆光敏電阻都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。兩顆光敏電阻各自設定 threshold，兩顆都低於自己的 threshold 才判定為暗——換句話說，任一顆看到光就會喚醒。未啟用或讀值異常的那顆會被忽略，不影響另一顆。</p>
             <form id="environment-form" class="setup-grid" novalidate>
               <section class="panel credential-panel">
                 <div class="panel-heading">

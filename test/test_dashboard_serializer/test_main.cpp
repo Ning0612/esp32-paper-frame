@@ -286,13 +286,14 @@ void test_serialize_sensors_reports_readings_and_daily_stats()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"stale\":false"));
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"temperature_min_c\":24.4"));
-    // Channel 1 is the darker of the two (-766 vs +500 against its own
-    // threshold), so it is the one presence acted on.
+    // Channel 2 is the brighter of the two (+500 vs -766 against its own
+    // threshold), so it is the one keeping the device awake and the one
+    // presence acted on.
     TEST_ASSERT_NOT_NULL(std::strstr(
         output,
-        "\"light\":{\"status\":\"online\",\"raw\":1234,"
-        "\"threshold\":2000,\"saturated\":false,"
-        "\"deciding_channel\":1"));
+        "\"light\":{\"status\":\"online\",\"raw\":3000,"
+        "\"threshold\":2500,\"saturated\":false,"
+        "\"deciding_channel\":2"));
     TEST_ASSERT_NOT_NULL(std::strstr(
         output,
         "{\"channel\":1,\"gpio\":5,\"status\":\"online\","
@@ -304,9 +305,10 @@ void test_serialize_sensors_reports_readings_and_daily_stats()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"present\""));
 }
 
-// Either channel dropping below its own threshold is what counts, so the
-// second sensor going dark has to win over a brightly lit first one.
-void test_serialize_sensors_lets_either_channel_decide()
+// Darkness needs both sensors to agree, so one lit channel wins over a
+// second one that has gone dark -- and the API names the lit channel, the
+// one actually keeping the device awake.
+void test_serialize_sensors_lets_one_lit_channel_win()
 {
     pf_runtime::RuntimeSnapshot data = snapshot();
     set_light(
@@ -321,9 +323,9 @@ void test_serialize_sensors_lets_either_channel_decide()
     TEST_ASSERT_TRUE(result.ok);
     TEST_ASSERT_NOT_NULL(std::strstr(
         output,
-        "\"light\":{\"status\":\"online\",\"raw\":500,"
-        "\"threshold\":2500,\"saturated\":false,"
-        "\"deciding_channel\":2"));
+        "\"light\":{\"status\":\"online\",\"raw\":3000,"
+        "\"threshold\":2000,\"saturated\":false,"
+        "\"deciding_channel\":1"));
 }
 
 // A readable snapshot whose sensor task has not published yet (still
@@ -722,7 +724,7 @@ int main(int, char**)
     RUN_TEST(test_sensors_report_readings_when_online);
     RUN_TEST(test_sensors_report_null_readings_when_disabled_or_not_online);
     RUN_TEST(test_serialize_sensors_reports_readings_and_daily_stats);
-    RUN_TEST(test_serialize_sensors_lets_either_channel_decide);
+    RUN_TEST(test_serialize_sensors_lets_one_lit_channel_win);
     RUN_TEST(test_serialize_sensors_reports_null_threshold_before_first_sample);
     RUN_TEST(test_serialize_sensors_ignores_a_missing_second_channel);
     RUN_TEST(test_serialize_sensors_reports_null_when_never_read);
