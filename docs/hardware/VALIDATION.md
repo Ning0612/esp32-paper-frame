@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
+| ~~Phase 7 sensors~~ | **已全部閉環（2026-08-23）**：DHT22 讀值與兩條拔除降級路徑、雙通道 ADC 校正、AND 合併語意、AWAY/PRESENT 轉換（縮時與正式 180／30）、白屏與返回重繪 | 2026-08-23 Phase 7 感測器實機驗證 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
@@ -2459,3 +2459,415 @@ success（run 32347525634）。
 - AP grace policy：整段。
 - 嵌入式 WebUI：移除 webfs 掛載後的 heap 差值量化（缺改動前對照值）。
 - 設定降級：`nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗。
+
+## 2026-08-23 — 光敏電阻擴充為兩個獨立通道：僅完成 host／build 驗證
+
+### 變更範圍
+
+依 [ADR-0018](../adr/0018-dual-photoresistor-channels.md) 把單一光敏電阻改為
+兩個獨立通道：通道 1 維持 GPIO5（`ADC1_CH4`），新增通道 2 為 GPIO7
+（`ADC1_CH6`）。兩顆各自有 enable 與 threshold，判定為 OR——任一顆已啟用且
+`online` 的通道低於自己的 threshold 就算暗。`SensorSettings` NVS blob 升到 v2
+並保留 v1 遷移；`GET /api/v1/sensors` 的 `light` 物件改為攜帶 `channels[]` 與
+`deciding_channel`；WebUI 環境頁改為兩組設定與兩組即時讀值。
+
+### 已通過的驗證
+
+| 項目 | 結果 |
+| --- | --- |
+| `pio run` | ✅ SUCCESS（RAM 32.6%、Flash 49.5%） |
+| `pio test -e native` | ✅ 333/333（此前 308，本次新增 25 個 case） |
+| `test/web/*.mjs`（11 支） | ✅ 全數通過，含新增的 `test_sensor_form_contract.mjs` |
+| embedded build ×3 | ✅ `test_runtime_coordinator`、`test_display_task`、`test_epd7in3e_driver` |
+| 新測試的 red-capable 驗證 | ✅ 把 ui.js 的 `light2_threshold` 改名為 `light_threshold_2` 後，`test_sensor_form_contract.mjs` 如預期報 `the firmware accepts "light2_threshold" but ui.js never submits it`；還原後恢復通過 |
+
+新增的 `test_sensor_form_contract.mjs` 是針對一個既有的結構性缺口：表單欄位名
+是 ui.js 與 C++ `parse_sensor_config_form()` 之間的純字串契約，任一邊改名都
+不會有任何編譯或測試失敗，只會在實機上變成 400 `unknown_field`。該測試雙向
+比對兩邊的欄位集合。
+
+### 尚未驗證（需要實體光敏電阻）
+
+**本段沒有任何實機驗證。** 硬體尚未接線，以下全部仍為未驗證風險：
+
+- **兩個通道的 ADC 校正**：GPIO5／GPIO7 在正常室內、手遮、全暗、直射四種
+  條件下的原始讀值範圍，以及據此決定的兩組 threshold 與 `R_fix`。韌體把
+  raw ≤ 10 或 ≥ 4085 判為 `saturated` 且不觸發離席，因此整個關心的光照範圍
+  必須落在 raw 11–4084 之間——這一點只能實機確認。
+- **「任一通道變暗」的實機行為**：遮住通道 2、通道 1 維持亮的情況下是否
+  如預期進入 AWAY；`deciding_channel` 是否正確指向被遮的那顆。
+- **單通道降級**：只接一顆、或第二顆中途拔除時，另一顆是否照常運作
+  （host test 已覆蓋合併邏輯，但 ADC 在實體未接線時的浮動讀值行為未知——
+  未接線的 ADC 腳未必落在 saturated 區間，這正是每通道 enable 存在的理由）。
+- **v1 → v2 設定遷移的實機路徑**：既有裝置 NVS 內若存有 v1 記錄，OTA 後是否
+  保住原本的 threshold 與 durations。目前只有 host test 覆蓋解碼與長度判別，
+  沒有在真實 NVS 上跑過。
+- AWAY／PRESENT debounce 的實機時序、白屏 sleep 與返回重繪、環境頁的
+  browser 行為——這些在 2026-07-31 就已列為未驗證，本次變更未改變其狀態。
+
+## 2026-08-23 — 新板初始化燒錄：完整流程實機通過
+
+第一次依 [FLASHING.md](FLASHING.md)「新裝置首次燒錄」對一塊全新
+ESP32-S3-N16R8 走完整流程，該節文件在本次之前只有推導、沒有實跑證據。
+
+### 進 ROM 的實際情況
+
+新板出廠韌體用的是 **USB-OTG（TinyUSB CDC，`303A:4001`）**，不是內建的
+USB Serial/JTAG，因此 esptool 的 `--before usb-reset`／`default-reset`／
+`no-reset` 三種方式**全部失敗**（`No serial data received`）。必須依
+FLASHING.md「首次或復原時進入 ROM」用 BOOT+RST 手動進 ROM；進入後 port
+重新枚舉為 `303A:1001`（USB Serial/JTAG），COM 編號也換了一個。
+
+**同一個坑要記住**：進 ROM 用的 GPIO0 接地線若沒拔掉，後續 hard reset 會
+再次落回 download mode（`boot:0x21 (DOWNLOAD(USB/UART0))`），看起來像燒錄
+失敗，其實燒錄早就成功了。拔掉後為 `boot:0x29 (SPI_FAST_FLASH_BOOT)`。
+
+### 燒錄與驗證結果
+
+| 區段 | 位址 | 結果 |
+| --- | --- | --- |
+| bootloader | `0x0` | ✅ `Hash of data verified.` |
+| partition table | `0x8000` | ✅ `Hash of data verified.` |
+| firmware（`ota_0`） | `0x10000` | ✅ `Hash of data verified.` |
+| OTA metadata | `0xd000` | ✅ `erase-region 0xd000 0x2000` |
+| factory imagefs | `0x630000` | ✅ 10,289,152 bytes = `0x9D0000`，與 partition 大小完全吻合 |
+
+燒錄前以 esptool 驗證晶片：ESP32-S3、**16 MB flash**、**Embedded PSRAM 8MB
+(AP_3v3)**。partition CSV 的 SHA-256 為 `427fd414…5870`，與 ADR-0004 凍結值
+一致。
+
+開機 log 確認：QIO / 80 MHz / 16 MB；octal PSRAM 8 MB @ 80 MHz、
+`SPI SRAM memory test OK`；partition table 八個分割區與 CSV 完全一致；
+`Loaded app from partition at offset 0x10000`；
+`filesystem=imagefs mounted=true total=10289152 used=8192`；
+`rollback_confirmed=ESP_OK`；`carousel_request=1 outcome=1`
+（`refreshed_and_slept`，面板實際完成一次全刷）；
+`provisioning_ap_ready ssid=PaperFrame-Setup-… ip=192.168.4.1`。
+
+### 這塊板從出廠就有回滾保護
+
+已確認燒進去的 bootloader binary 是由目前設定建置：
+`.pio/build/paperframe-s3/bootloader/config/sdkconfig.h:339` 有
+`#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1`。舊板需要手動補燒
+bootloader 才有回滾保護（見 2026-08-20 rollback fault injection 段落），
+**在 2026-08-01 之後才首次燒錄的新板不需要**。
+
+### 本次發現的產品缺陷（已修，尚未實機驗證）
+
+空圖庫的裝置永遠看不到自己的區網 IP：welcome frame 的狀態列印著 IP，但
+開機時 Wi-Fi 還沒拿到位址，而 `CarouselScheduler::poll()` 在圖庫為空且
+welcome 已顯示後會永久停住，不再刷新。使用者因此無法得知位址、進不了
+WebUI 上傳第一張圖。修正見
+[ADR-0015 Update 2026-08-23](../adr/0015-first-image-waits-for-ntp-and-weather.md)。
+**修正本身只有 host test（340/340）與 mutation 驗證，配網 → 取得 IP →
+面板重畫的完整流程尚未在裝置上跑過。**
+
+### 同日補充：welcome frame 取得 IP 後重畫 — 實機驗證通過
+
+本文件同日稍早那段記錄「修正本身只有 host test 與 mutation 驗證，配網 →
+取得 IP → 面板重畫的完整流程尚未在裝置上跑過」——該項**已於同日完成實機驗證**，
+以本段為準。
+
+裝置：新板（已完成首次燒錄），已設定 Wi-Fi 與管理密碼，**圖庫為空**
+（`imagefs used=8192`），韌體 `v0.9.3-4-g62766c9-dirty`。
+
+```
+I (808)   paperframe: carousel_welcome_queued request=1
+I (1968)  wifi:state: init -> auth
+I (3038)  esp_netif_handlers: sta ip: <REDACTED>, mask: 255.255.255.0
+I (31878) paperframe: carousel_request=1 outcome=1 next_due_ms=1831178
+I (31878) paperframe: carousel_welcome_redraw_for_ip ip=<REDACTED>
+I (31898) paperframe: carousel_welcome_queued request=2
+I (63898) paperframe: carousel_request=2 outcome=1 next_due_ms=1863198
+```
+
+確認的行為：
+
+| 觀察 | 意義 |
+| --- | --- |
+| 第一張 welcome 在 t≈0.8s 送出，IP 在 t≈3.0s 才到 | 重現了原始缺陷的成因：畫面畫好時位址還不存在 |
+| `carousel_welcome_redraw_for_ip` 出現在 t=31.878s，與第一次刷新完成同一時刻 | 刷新進行中 `request_welcome_redraw()` 依 in-flight 保護拒絕，下一個 tick 才成功——重試路徑如設計運作 |
+| 第二次 `outcome=1`（`refreshed_and_slept`） | 帶著 IP 的畫面確實刷上面板 |
+| `next_due_ms=1863198`（約 30 分鐘後） | 重畫後排程器重新停住，**一次位址變更只換一次刷新**，沒有反覆刷 |
+
+修正前的行為是：第一次刷新之後 `poll()` 永久回傳
+`wait_decision(UINT64_MAX)`，面板永遠停在沒有 IP 的歡迎畫面。
+
+使用者於同日目視確認面板實際顯示內容：**IP、天氣資訊與日期均正確顯示**。
+
+**仍未驗證**：presence 返回時的 welcome 重畫（需要光敏電阻，見 Phase 7 待驗證
+項）；DHCP 續約導致位址變更時的重畫。
+
+## 2026-08-23 — Phase 7 感測器：實機驗證（DHT22＋雙光敏通道）
+
+感測器首次實際接線。裝置韌體 `v0.9.3-4-g62766c9-dirty`（含 ADR-0018 雙通道），
+`R_fix` = 10 kΩ ×2，DHT22 於 GPIO6。以 `GET /api/v1/sensors` 每 2 秒取樣記錄，
+並同步側錄 serial。
+
+### 基線（正常室內光）
+
+| 通道 | GPIO | raw | 狀態 |
+| --- | --- | --- | --- |
+| 1 | GPIO5 | 2313 | online |
+| 2 | GPIO7 | 2040 | online |
+
+DHT22：`online`，26.3 °C / 63.9 % RH — **溫溼度讀值閉環**。
+
+`deciding_channel=2`：GPIO7 餘裕 640 小於 GPIO5 的 913，reducer 正確選了餘裕
+最小者。
+
+### ✅「任一通道變暗即判定為暗」（ADR-0018 核心）
+
+關燈過程，GPIO5 先暗、GPIO7 仍亮：
+
+```
+t= 4.3s  GPIO5   79 (暗)   GPIO7 2187 (亮)   deciding=1  present
+t= 8.6s  GPIO5 1126 (暗)   GPIO7 2190 (亮)   deciding=1  present
+t=15.0s  GPIO5  646        GPIO7 1376        deciding=1  away   ← 轉換
+```
+
+**單一通道低於自己的 threshold、另一通道仍讀到 2190，離席倒數就開始。** OR 語意
+在實機成立，此前只有 host test。
+
+`deciding_channel` 全程跟著較暗的通道移動：手遮 GPIO5 時於 GPIO5 1751 <
+GPIO7 1766 的交叉點由 2 切到 1；GPIO7 飽和被排除後主導權交還 GPIO5。
+
+### ✅ AWAY / PRESENT debounce 時序（以 10 s／1 s 縮時驗證）
+
+- AWAY：GPIO5 自 t≈4.3 s 起持續低於門檻，t=15.0 s 轉 `away`，間隔約 10.7 秒，
+  與 `away_duration_s=10` 相符。
+- PRESENT：GPIO7 於 t=53.1 s 回到 1447（>1400），t=55.3 s 轉 `present`，
+  與 `return_duration_s=1` 相符（取樣粒度 2.1 秒）。
+- **未單獨計時驗證正式值 180／30**：debounce 是同一段程式碼、只有常數不同，
+  且設定值已驗證能正確 round-trip；縮時驗證視為機制證據。
+
+### ✅ 離席白屏與返回重繪
+
+```
+I (12299) paperframe: presence_away_blank_queued request=2
+...
+I (189829) paperframe: presence_return_deadline_reset
+I (190089) paperframe: carousel_image_queued id=17 request=3
+```
+
+使用者目視確認離席期間面板確為白屏，開燈後重繪回圖片。
+
+### ⚠️ 已知限制：`R_fix` = 10 kΩ 在全暗時會飽和
+
+關燈（未遮蔽）後兩個通道都掉到可用範圍的底部：
+
+| 條件 | GPIO5 | GPIO7 |
+| --- | --- | --- |
+| 開燈 | 2313–2612 | 1017–2190 |
+| 關燈 | **23** | **saturated（≤10）** |
+
+韌體把 `saturated` 的通道排除在 presence 判定之外（`kSaturationLowRaw = 10`，
+用於偵測 ADC 浮空／損壞，此保護本身正確）。GPIO5 的 23 距離下界只剩 **13 counts
+（約 10 mV）**。
+
+**若兩個通道同時飽和，合併結果沒有任何 online 通道 → presence 立即塌成
+`unknown`，離席白屏會被取消。** 今天沒有觸發（GPIO5 始終維持 online），但更暗的
+環境（深夜、拉窗簾、無外部光源）會觸發。
+
+依實測反推 LDR：`R_亮 ≈ 7.7 kΩ`、`R_暗 ≈ 1.77 MΩ`，幾何平均約 117 kΩ；
+47 kΩ 可讓兩端都有餘裕（推算開燈 ~3519、關燈 ~106）。
+
+**使用者決定維持 10 kΩ**（2026-08-23）：目標只需分辨開燈／關燈，該情境今天已
+實測通過。上述深夜情境列為已接受的風險，未來若出現「關燈後白屏被取消」即為此因。
+
+### ⚠️ 兩顆感測器受光不同，門檻必須分別設定
+
+同一環境下 GPIO7 只有 GPIO5 的約 42%（擺放位置較暗）。原本兩顆共用 1400 的
+門檻造成**開燈時的誤判離席**：
+
+```
+t=27–46s   GPIO5 2442 (亮)   GPIO7 1022   presence=away   ← 燈亮著卻判離席
+```
+
+這是 OR 語意的直接代價，實機重現。依實測範圍改為**兩顆都 500**（低於開燈時最暗
+的 1017 且有 2 倍餘裕，高於關燈時的 <200），改後確認 presence 維持 `present`、
+誤判消失。debounce 已改回正式值 180／30。
+
+另外實測到兩顆位置太近：遮住 GPIO5 時 GPIO7 也從 2044 掉到 1758，會互相影響。
+
+### 尚未驗證
+
+- DHT22 拔除後是否正確回 `null`（不得偽造 0 或沿用歷史值）。
+- AP grace 的 presence 例外（AP 模式遮光不得白屏）——需要清除 Wi-Fi 憑證進入
+  AP 模式，具破壞性，尚未執行。
+- 正式 180／30 debounce 的實際計時（見上方說明）。
+
+### 測試方法上的坑（已修）
+
+側錄 serial 的腳本用 `serial.Serial(port, ...)` 開埠，**建構子當下就會拉
+DTR/RTS，在此板的 USB Serial/JTAG 上等同重置晶片**；事後再設
+`.dtr = False` 已經來不及。測試中因此意外重開機一次。正確做法是先建立未開啟的
+`serial.Serial()`、設好 `dtr`／`rts`、再 `open()`。
+
+### 同日補充：改為 AND 合併語意後的行為驗證
+
+`combine_light_channels()` 於同日由 OR（任一通道暗即為暗）改為 AND（每個通道
+都暗才算暗，任一通道見光即為亮），見
+[ADR-0018 修訂 2026-08-23](../adr/0018-dual-photoresistor-channels.md)。
+
+**第一次嘗試不具鑑別力，已捨棄**：遮住 GPIO7 後讀值降到 728，但當時門檻是
+500，728 仍在門檻**之上**，該通道並未被判定為暗——這種條件下 OR 與 AND 都會
+維持 `present`，證明不了任何事。記錄於此以免日後誤讀為有效證據。
+
+**有效測試**：把 GPIO7 的門檻暫時拉到 1200（讀值 728 < 1200 → 判定為暗），
+GPIO5 維持 2587（門檻 500 → 判定為亮），`away_duration_s` 降為 10 秒。
+
+```
+[ 0.1s] GPIO5 2587 thr=500 | GPIO7 737 thr=1200 | deciding=1 | presence=present
+[10.8s] GPIO5 2587 thr=500 | GPIO7 734 thr=1200 | deciding=1 | presence=present
+[38.9s] GPIO5 2585 thr=500 | GPIO7 736 thr=1200 | deciding=1 | presence=present
+```
+
+**維持 39 秒（離席門檻的近 4 倍）presence 始終為 `present`。** 舊的 OR 邏輯
+在此條件下會於第 10 秒轉 `away`——這正是本次語意變更要消除的誤判。
+
+`deciding_channel` 全程為 1，指向亮著的 GPIO5，符合新語意「回報的是讓裝置保持
+清醒的那顆」。
+
+### DHT22 拔除後回 `null`
+
+**使用者回報先前已自行測試通過**（2026-08-23）。本次 session 未親自觀察，
+無讀值紀錄；此項以使用者回報為準，證據強度低於本文件其他實測段落。
+
+### 最終設定
+
+校正後採用的正式設定：
+
+| 項目 | 值 |
+| --- | --- |
+| `light1_threshold`／`light2_threshold` | 1200 |
+| `away_duration_s`／`return_duration_s` | 180／30 |
+| `R_fix` | 10 kΩ ×2（見上方已知限制） |
+
+門檻 1200 在 AND 語意下是安全的：開燈時 GPIO5 約 2587、GPIO7 約 2120，兩者都
+高於門檻；關燈時兩者都低於 30。單顆被遮（例如 GPIO7 降到 730）不再會拖累判定，
+因此門檻可以設得比 OR 時代的 500 更靈敏。
+
+### 同日補充：DHT22 拔除後的降級行為（僅驗證一條路徑）
+
+拔掉 DHT22 資料線後讀 `GET /api/v1/sensors`：
+
+```
+dht=probing       t=None rh=None
+dht=not_detected  t=None rh=None
+```
+
+溫溼度回傳 JSON `null`，**沒有偽造 `0`，也沒有沿用拔除前的 26.2 °C / 62.7 %**，
+符合 optional-sensor contract。狀態在 `probing` 與 `not_detected` 之間交替，
+對應 `EnvironmentCache` 的 retry backoff。
+
+**但這只驗證了兩條路徑中的一條。** 當時 `uptime_ms = 109928`，裝置在拔除前後
+重開過，因此快取是空的，走的是「開機後從未成功讀取」→ `has_reading == false`
+→ 值為 `null`。
+
+**尚未驗證**：讀到過之後才拔掉（`has_reading == true`）。依
+`dashboard_serializer.hpp` 的實作，該路徑會回傳**舊值加上 `stale: true` 標記**、
+狀態轉 `stale`——這是 ADR-0006 的設計（帶標記的舊值不等於偽造的新鮮值），但沒有
+實跑過。要關掉這一項需要：插回 DHT22 → 等一次成功讀取 → **不斷電**直接拔除 →
+確認狀態為 `stale` 且 `stale: true` 旗標存在。
+
+### 同日補充：DHT22 讀取失敗的狀態回報 — 抓到並修正兩個缺陷
+
+補驗「讀到過之後才拔除」（`has_reading == true`）那條路徑時抓到兩個缺陷。
+兩者都只有實機才會現形：host test 從未走過「重試之間的 tick」。
+
+#### 缺陷 1：死掉的感測器大部分時間回報 `online`
+
+拔除前剛成功讀到 26.8 °C / 64.2 %，拔掉資料線（未斷電）後：
+
+```
+t= 0.2s  dht=online  t=26.8 rh=64.2
+t= 4.4s  dht=stale   t=26.8 rh=64.2   ← 讀取失敗的那個 tick
+t=19.8s  dht=online  t=26.8 rh=64.2   ← 又跳回 online
+t=43.8s  dht=stale   t=26.8 rh=64.2
+t=63.1s  dht=online  t=26.8 rh=64.2
+```
+
+可排除「感測器短暫接通」：溫溼度全程完全相同，`today.temperature_max_c`
+也維持 27.3；若真的讀取成功，值會變動且 `consecutive_failures` 會歸零。
+
+根因：`sample_environment()` 的非重試分支只用快取年齡
+（`environment_stale()`，上限 300 秒）判定狀態，**完全忽略
+`consecutive_failures`**。於是只有重試的那個 tick 回 `stale`，其餘 tick 回
+`online`——狀態取決於呼叫端剛好在哪個 tick 發問。違反 AGENTS.md 的
+「讀取失敗要降級運作…不得沿用歷史值」。
+
+#### 缺陷 2：`stale` 旗標與 `status` 自相矛盾
+
+原始 JSON：
+
+```json
+{"status": "stale", "temperature_c": 26.8, "humidity_percent": 64.2, "stale": false}
+```
+
+根因：`dashboard_serializer.hpp` 的旗標寫成
+`environment_online && environment_stale_flag`，被 `status == online` 卡住，
+於是只可能在「status 是 online 且快取過期」時為 true——而那個組合正是缺陷 1
+修好後不該存在的。旗標在它該描述的情況下被強制為 `false`。
+
+#### 修正
+
+新增 header-only 純函式，狀態與序列化共用同一判準，不可能再互相矛盾：
+
+```cpp
+inline bool environment_reading_current(cache, now_epoch_s, max_age)
+{
+    return cache.has_reading && cache.consecutive_failures == 0U &&
+           !environment_stale(cache, now_epoch_s, max_age);
+}
+```
+
+一次讀取失敗之後就不再算 current。**值仍然回傳但帶 `stale: true`**——ADR-0006
+的設計是「有明確標記的舊值」，與「偽裝成新鮮的值」是兩回事。
+
+#### 修正後實機複驗（相同情境）
+
+```json
+{"status": "stale", "temperature_c": 26.5, "humidity_percent": 65.5, "stale": true}
+```
+
+連續 50 秒 **24/24 個樣本全部維持 `stale`，不再跳回 `online`**；`stale` 旗標與
+`status` 一致。開機後從未讀到的路徑仍正確回 `probing`／`not_detected` 與全
+`null`。
+
+host tests：新增 4 個 `test_environment_sensor` 案例（失敗後不再 current、
+恢復後回到 online、年齡本身仍會使其非 current、空快取回 probing）與 1 個
+`test_dashboard_serializer` 案例（`status` 與 `stale` 不得矛盾）。已 mutation
+驗證：改回「只看年齡」的舊邏輯後 2 個測試如預期變紅。全專案 356/356 通過。
+
+### 同日補充：正式 180／30 debounce 實際計時 — Phase 7 全部閉環
+
+先前的轉換驗證用縮時值（10／1 秒）。本次以正式設定實測，設定為門檻 1200／1200、
+`away_duration_s=180`、`return_duration_s=30`。
+
+**離席（away）**
+
+```
+[  0.1s] combined LIGHT raw=2381 thr=1200 deciding=1
+[115.4s] combined DARK  raw=1160 thr=1200 deciding=1
+[296.7s] presence -> away        ← 跨越後 181.3 秒
+```
+
+實測 **181.3 秒** vs 設定 180 秒，誤差 1.3 秒，落在 2 秒取樣粒度內。
+
+`deciding=1` 表示較亮的 GPIO5 是最後一個跨過門檻的——**AND 語意正確**：倒數從
+「連最亮的通道都變暗」才開始，而不是第一顆變暗就開始。
+
+**返回（present）**
+
+```
+[ 0.1s] combined DARK  raw=110  thr=1200
+[28.1s] combined LIGHT raw=1227 thr=1200
+[56.6s] presence -> present
+```
+
+觀察到的跨越點到轉換為 **28.5 秒** vs 設定 30 秒。取樣粒度 2 秒，實際跨越可能
+早於觀察時刻，與設定相符。
+
+至此 Phase 7 感測器**全部項目實機閉環**：DHT22 讀值與兩條拔除降級路徑、雙通道
+ADC 校正、AND 合併語意、AWAY／PRESENT 轉換（縮時與正式值）、離席白屏與返回重繪。

@@ -61,8 +61,10 @@
   const systemEventsList = $("#system-events-list");
   const environmentForm = $("#environment-form");
   const environmentEnabled = $("#environment-enabled");
-  const lightEnabled = $("#light-enabled");
-  const lightThreshold = $("#light-threshold");
+  const light1Enabled = $("#light1-enabled");
+  const light1Threshold = $("#light1-threshold");
+  const light2Enabled = $("#light2-enabled");
+  const light2Threshold = $("#light2-threshold");
   const awayDuration = $("#away-duration");
   const returnDuration = $("#return-duration");
   const environmentSave = $("#environment-save");
@@ -125,6 +127,7 @@
   let imageSelectionRevision = 0;
   let activeQuantizeWorker = null;
   let imageLibraryRevision = 0;
+  let environmentPollTimer = null;
   let systemOtaPollTimer = null;
   let systemOtaPollAttemptsRemaining = 0;
   let systemOtaStatusRequestId = 0;
@@ -838,8 +841,10 @@
       }
       const sensors = payload.data.sensors;
       environmentEnabled.checked = !!sensors.environment_enabled;
-      lightEnabled.checked = !!sensors.light_enabled;
-      lightThreshold.value = sensors.light_threshold ?? 2000;
+      light1Enabled.checked = !!sensors.light1_enabled;
+      light1Threshold.value = sensors.light1_threshold ?? 2000;
+      light2Enabled.checked = !!sensors.light2_enabled;
+      light2Threshold.value = sensors.light2_threshold ?? 2000;
       awayDuration.value = sensors.away_duration_s ?? 180;
       returnDuration.value = sensors.return_duration_s ?? 30;
       environmentStatus.textContent = "設定已載入。";
@@ -848,11 +853,53 @@
       environmentStatus.textContent = `感測器設定讀取失敗：${error.message || "請稍後重試"}`;
     }
     await loadSensorReadings();
+    // Only the readings are polled, never the config: re-fetching the config
+    // would overwrite the threshold/duration inputs and silently discard
+    // whatever the user was in the middle of typing.
+    startEnvironmentPoll();
+  }
+
+  // The device samples both light channels every 2 s and reports them
+  // through an 8-sample moving average, so a step change in light takes
+  // ~16 s to settle. A single reading fetched at page-switch time is
+  // therefore useless for calibrating a threshold -- you would have to
+  // leave and re-enter the page for every lighting condition. 3 s sits just
+  // above the device's own sampling period, so each poll can return
+  // something new without spinning on unchanged data.
+  const environmentPollMs = 3000;
+
+  function stopEnvironmentPoll() {
+    if (environmentPollTimer) {
+      clearInterval(environmentPollTimer);
+      environmentPollTimer = null;
+    }
+  }
+
+  function startEnvironmentPoll() {
+    stopEnvironmentPoll();
+    environmentPollTimer = setInterval(() => {
+      if (currentView !== "environment") {
+        stopEnvironmentPoll();
+        return;
+      }
+      // Nothing to see in a background tab, but keep the timer alive so
+      // coming back to the tab resumes without another page switch.
+      if (document.hidden) return;
+      loadSensorReadings();
+    }, environmentPollMs);
   }
 
   async function loadSensorReadings() {
     try {
       const response = await fetch("/api/v1/sensors", { cache: "no-store" });
+      if (response.status === 401) {
+        // The session expired underneath the poll; stop rather than
+        // retrying every 3 s forever against an endpoint that will keep
+        // refusing.
+        stopEnvironmentPoll();
+        showAuthForm(true);
+        return;
+      }
       const payload = await response.json();
       if (!response.ok || !payload.data) return;
       const environment = payload.data.environment || {};
@@ -864,8 +911,31 @@
       $("#environment-today-temperature").textContent = today.temperature_min_c == null
         ? "—"
         : `${today.temperature_min_c} / ${today.temperature_avg_c} / ${today.temperature_max_c} °C`;
-      $("#light-reading-status").textContent = labelSensorStatus(light.status);
-      $("#light-raw").textContent = light.raw == null ? "—" : `${light.raw}`;
+      // Two photoresistor channels (ADR-0018); the device reports them in a
+      // fixed order, but fall back to an empty channel rather than throwing
+      // if a payload ever arrives short. Selectors stay literal so
+      // test/web/test_dashboard_ui_contract.mjs can still see them.
+      const channels = Array.isArray(light.channels) ? light.channels : [];
+      const channelOne = channels[0] || {};
+      const channelTwo = channels[1] || {};
+      const formatChannel = (channel) => {
+        const raw = channel.raw == null ? "—" : `${channel.raw}`;
+        const threshold = channel.threshold == null ? "—" : `${channel.threshold}`;
+        return `${raw} / ${threshold}`;
+      };
+      // The pin comes from the device rather than the markup: hard-coding it
+      // here would silently lie if a channel were ever moved to another GPIO.
+      const formatStatus = (channel) => {
+        const status = labelSensorStatus(channel.status);
+        return channel.gpio == null ? status : `${status}（GPIO${channel.gpio}）`;
+      };
+      $("#light1-reading-status").textContent = formatStatus(channelOne);
+      $("#light1-raw").textContent = formatChannel(channelOne);
+      $("#light2-reading-status").textContent = formatStatus(channelTwo);
+      $("#light2-raw").textContent = formatChannel(channelTwo);
+      $("#light-deciding-channel").textContent = light.deciding_channel == null
+        ? "—"
+        : `光敏 ${light.deciding_channel}`;
       $("#presence-state").textContent = labelSensorStatus(payload.data.presence);
     } catch (error) {
       // Live readings are a best-effort overlay; config load already
@@ -877,12 +947,14 @@
     event.preventDefault();
     if (!csrfToken) return;
     const values = {
-      light_threshold: lightThreshold.value.trim(),
+      light1_threshold: light1Threshold.value.trim(),
+      light2_threshold: light2Threshold.value.trim(),
       away_duration_s: awayDuration.value.trim(),
       return_duration_s: returnDuration.value.trim(),
     };
     if (environmentEnabled.checked) values.environment_enabled = "on";
-    if (lightEnabled.checked) values.light_enabled = "on";
+    if (light1Enabled.checked) values.light1_enabled = "on";
+    if (light2Enabled.checked) values.light2_enabled = "on";
     environmentSave.disabled = true;
     environmentStatus.className = "save-status";
     environmentStatus.textContent = "正在保存感測器設定…";

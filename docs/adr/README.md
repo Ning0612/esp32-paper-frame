@@ -54,7 +54,7 @@ NNNN-short-imperative-title.md
 - [ADR-0003：固定 Phase 2 顯示器接線與 driver contract](0003-fix-phase2-display-integration.md)
 - [ADR-0004：凍結 imagefs-preserving partition layout](0004-freeze-image-preserving-partitions.md)（layout 與其 SHA-256 仍有效；`webfs` 的用途已由 ADR-0016 改為 reserved）
 - [ADR-0005：WeatherWorker HTTPS 契約與狀態列渲染基線](0005-weather-worker-and-status-bar.md)（「字型與圖示授權」的圖示部分已被 ADR-0013 取代；「Rate limit / 更新頻率」子決策與 location/language 欄位已被 ADR-0014 取代）
-- [ADR-0006：感測器 driver 來源與在場/離席判定機制](0006-sensor-drivers-and-presence.md)
+- [ADR-0006：感測器 driver 來源與在場/離席判定機制](0006-sensor-drivers-and-presence.md)（單一光敏電阻的判定與 `GET /api/v1/sensors` 的 `light` schema 已被 ADR-0018 取代）
 - [ADR-0007：PBKDF2 迭代次數與同步登入決策（G6 收斂）](0007-auth-pbkdf2-iterations-and-sync-login.md)
 - [ADR-0008：OTA 韌體來源、TLS 信任、Rollback 確認時機與 Release 慣例](0008-ota-github-releases-and-rollback.md)（Context 第 1 條「OTA 不做 webfs」已被 ADR-0016 取代）
 - [ADR-0009：PFR1 Payload 壓縮與 PFC1 目錄容量上限](0009-pfr1-payload-compression-and-catalog-cap.md)（`kCatalogMaxEntries` 部分已被 ADR-0010 取代）
@@ -63,6 +63,7 @@ NNNN-short-imperative-title.md
 - [ADR-0012：RAM 重構後重新拉高 PFC1 目錄容量上限至 64 筆](0012-raise-catalog-cap-after-ram-reclaim.md)（取代 ADR-0010 的 `kCatalogMaxEntries` 部分）
 - [ADR-0013：天氣圖示改用轉檔自第三方 OFL-1.1 素材的點陣圖](0013-weather-icon-bitmaps-from-third-party-ofl-source.md)（取代 ADR-0005「字型與圖示授權」的圖示部分）
 - [ADR-0014：天氣更新改為面板刷新觸發，WebUI 改用地圖選點](0014-weather-panel-refresh-cadence-and-map-picker.md)（取代 ADR-0005「Rate limit / 更新頻率」子決策與 location/language 欄位）
-- [ADR-0015：開機首張真實圖片等待 NTP／天氣就緒或逾時](0015-first-image-waits-for-ntp-and-weather.md)
+- [ADR-0015：開機首張真實圖片等待 NTP／天氣就緒或逾時](0015-first-image-waits-for-ntp-and-weather.md)（Update 2026-08-23：空圖庫的 welcome frame 在取得區網 IP 後重畫一次）
 - [ADR-0016：WebUI 資產 gzip 後編入 app image，webfs 分割區轉為 reserved](0016-embed-webui-assets-in-firmware.md)（取代 ADR-0008 Context 第 1 條）
 - [ADR-0017：設定載入的降級邊界與中央記錄的寫入規則](0017-config-degradation-boundaries.md)
+- [ADR-0018：光敏電阻擴充為兩個獨立通道，任一變暗即判定為暗](0018-dual-photoresistor-channels.md)（取代 ADR-0006 的單一光敏判定與 `light` schema；增修 ADR-0003 的 G2 保留腳位表）

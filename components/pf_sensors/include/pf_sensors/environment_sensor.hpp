@@ -195,4 +195,42 @@ inline bool environment_stale(
     return (now_epoch_s - cache.last_success_epoch_s) > max_age_seconds;
 }
 
+// Whether the cached reading may be presented as the sensor's current
+// value.
+//
+// Age alone is not enough. A single failed read already proves the sensor
+// is not answering, and from that moment the cached value is history --
+// serving it as `online` (and with stale=false) would be exactly the
+// "沿用歷史值" the optional-sensor contract forbids. Measured on hardware
+// 2026-08-23: unplugging a DHT22 that had just read successfully left the
+// API reporting `online` with the pre-unplug 26.8C/64.2% on every tick
+// that did not happen to be a retry tick, for the whole five-minute cache
+// window.
+//
+// Both the status the sensor task publishes and the `stale` flag the API
+// serialises must come from this one predicate, or they can contradict
+// each other.
+inline bool environment_reading_current(
+    const EnvironmentCache& cache,
+    const std::uint64_t now_epoch_s,
+    const std::uint64_t max_age_seconds = kEnvironmentDefaultCacheMaxAgeSeconds)
+{
+    return cache.has_reading && cache.consecutive_failures == 0U &&
+           !environment_stale(cache, now_epoch_s, max_age_seconds);
+}
+
+// The status to report on a tick where no read was attempted.
+inline SensorStatus environment_cached_status(
+    const EnvironmentCache& cache,
+    const std::uint64_t now_epoch_s,
+    const std::uint64_t max_age_seconds = kEnvironmentDefaultCacheMaxAgeSeconds)
+{
+    if (!cache.has_reading) {
+        return SensorStatus::probing;
+    }
+    return environment_reading_current(cache, now_epoch_s, max_age_seconds)
+               ? SensorStatus::online
+               : SensorStatus::stale;
+}
+
 }  // namespace pf_sensors

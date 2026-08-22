@@ -150,7 +150,11 @@ constexpr std::uint32_t kWeatherConfigTaskStackWords = 4096U;
 constexpr std::size_t kWeatherConfigBodyCapacity = 512U;
 constexpr UBaseType_t kSensorConfigTaskPriority = 3U;
 constexpr std::uint32_t kSensorConfigTaskStackWords = 4096U;
-constexpr std::size_t kSensorConfigBodyCapacity = 160U;
+// Raised with ADR-0018: the form now carries two enable flags and two
+// thresholds. A fully populated body with every numeric field at its
+// 7-character maximum is 162 bytes, which the previous 160 would have
+// rejected as 413 Payload Too Large.
+constexpr std::size_t kSensorConfigBodyCapacity = 224U;
 constexpr std::uint32_t kCarouselConfigTaskStackWords = 4096U;
 constexpr std::size_t kCarouselConfigBodyCapacity = 64U;
 
@@ -882,8 +886,10 @@ esp_err_t config_handler(httpd_req_t* request)
         .weather_units = server_access_config.weather_settings.units,
         .weather_ntp_server = server_access_config.weather_settings.ntp_server,
         .environment_enabled = false,
-        .light_enabled = false,
-        .light_threshold = 0U,
+        .light1_enabled = false,
+        .light2_enabled = false,
+        .light1_threshold = 0U,
+        .light2_threshold = 0U,
         .away_duration_s = 0U,
         .return_duration_s = 0U,
     };
@@ -905,10 +911,14 @@ esp_err_t config_handler(httpd_req_t* request)
     MaskedConfig config_with_sensors = config;
     config_with_sensors.environment_enabled =
         server_access_config.sensor_settings.environment_enabled;
-    config_with_sensors.light_enabled =
-        server_access_config.sensor_settings.light_enabled;
-    config_with_sensors.light_threshold =
-        server_access_config.sensor_settings.light_threshold;
+    config_with_sensors.light1_enabled =
+        server_access_config.sensor_settings.light1_enabled;
+    config_with_sensors.light2_enabled =
+        server_access_config.sensor_settings.light2_enabled;
+    config_with_sensors.light1_threshold =
+        server_access_config.sensor_settings.light1_threshold;
+    config_with_sensors.light2_threshold =
+        server_access_config.sensor_settings.light2_threshold;
     config_with_sensors.away_duration_s =
         server_access_config.sensor_settings.away_duration_s;
     config_with_sensors.return_duration_s =
@@ -1448,21 +1458,27 @@ esp_err_t process_sensor_config(
 
     pf_config::SensorSettings candidate{};
     candidate.environment_enabled = form.environment_enabled;
-    candidate.light_enabled = form.light_enabled;
-    std::uint32_t light_threshold_value = 0U;
+    candidate.light1_enabled = form.light1_enabled;
+    candidate.light2_enabled = form.light2_enabled;
+    std::uint32_t light1_threshold_value = 0U;
+    std::uint32_t light2_threshold_value = 0U;
     std::uint32_t away_duration_value = 0U;
     std::uint32_t return_duration_value = 0U;
-    if (!parse_sensor_u32(form.light_threshold, light_threshold_value) ||
+    if (!parse_sensor_u32(form.light1_threshold, light1_threshold_value) ||
+        !parse_sensor_u32(form.light2_threshold, light2_threshold_value) ||
         !parse_sensor_u32(form.away_duration_s, away_duration_value) ||
         !parse_sensor_u32(form.return_duration_s, return_duration_value) ||
-        light_threshold_value > 0xFFFFU) {
+        light1_threshold_value > 0xFFFFU ||
+        light2_threshold_value > 0xFFFFU) {
         return send_json(
             request,
             "422 Unprocessable Entity",
             "{\"ok\":false,\"error\":\"invalid_value\"}");
     }
-    candidate.light_threshold =
-        static_cast<std::uint16_t>(light_threshold_value);
+    candidate.light1_threshold =
+        static_cast<std::uint16_t>(light1_threshold_value);
+    candidate.light2_threshold =
+        static_cast<std::uint16_t>(light2_threshold_value);
     candidate.away_duration_s = away_duration_value;
     candidate.return_duration_s = return_duration_value;
 

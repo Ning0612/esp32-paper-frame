@@ -972,6 +972,19 @@ extern "C" void app_main()
     // is what they can see. The catalog only changes on an upload/delete, so
     // being one tick behind cannot flip the answer in practice.
     bool last_has_displayable_image = false;
+    // The device IP that the welcome frame currently on the panel was drawn
+    // with (empty when it was drawn before Wi-Fi had an address, which is
+    // what happens at boot). Compared against the live address to decide
+    // whether that frame still tells the truth.
+    //
+    // Promoted from submitted_welcome_ip only once the panel refresh has
+    // actually succeeded: a submission that is accepted and then fails
+    // leaves the old frame on the panel, and recording the new address at
+    // submit time would make the redraw condition go false while the stale
+    // frame is still displayed -- the retry would then have to wait out a
+    // full carousel interval.
+    char welcome_frame_ip[pf_runtime::kIpAddressCapacity]{};
+    char submitted_welcome_ip[pf_runtime::kIpAddressCapacity]{};
     const std::uint64_t boot_ms = monotonic_ms();
     pf_sensors::PresenceState previous_presence =
         pf_sensors::PresenceState::unknown;
@@ -1203,6 +1216,13 @@ extern "C" void app_main()
                     // window ends; presence must not blank or reschedule it.
                     pending_presence_force_immediate = false;
                 } else if (carousel.force_immediate(now_ms)) {
+                    // With an empty library the panel is showing a welcome
+                    // frame, and the away transition replaced it with a
+                    // blank one. Resetting the deadline alone would leave
+                    // it blank forever: poll() short-circuits on "welcome
+                    // already displayed" regardless of the deadline. Mark
+                    // that frame stale so the return actually redraws it.
+                    carousel.request_welcome_redraw(now_ms);
                     ESP_LOGI(kTag, "presence_return_deadline_reset");
                 } else {
                     pending_presence_force_immediate = true;
@@ -1257,6 +1277,19 @@ extern "C" void app_main()
                     active_carousel_decision,
                     succeeded,
                     now_ms);
+                if (succeeded &&
+                    active_carousel_decision.kind ==
+                        pf_carousel::DecisionKind::display_welcome) {
+                    // The frame is genuinely on the panel now, so what it
+                    // says about the address becomes the value the redraw
+                    // condition compares against. A failed refresh
+                    // deliberately leaves welcome_frame_ip alone, so the
+                    // condition stays true and the next tick retries.
+                    std::memcpy(
+                        welcome_frame_ip,
+                        submitted_welcome_ip,
+                        sizeof(welcome_frame_ip));
+                }
                 if (succeeded &&
                     active_carousel_decision.kind ==
                         pf_carousel::DecisionKind::display_image) {
@@ -1338,6 +1371,10 @@ extern "C" void app_main()
 
         if (pending_presence_force_immediate && !carousel.in_flight()) {
             if (carousel.force_immediate(now_ms)) {
+                // Same reason as the immediate path above: an empty library
+                // needs the welcome frame marked stale, or the panel stays
+                // on the away blank frame indefinitely.
+                carousel.request_welcome_redraw(now_ms);
                 pending_presence_force_immediate = false;
                 ESP_LOGI(kTag, "presence_return_deadline_reset_deferred");
             }
@@ -1445,6 +1482,36 @@ extern "C" void app_main()
             }
         }
 
+        // With an empty library the welcome frame is drawn once and the
+        // scheduler then parks forever, so the status bar on it keeps
+        // whatever address it had when it was drawn -- at boot, none. Redraw
+        // it when an address appears or changes, otherwise a device with no
+        // images never shows the IP its owner needs to reach the WebUI and
+        // upload the first one. Only a *present* address triggers this:
+        // losing one must not spend a 31 s panel refresh on every Wi-Fi
+        // hiccup, and the frame showing a since-departed address is no worse
+        // than it showing none. request_welcome_redraw() refuses while a
+        // decision is in flight or when a real image is on the panel, and
+        // the condition simply stays true so the next tick retries.
+        if (!has_displayable_image && presence_snapshot_read &&
+            presence_snapshot.ip_address[0] != '\0' &&
+            std::strcmp(presence_snapshot.ip_address, welcome_frame_ip) !=
+                0) {
+            // The condition stays true for as long as the displayed frame
+            // lacks the address, so this is asked every tick. Log only when
+            // the request actually brought the deadline forward, or a
+            // failure backoff would fill the diagnostics ring with one
+            // identical entry per second.
+            const std::uint64_t due_before = carousel.next_due_ms();
+            if (carousel.request_welcome_redraw(now_ms) &&
+                carousel.next_due_ms() != due_before) {
+                ESP_LOGI(
+                    kTag,
+                    "carousel_welcome_redraw_for_ip ip=%s",
+                    presence_snapshot.ip_address);
+            }
+        }
+
         const pf_carousel::CarouselDecision decision =
             carousel.poll(now_ms, carousel_items, carousel_item_count);
         if (display_started &&
@@ -1472,8 +1539,10 @@ extern "C" void app_main()
                     pf_display::kLandscapeStatusBytes,
                     pf_display::kPanelWidth,
                     pf_display::kStatusBarHeight);
+                const pf_display::StatusBarContent welcome_status_content =
+                    build_status_bar_content();
                 pf_display::render_status_bar(
-                    build_status_bar_content(), welcome_status_view);
+                    welcome_status_content, welcome_status_view);
                 const std::uint32_t request_id =
                     pf_runtime::coordinator().allocate_request_id();
                 const pf_display::SubmitStatus submit =
@@ -1483,6 +1552,25 @@ extern "C" void app_main()
                 if (submit == pf_display::SubmitStatus::accepted) {
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
+                    // Record what this frame actually says, taken from the
+                    // content just rendered rather than a second snapshot
+                    // read, so an address arriving between the two could not
+                    // provoke a redundant redraw. Only promoted to
+                    // welcome_frame_ip once the refresh itself succeeds.
+                    static_assert(
+                        sizeof(submitted_welcome_ip) >=
+                            pf_display::kDeviceIpCapacity,
+                        "submitted_welcome_ip must hold any rendered IP");
+                    if (welcome_status_content.device_ip_available) {
+                        std::memcpy(
+                            submitted_welcome_ip,
+                            welcome_status_content.device_ip,
+                            pf_display::kDeviceIpCapacity);
+                    } else {
+                        submitted_welcome_ip[0] = '\0';
+                    }
+                    submitted_welcome_ip
+                        [sizeof(submitted_welcome_ip) - 1U] = '\0';
                     // No periodic weather timer (ADR-0014): kick a refresh
                     // attempt right after a real panel refresh is accepted
                     // so the status bar picks up fresher data on the

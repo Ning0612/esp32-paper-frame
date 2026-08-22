@@ -47,9 +47,9 @@ public:
         pf_sensors::SensorStatus environment_status,
         const pf_sensors::DailyStats& environment_daily);
     void update_light_and_presence(
-        pf_sensors::LightSensorStatus light_status,
-        std::uint16_t light_raw_filtered,
-        std::uint16_t light_threshold,
+        const pf_sensors::LightChannelState (
+            &light_channels)[pf_sensors::kLightChannelCount],
+        const pf_sensors::LightDecision& light_decision,
         pf_sensors::PresenceState presence);
     void update_display_started(std::uint32_t request_id);
     void update_display_finished(

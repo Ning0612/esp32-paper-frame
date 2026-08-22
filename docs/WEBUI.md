@@ -47,11 +47,23 @@ API route、handler、access policy 與 WebUI 按鈕，細節見
 | `DELETE /api/v1/images/{name}` | 已登入 + CSRF | 非同步刪除圖片並選擇下一張有效圖片 |
 | `PUT /api/v1/images/order` | 已登入 + CSRF | 非同步保存 `{ "ids": [ ... ] }` 輪播順序 |
 | `GET /api/v1/images/{name}/download` | 已登入 | 下載已驗證的 PFR1 |
+| `GET /api/v1/sensors` | 已登入 | 溫溼度與**兩個光敏通道**的即時讀值；每通道各自回報 `gpio`／`status`／`raw`／`threshold`，另有合併後的 `status`／`raw`／`threshold` 與 `deciding_channel`（見 [ADR-0018](adr/0018-dual-photoresistor-channels.md)） |
+| `GET /api/v1/sensors/config` | 已登入 | 感測器設定；兩個光敏通道各自的 `lightN_enabled`／`lightN_threshold` |
+| `POST /api/v1/sensors/config` | 已登入 + CSRF | 非同步保存感測器設定 |
 | `GET /api/v1/events` | 已登入 | 讀取 diagnostics ring buffer（`?since=<sequence_id>` 分頁；`since` 存在但無效回 400） |
 | `POST /api/v1/system/reboot` | 已登入 + CSRF | 排程約 500ms 後重開機（`schedule_reboot()`），成功才回 `{"ok":true}`；面板刷新進行中會延後，見下 |
 | `GET /api/v1/system/ota/status` | 已登入 | 讀取 OTA 檢查／更新狀態、進度、最後錯誤 |
 | `POST /api/v1/system/ota/check` | 已登入 | 觸發 GitHub Releases 版本檢查（唯讀，不寫 flash） |
 | `POST /api/v1/system/ota/update` | 已登入 + CSRF | 觸發下載並寫入韌體；已在進行中回 `409 Conflict` |
+
+**環境頁的即時讀值會自動更新**：停留在該頁時每 3 秒抓一次
+`GET /api/v1/sensors`，離開該頁或 session 過期（401）就停止，分頁切到背景時
+暫停送出但保留計時器。3 秒略高於裝置端 2 秒的取樣週期。**只輪詢讀值、不輪詢
+設定**——重抓設定會覆蓋 threshold／持續時間輸入框，把使用者正在輸入的內容洗掉。
+這個間隔對光敏校正是必要的：裝置每 2 秒取樣一次並經過 8 筆移動平均，光照改變
+後約 16 秒才收斂，靠切頁取得的單次快照無法判斷閾值該設在哪。
+
+Dashboard 與其他頁面**不**自動輪詢，維持既有的「切頁或按重新整理才抓」行為。
 
 **重開機會等待進行中的面板刷新**（管理員觸發與 OTA 完成後的重開機共用
 `schedule_reboot()`，兩者行為一致）：計時器到期時若 snapshot 顯示

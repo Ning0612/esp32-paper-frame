@@ -35,8 +35,10 @@ struct MaskedConfig {
     const char* weather_units;
     const char* weather_ntp_server;
     bool environment_enabled;
-    bool light_enabled;
-    std::uint16_t light_threshold;
+    bool light1_enabled;
+    bool light2_enabled;
+    std::uint16_t light1_threshold;
+    std::uint16_t light2_threshold;
     std::uint32_t away_duration_s;
     std::uint32_t return_duration_s;
 };
@@ -202,8 +204,10 @@ inline SerializeResult serialize_status(
     const char* const environment_status = pf_sensors::to_string(
         snapshot_valid ? snapshot.environment_status
                         : pf_sensors::SensorStatus::disabled);
+    // The dashboard summary carries the combined light state; per-channel
+    // detail lives in GET /api/v1/sensors.
     const char* const light_status = pf_sensors::to_string(
-        snapshot_valid ? snapshot.light_status
+        snapshot_valid ? snapshot.light_decision.status
                         : pf_sensors::LightSensorStatus::disabled);
     const char* const presence = pf_sensors::to_string(
         snapshot_valid ? snapshot.presence
@@ -212,9 +216,17 @@ inline SerializeResult serialize_status(
     // was disabled (CLAUDE.md: never report a stale/historical value as
     // if it were current); the cache itself is intentionally not wiped
     // so a re-enable can resume backoff/daily-stat state.
+    //
+    // `stale` is hidden here too, unlike in serialize_sensors(). This is a
+    // summary with no room for a qualifier -- the dashboard renders a bare
+    // "26.8 °C" from whatever number it gets -- so a value with no way to
+    // mark it as old would read as the current temperature. Dropping it
+    // makes the dashboard fall back to the status label instead, and the
+    // environment page still shows the value with its stale flag.
     const bool environment_reading_visible =
         snapshot_valid && snapshot.environment.has_reading &&
-        snapshot.environment_status != pf_sensors::SensorStatus::disabled;
+        snapshot.environment_status != pf_sensors::SensorStatus::disabled &&
+        snapshot.environment_status != pf_sensors::SensorStatus::stale;
     char environment_temperature[16]{};
     char environment_humidity[16]{};
     char light_adc[16]{};
@@ -240,12 +252,13 @@ inline SerializeResult serialize_status(
             environment_humidity, sizeof(environment_humidity), "null");
     }
     if (snapshot_valid &&
-        snapshot.light_status == pf_sensors::LightSensorStatus::online) {
+        snapshot.light_decision.status ==
+            pf_sensors::LightSensorStatus::online) {
         std::snprintf(
             light_adc,
             sizeof(light_adc),
             "%u",
-            static_cast<unsigned>(snapshot.light_raw_filtered));
+            static_cast<unsigned>(snapshot.light_decision.raw_filtered));
     } else {
         std::snprintf(light_adc, sizeof(light_adc), "null");
     }
@@ -566,9 +579,11 @@ inline SerializeResult serialize_events(
 }
 
 // GET /api/v1/sensors readings (distinct from serialize_masked_config's
-// *settings*): see docs/adr/0006-sensor-drivers-and-presence.md for the
-// schema. GPIO numbers are the ADR-0003 pin assignments, not read from
-// the snapshot (they are fixed at build time).
+// *settings*): see docs/adr/0018-dual-photoresistor-channels.md for the
+// current light schema (it supersedes the single-channel one in ADR-0006)
+// and docs/adr/0006-sensor-drivers-and-presence.md for the environment
+// half. GPIO numbers come from pf_sensors::kLightChannelGpios, which is
+// the single place the channel-to-pin mapping is written down.
 inline SerializeResult serialize_sensors(
     const pf_runtime::RuntimeSnapshot& snapshot,
     const bool snapshot_valid,
@@ -584,14 +599,11 @@ inline SerializeResult serialize_sensors(
         snapshot_valid ? snapshot.environment_status
                         : pf_sensors::SensorStatus::disabled);
     const char* const light_status = pf_sensors::to_string(
-        snapshot_valid ? snapshot.light_status
+        snapshot_valid ? snapshot.light_decision.status
                         : pf_sensors::LightSensorStatus::disabled);
     const char* const presence = pf_sensors::to_string(
         snapshot_valid ? snapshot.presence
                         : pf_sensors::PresenceState::unknown);
-    const bool environment_online =
-        snapshot_valid &&
-        snapshot.environment_status == pf_sensors::SensorStatus::online;
     const bool environment_disabled =
         !snapshot_valid ||
         snapshot.environment_status == pf_sensors::SensorStatus::disabled;
@@ -602,15 +614,24 @@ inline SerializeResult serialize_sensors(
     // stat state.
     const bool environment_has_reading =
         !environment_disabled && snapshot.environment.has_reading;
+    // Derived from the published status rather than recomputed here, so the
+    // two cannot disagree by construction. Recomputing looked equivalent
+    // but was not: the status comes from a snapshot the sensor task wrote
+    // up to a tick ago, while this runs at request time, so the two could
+    // straddle the cache-age boundary. It also disagreed before the first
+    // SNTP sync, where environment_stale() treats an epoch of 0 as old even
+    // though the reading had just been taken.
     const bool environment_stale_flag =
         environment_has_reading &&
-        pf_sensors::environment_stale(snapshot.environment, now_epoch_s);
+        snapshot.environment_status == pf_sensors::SensorStatus::stale;
     const bool light_online =
         snapshot_valid &&
-        snapshot.light_status == pf_sensors::LightSensorStatus::online;
+        snapshot.light_decision.status ==
+            pf_sensors::LightSensorStatus::online;
     const bool light_saturated =
         snapshot_valid &&
-        snapshot.light_status == pf_sensors::LightSensorStatus::saturated;
+        snapshot.light_decision.status ==
+            pf_sensors::LightSensorStatus::saturated;
 
     char temperature_c[16]{};
     char humidity_percent[16]{};
@@ -690,28 +711,92 @@ inline SerializeResult serialize_sensors(
             today_humidity_avg, sizeof(today_humidity_avg), "null");
     }
 
+    // The top-level raw/threshold/deciding_channel describe the one
+    // channel presence debouncing acted on; with no channel online there
+    // is no such channel, and 0 would look like a genuinely configured
+    // value rather than "nothing is reporting". Per-channel thresholds are
+    // reported separately below and stay visible while calibrating.
     char light_raw[16]{};
+    char light_threshold[16]{};
+    char light_deciding_channel[16]{};
     if (light_online) {
         std::snprintf(
             light_raw,
             sizeof(light_raw),
             "%u",
-            static_cast<unsigned>(snapshot.light_raw_filtered));
-    } else {
-        std::snprintf(light_raw, sizeof(light_raw), "null");
-    }
-    char light_threshold[16]{};
-    if (snapshot_valid) {
+            static_cast<unsigned>(snapshot.light_decision.raw_filtered));
         std::snprintf(
             light_threshold,
             sizeof(light_threshold),
             "%u",
-            static_cast<unsigned>(snapshot.light_threshold));
+            static_cast<unsigned>(snapshot.light_decision.threshold));
+        std::snprintf(
+            light_deciding_channel,
+            sizeof(light_deciding_channel),
+            "%u",
+            static_cast<unsigned>(
+                snapshot.light_decision.channel_index + 1U));
     } else {
-        // 0 would look like a genuinely configured threshold rather than
-        // "the whole snapshot is unavailable" -- unlike light_status,
-        // which already falls back to a distinguishable "disabled".
+        std::snprintf(light_raw, sizeof(light_raw), "null");
         std::snprintf(light_threshold, sizeof(light_threshold), "null");
+        std::snprintf(
+            light_deciding_channel,
+            sizeof(light_deciding_channel),
+            "null");
+    }
+
+    char light_channels[256]{};
+    std::size_t light_channels_offset = 0U;
+    for (std::size_t index = 0U; index < pf_sensors::kLightChannelCount;
+         ++index) {
+        const pf_sensors::LightChannelState channel =
+            snapshot_valid ? snapshot.light_channels[index]
+                            : pf_sensors::LightChannelState{};
+        char channel_raw[16]{};
+        if (channel.status == pf_sensors::LightSensorStatus::online) {
+            std::snprintf(
+                channel_raw,
+                sizeof(channel_raw),
+                "%u",
+                static_cast<unsigned>(channel.raw_filtered));
+        } else {
+            std::snprintf(channel_raw, sizeof(channel_raw), "null");
+        }
+        char channel_threshold[16]{};
+        // Requires light_published, not just snapshot_valid: before
+        // SensorTask's first tick -- and forever if it never started --
+        // the stored threshold is a zero-initialised placeholder, and 0 is
+        // a legal configured threshold, so emitting it would be a
+        // fabricated value rather than an honest "not known yet".
+        if (snapshot_valid && snapshot.light_published) {
+            std::snprintf(
+                channel_threshold,
+                sizeof(channel_threshold),
+                "%u",
+                static_cast<unsigned>(channel.threshold));
+        } else {
+            std::snprintf(
+                channel_threshold, sizeof(channel_threshold), "null");
+        }
+        const int channel_written = std::snprintf(
+            light_channels + light_channels_offset,
+            sizeof(light_channels) - light_channels_offset,
+            "%s{\"channel\":%u,\"gpio\":%u,\"status\":\"%s\","
+            "\"raw\":%s,\"threshold\":%s}",
+            index == 0U ? "" : ",",
+            static_cast<unsigned>(index + 1U),
+            static_cast<unsigned>(pf_sensors::kLightChannelGpios[index]),
+            pf_sensors::to_string(channel.status),
+            channel_raw,
+            channel_threshold);
+        if (channel_written < 0 ||
+            static_cast<std::size_t>(channel_written) >=
+                sizeof(light_channels) - light_channels_offset) {
+            output[0] = '\0';
+            return {false, 0U};
+        }
+        light_channels_offset +=
+            static_cast<std::size_t>(channel_written);
     }
 
     const int written = std::snprintf(
@@ -723,13 +808,14 @@ inline SerializeResult serialize_sensors(
         "\"today\":{\"temperature_min_c\":%s,\"temperature_max_c\":%s,"
         "\"temperature_avg_c\":%s,\"humidity_min_percent\":%s,"
         "\"humidity_max_percent\":%s,\"humidity_avg_percent\":%s}},"
-        "\"light\":{\"status\":\"%s\",\"gpio\":5,\"raw\":%s,"
-        "\"threshold\":%s,\"saturated\":%s},"
+        "\"light\":{\"status\":\"%s\",\"raw\":%s,"
+        "\"threshold\":%s,\"saturated\":%s,"
+        "\"deciding_channel\":%s,\"channels\":[%s]},"
         "\"presence\":\"%s\"}}",
         environment_status,
         temperature_c,
         humidity_percent,
-        environment_online && environment_stale_flag ? "true" : "false",
+        environment_stale_flag ? "true" : "false",
         today_temp_min,
         today_temp_max,
         today_temp_avg,
@@ -740,6 +826,8 @@ inline SerializeResult serialize_sensors(
         light_raw,
         light_threshold,
         light_saturated ? "true" : "false",
+        light_deciding_channel,
+        light_channels,
         presence);
 
     if (written < 0 || static_cast<std::size_t>(written) >= output_size) {
@@ -819,8 +907,9 @@ inline SerializeResult serialize_masked_config(
         "\"latitude_e6\":%ld,\"longitude_e6\":%ld,"
         "\"units\":\"%s\","
         "\"ntp_server\":\"%s\"},\"sensors\":{"
-        "\"environment_enabled\":%s,\"light_enabled\":%s,"
-        "\"light_threshold\":%u,\"away_duration_s\":%lu,"
+        "\"environment_enabled\":%s,\"light1_enabled\":%s,"
+        "\"light1_threshold\":%u,\"light2_enabled\":%s,"
+        "\"light2_threshold\":%u,\"away_duration_s\":%lu,"
         "\"return_duration_s\":%lu}}}",
         config.wifi_configured ? "true" : "false",
         config.wifi_password_configured ? "true" : "false",
@@ -835,8 +924,10 @@ inline SerializeResult serialize_masked_config(
         units,
         ntp_server,
         config.environment_enabled ? "true" : "false",
-        config.light_enabled ? "true" : "false",
-        static_cast<unsigned>(config.light_threshold),
+        config.light1_enabled ? "true" : "false",
+        static_cast<unsigned>(config.light1_threshold),
+        config.light2_enabled ? "true" : "false",
+        static_cast<unsigned>(config.light2_threshold),
         static_cast<unsigned long>(config.away_duration_s),
         static_cast<unsigned long>(config.return_duration_s));
 

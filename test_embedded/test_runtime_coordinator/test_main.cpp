@@ -102,17 +102,28 @@ void test_runtime_queues_and_snapshot()
     TEST_ASSERT_EQUAL_UINT32(
         1U, observed.environment_daily.temperature_c.sample_count);
 
+    // Both photoresistor channels land in the snapshot, along with the
+    // reduction presence acted on (ADR-0018). Channel 2 is the darker one
+    // here, so it has to be the channel the decision points at.
+    const pf_sensors::LightChannelState light_channels
+        [pf_sensors::kLightChannelCount] = {
+            {pf_sensors::LightSensorStatus::online, 3000U, 2000U},
+            {pf_sensors::LightSensorStatus::online, 1234U, 2500U},
+        };
     runtime.update_light_and_presence(
-        pf_sensors::LightSensorStatus::online,
-        1234U,
-        2000U,
+        light_channels,
+        pf_sensors::combine_light_channels(light_channels),
         pf_sensors::PresenceState::present);
     TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(pf_sensors::LightSensorStatus::online),
-        static_cast<int>(observed.light_status));
-    TEST_ASSERT_EQUAL_UINT16(1234U, observed.light_raw_filtered);
-    TEST_ASSERT_EQUAL_UINT16(2000U, observed.light_threshold);
+        static_cast<int>(observed.light_decision.status));
+    TEST_ASSERT_EQUAL_UINT16(1234U, observed.light_decision.raw_filtered);
+    TEST_ASSERT_EQUAL_UINT16(2500U, observed.light_decision.threshold);
+    TEST_ASSERT_EQUAL_UINT(1U, observed.light_decision.channel_index);
+    TEST_ASSERT_EQUAL_UINT16(3000U, observed.light_channels[0].raw_filtered);
+    TEST_ASSERT_EQUAL_UINT16(2000U, observed.light_channels[0].threshold);
+    TEST_ASSERT_EQUAL_UINT16(1234U, observed.light_channels[1].raw_filtered);
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(pf_sensors::PresenceState::present),
         static_cast<int>(observed.presence));

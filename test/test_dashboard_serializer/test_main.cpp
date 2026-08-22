@@ -37,6 +37,20 @@ pf_runtime::RuntimeSnapshot snapshot()
     };
 }
 
+// Fills in both photoresistor channels and the reduction the serializers
+// read, so a test never has to hand-compute the combined decision.
+void set_light(
+    pf_runtime::RuntimeSnapshot& data,
+    const pf_sensors::LightChannelState& channel_one,
+    const pf_sensors::LightChannelState& channel_two)
+{
+    data.light_channels[0] = channel_one;
+    data.light_channels[1] = channel_two;
+    data.light_decision =
+        pf_sensors::combine_light_channels(data.light_channels);
+    data.light_published = true;
+}
+
 void test_status_contains_runtime_fields_and_null_carousel_when_unset()
 {
     char output[2048]{};
@@ -197,8 +211,10 @@ void test_sensors_report_readings_when_online()
     data.environment.reading.temperature_c = 24.4F;
     data.environment.reading.humidity_percent = 62.5F;
     data.environment_status = pf_sensors::SensorStatus::online;
-    data.light_status = pf_sensors::LightSensorStatus::online;
-    data.light_raw_filtered = 1234U;
+    set_light(
+        data,
+        {pf_sensors::LightSensorStatus::online, 1234U, 2000U},
+        {pf_sensors::LightSensorStatus::disabled, 0U, 2000U});
     data.presence = pf_sensors::PresenceState::present;
 
     char output[2048]{};
@@ -220,8 +236,12 @@ void test_sensors_report_null_readings_when_disabled_or_not_online()
 {
     pf_runtime::RuntimeSnapshot data = snapshot();
     data.environment_status = pf_sensors::SensorStatus::disabled;
-    data.light_status = pf_sensors::LightSensorStatus::saturated;
-    data.light_raw_filtered = 4095U;
+    // A saturated channel outranks a disabled one, so the combined status
+    // reports the fault rather than hiding it behind "disabled".
+    set_light(
+        data,
+        {pf_sensors::LightSensorStatus::saturated, 0U, 2000U},
+        {pf_sensors::LightSensorStatus::disabled, 0U, 2000U});
     data.presence = pf_sensors::PresenceState::unknown;
 
     char output[2048]{};
@@ -249,9 +269,10 @@ void test_serialize_sensors_reports_readings_and_daily_stats()
     data.environment_status = pf_sensors::SensorStatus::online;
     pf_sensors::record_daily_reading(
         data.environment_daily, data.environment.reading, 1700000000U);
-    data.light_status = pf_sensors::LightSensorStatus::online;
-    data.light_raw_filtered = 1234U;
-    data.light_threshold = 2000U;
+    set_light(
+        data,
+        {pf_sensors::LightSensorStatus::online, 1234U, 2000U},
+        {pf_sensors::LightSensorStatus::online, 3000U, 2500U});
     data.presence = pf_sensors::PresenceState::present;
 
     char output[1024]{};
@@ -265,9 +286,99 @@ void test_serialize_sensors_reports_readings_and_daily_stats()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"stale\":false"));
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"temperature_min_c\":24.4"));
-    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"gpio\":5,\"raw\":1234"));
-    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"threshold\":2000"));
+    // Channel 2 is the brighter of the two (+500 vs -766 against its own
+    // threshold), so it is the one keeping the device awake and the one
+    // presence acted on.
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "\"light\":{\"status\":\"online\",\"raw\":3000,"
+        "\"threshold\":2500,\"saturated\":false,"
+        "\"deciding_channel\":2"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":1,\"gpio\":5,\"status\":\"online\","
+        "\"raw\":1234,\"threshold\":2000}"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":2,\"gpio\":7,\"status\":\"online\","
+        "\"raw\":3000,\"threshold\":2500}"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"present\""));
+}
+
+// Darkness needs both sensors to agree, so one lit channel wins over a
+// second one that has gone dark -- and the API names the lit channel, the
+// one actually keeping the device awake.
+void test_serialize_sensors_lets_one_lit_channel_win()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    set_light(
+        data,
+        {pf_sensors::LightSensorStatus::online, 3000U, 2000U},
+        {pf_sensors::LightSensorStatus::online, 500U, 2500U});
+
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        data, true, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "\"light\":{\"status\":\"online\",\"raw\":3000,"
+        "\"threshold\":2000,\"saturated\":false,"
+        "\"deciding_channel\":1"));
+}
+
+// A readable snapshot whose sensor task has not published yet (still
+// starting, or it failed to start at all) must report the thresholds as
+// null. 0 is a legal configured threshold, so emitting the zero-initialised
+// placeholder would be a fabricated value.
+void test_serialize_sensors_reports_null_threshold_before_first_sample()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    TEST_ASSERT_FALSE(data.light_published);
+
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        data, true, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":1,\"gpio\":5,\"status\":\"disabled\","
+        "\"raw\":null,\"threshold\":null}"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":2,\"gpio\":7,\"status\":\"disabled\","
+        "\"raw\":null,\"threshold\":null}"));
+    TEST_ASSERT_NULL(std::strstr(output, "\"threshold\":0"));
+}
+
+// An unwired or switched-off second channel must not take the working
+// first one down with it: sensors are optional and degrade individually.
+void test_serialize_sensors_ignores_a_missing_second_channel()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    set_light(
+        data,
+        {pf_sensors::LightSensorStatus::online, 900U, 2000U},
+        {pf_sensors::LightSensorStatus::not_detected, 0U, 2000U});
+
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        data, true, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "\"light\":{\"status\":\"online\",\"raw\":900,"
+        "\"threshold\":2000,\"saturated\":false,"
+        "\"deciding_channel\":1"));
+    // The dead channel still reports its own state and its configured
+    // threshold, which is what the user calibrates against.
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":2,\"gpio\":7,\"status\":\"not_detected\","
+        "\"raw\":null,\"threshold\":2000}"));
 }
 
 void test_serialize_sensors_reports_null_when_never_read()
@@ -284,9 +395,66 @@ void test_serialize_sensors_reports_null_when_never_read()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"raw\":null"));
     // Regression: an unavailable snapshot must not leak threshold=0,
     // which would look like a genuinely configured value instead of
-    // "we don't know".
-    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"threshold\":null"));
+    // "we don't know". That holds for the combined view and for both
+    // per-channel entries.
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "\"light\":{\"status\":\"disabled\",\"raw\":null,"
+        "\"threshold\":null,\"saturated\":false,"
+        "\"deciding_channel\":null"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":1,\"gpio\":5,\"status\":\"disabled\","
+        "\"raw\":null,\"threshold\":null}"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":2,\"gpio\":7,\"status\":\"disabled\","
+        "\"raw\":null,\"threshold\":null}"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"unknown\""));
+}
+
+// Regression, measured on hardware 2026-08-23: after the DHT22 was
+// unplugged the API served `"status":"stale"` alongside `"stale":false` in
+// the same object, because the flag was gated on the status being online --
+// exactly when it cannot be stale. A reading that is being served while no
+// longer current must say so.
+void test_serialize_sensors_marks_a_failed_sensors_reading_stale()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    data.environment.has_reading = true;
+    data.environment.reading.temperature_c = 26.8F;
+    data.environment.reading.humidity_percent = 64.2F;
+    data.environment.last_success_epoch_s = 1700000000U;
+    // One failed read: the sensor has stopped answering, but the cache is
+    // still well inside its max age.
+    data.environment.consecutive_failures = 1U;
+    data.environment_status = pf_sensors::SensorStatus::stale;
+
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        data, true, 1700000001U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"status\":\"stale\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"stale\":true"));
+    TEST_ASSERT_NULL(std::strstr(output, "\"stale\":false"));
+    // The value itself is still served -- flagged, not fabricated away.
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":26.8"));
+
+    // The dashboard summary has no room for a qualifier, so there it is
+    // dropped rather than rendered as a bare "26.8 °C" that reads as the
+    // current temperature.
+    char status_output[2048]{};
+    const pf_web::SerializeResult status_result = pf_web::serialize_status(
+        data, true, 123456, 1700000001U, status_output,
+        sizeof(status_output));
+    TEST_ASSERT_TRUE(status_result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"environment_status\":\"stale\""));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"temperature_c\":null"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(status_output, "\"humidity_percent\":null"));
 }
 
 void test_sensors_hide_stale_reading_after_environment_disabled()
@@ -369,8 +537,10 @@ void test_masked_config_never_returns_secret_values()
         .weather_units = "metric",
         .weather_ntp_server = "pool.ntp.org",
         .environment_enabled = true,
-        .light_enabled = true,
-        .light_threshold = 2000U,
+        .light1_enabled = true,
+        .light2_enabled = true,
+        .light1_threshold = 2000U,
+        .light2_threshold = 1500U,
         .away_duration_s = 180U,
         .return_duration_s = 30U,
     };
@@ -384,7 +554,10 @@ void test_masked_config_never_returns_secret_values()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"ssid_set\":true"));
     TEST_ASSERT_NOT_NULL(
         std::strstr(output, "\"environment_enabled\":true"));
-    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light_threshold\":2000"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light1_enabled\":true"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light1_threshold\":2000"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light2_enabled\":true"));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light2_threshold\":1500"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"away_duration_s\":180"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"password_set\":true"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"random\":true"));
@@ -595,7 +768,11 @@ int main(int, char**)
     RUN_TEST(test_sensors_report_readings_when_online);
     RUN_TEST(test_sensors_report_null_readings_when_disabled_or_not_online);
     RUN_TEST(test_serialize_sensors_reports_readings_and_daily_stats);
+    RUN_TEST(test_serialize_sensors_lets_one_lit_channel_win);
+    RUN_TEST(test_serialize_sensors_reports_null_threshold_before_first_sample);
+    RUN_TEST(test_serialize_sensors_ignores_a_missing_second_channel);
     RUN_TEST(test_serialize_sensors_reports_null_when_never_read);
+    RUN_TEST(test_serialize_sensors_marks_a_failed_sensors_reading_stale);
     RUN_TEST(test_sensors_hide_stale_reading_after_environment_disabled);
     RUN_TEST(test_device_is_safe_and_uses_snapshot_capacity);
     RUN_TEST(test_masked_config_never_returns_secret_values);

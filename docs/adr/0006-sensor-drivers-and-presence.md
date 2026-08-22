@@ -1,8 +1,14 @@
 # ADR-0006：感測器 driver 來源與在場/離席判定機制
 
-- Status: accepted
+- Status: accepted（部分被取代）
 - Date: 2026-07-31
 - Supersedes: none
+- Superseded in part by: [ADR-0018](0018-dual-photoresistor-channels.md)
+  ——光敏電阻擴充為兩個獨立通道後，本 ADR 的
+  「溫濕度與光敏電阻在本階段维持各自獨立判定，不合併」條款與
+  `GET /api/v1/sensors` 的 `light` schema 已失效。濾波方式（moving
+  average）、duration-based debounce、非 `online` ADC 不得觸發離席、
+  presence 經 snapshot setter 傳遞等其餘決策**均維持有效**。
 
 ## Context
 

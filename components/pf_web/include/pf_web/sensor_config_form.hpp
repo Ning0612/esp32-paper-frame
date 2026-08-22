@@ -17,13 +17,17 @@ enum class SensorConfigParseStatus : std::uint8_t {
     invalid_value,
 };
 
-// HTML checkboxes are only present in a form POST when checked, so
-// environment_enabled/light_enabled are optional (absent = false);
-// the three numeric fields are required.
+// HTML checkboxes are only present in a form POST when checked, so the
+// three enable flags are optional (absent = false); the four numeric
+// fields are required. Field names are the wire contract shared with
+// data/web/ui.js -- test/web/test_sensor_form_contract.mjs keeps the two
+// sides from drifting apart.
 struct SensorConfigForm {
     bool environment_enabled = false;
-    bool light_enabled = false;
-    char light_threshold[8]{};
+    bool light1_enabled = false;
+    bool light2_enabled = false;
+    char light1_threshold[8]{};
+    char light2_threshold[8]{};
     char away_duration_s[8]{};
     char return_duration_s[8]{};
 };
@@ -62,11 +66,13 @@ inline SensorConfigParseStatus parse_sensor_config_form(
 
     SensorConfigForm candidate{};
     const pf_config::SecureZeroGuard candidate_guard(candidate);
-    bool threshold_seen = false;
+    bool threshold1_seen = false;
+    bool threshold2_seen = false;
     bool away_seen = false;
     bool return_seen = false;
     bool environment_seen = false;
-    bool light_seen = false;
+    bool light1_seen = false;
+    bool light2_seen = false;
 
     std::size_t cursor = 0U;
     while (cursor < length) {
@@ -94,64 +100,76 @@ inline SensorConfigParseStatus parse_sensor_config_form(
             return name_length == std::strlen(field_name) &&
                    std::memcmp(name, field_name, name_length) == 0;
         };
-
-        if (matches_field("light_threshold")) {
-            if (threshold_seen) {
+        const auto take_text = [&](
+            char* const field,
+            const std::size_t capacity,
+            bool& seen) {
+            if (seen) {
                 return SensorConfigParseStatus::duplicate_field;
             }
-            threshold_seen = true;
-            if (value_length >= sizeof(candidate.light_threshold)) {
+            seen = true;
+            if (value_length >= capacity) {
                 return SensorConfigParseStatus::invalid_value;
             }
-            std::memcpy(candidate.light_threshold, value, value_length);
-            candidate.light_threshold[value_length] = '\0';
-        } else if (matches_field("away_duration_s")) {
-            if (away_seen) {
+            std::memcpy(field, value, value_length);
+            field[value_length] = '\0';
+            return SensorConfigParseStatus::ok;
+        };
+        const auto take_checkbox = [&](bool& field, bool& seen) {
+            if (seen) {
                 return SensorConfigParseStatus::duplicate_field;
             }
-            away_seen = true;
-            if (value_length >= sizeof(candidate.away_duration_s)) {
-                return SensorConfigParseStatus::invalid_value;
-            }
-            std::memcpy(candidate.away_duration_s, value, value_length);
-            candidate.away_duration_s[value_length] = '\0';
-        } else if (matches_field("return_duration_s")) {
-            if (return_seen) {
-                return SensorConfigParseStatus::duplicate_field;
-            }
-            return_seen = true;
-            if (value_length >= sizeof(candidate.return_duration_s)) {
-                return SensorConfigParseStatus::invalid_value;
-            }
-            std::memcpy(candidate.return_duration_s, value, value_length);
-            candidate.return_duration_s[value_length] = '\0';
-        } else if (matches_field("environment_enabled")) {
-            if (environment_seen) {
-                return SensorConfigParseStatus::duplicate_field;
-            }
-            environment_seen = true;
+            seen = true;
             // Browsers submit checked checkboxes as name=on; a present
             // field with any other value is malformed input, not a
             // stronger form of "checked".
             if (value_length != 2U || value[0] != 'o' || value[1] != 'n') {
                 return SensorConfigParseStatus::invalid_value;
             }
-            candidate.environment_enabled = true;
-        } else if (matches_field("light_enabled")) {
-            if (light_seen) {
-                return SensorConfigParseStatus::duplicate_field;
-            }
-            light_seen = true;
-            if (value_length != 2U || value[0] != 'o' || value[1] != 'n') {
-                return SensorConfigParseStatus::invalid_value;
-            }
-            candidate.light_enabled = true;
+            field = true;
+            return SensorConfigParseStatus::ok;
+        };
+
+        SensorConfigParseStatus field_status = SensorConfigParseStatus::ok;
+        if (matches_field("light1_threshold")) {
+            field_status = take_text(
+                candidate.light1_threshold,
+                sizeof(candidate.light1_threshold),
+                threshold1_seen);
+        } else if (matches_field("light2_threshold")) {
+            field_status = take_text(
+                candidate.light2_threshold,
+                sizeof(candidate.light2_threshold),
+                threshold2_seen);
+        } else if (matches_field("away_duration_s")) {
+            field_status = take_text(
+                candidate.away_duration_s,
+                sizeof(candidate.away_duration_s),
+                away_seen);
+        } else if (matches_field("return_duration_s")) {
+            field_status = take_text(
+                candidate.return_duration_s,
+                sizeof(candidate.return_duration_s),
+                return_seen);
+        } else if (matches_field("environment_enabled")) {
+            field_status = take_checkbox(
+                candidate.environment_enabled, environment_seen);
+        } else if (matches_field("light1_enabled")) {
+            field_status =
+                take_checkbox(candidate.light1_enabled, light1_seen);
+        } else if (matches_field("light2_enabled")) {
+            field_status =
+                take_checkbox(candidate.light2_enabled, light2_seen);
         } else {
             return SensorConfigParseStatus::unknown_field;
         }
+        if (field_status != SensorConfigParseStatus::ok) {
+            return field_status;
+        }
     }
 
-    if (!threshold_seen || !away_seen || !return_seen) {
+    if (!threshold1_seen || !threshold2_seen || !away_seen ||
+        !return_seen) {
         return SensorConfigParseStatus::missing_field;
     }
     destination = candidate;

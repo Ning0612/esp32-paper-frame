@@ -55,8 +55,8 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
   確認機制（程式完成；真實下載與 rollback fault injection 未驗證）
 - **天氣資訊**：解析、快取與面板狀態列顯示（程式完成；真實 SNTP 與 TLS
   失敗分類未驗證）
-- **可選環境感測**：DHT22 溫溼度與光敏電阻，含濾波、presence debounce 與
-  離席白屏（程式完成；**硬體尚未接入**）
+- **可選環境感測**：DHT22 溫溼度與兩個獨立的光敏電阻通道（兩顆都暗才判定為
+  暗，任一顆見光即喚醒），含濾波、presence debounce 與離席白屏
 
 ## 文件入口
 
@@ -98,7 +98,7 @@ OTA 的回滾保護取決於 bootloader 版本，判斷方式見
 | 主控 | ESP32-S3-N16R8（16 MB Flash、8 MB octal PSRAM） | 必要 |
 | 顯示器 | Waveshare 7.3 吋 e-Paper HAT (E)，800×480 E6 六色 | 必要 |
 | 溫溼度 | DHT22／AM2302 | 可選；driver 已實作，**實機未驗證** |
-| 光感測 | 光敏電阻＋分壓，接 `ADC1_CH4` | 可選；driver 已實作，**實機未驗證** |
+| 光感測 | 光敏電阻＋分壓 ×2，接 `ADC1_CH4` 與 `ADC1_CH6` | 可選（可只接一顆）；driver 已實作，**實機未驗證** |
 | 外殼 | 3D 列印 | **尚未設計** |
 
 顯示器接線（3.3 V logic、SPI2、mode 0、MSB-first、起始 clock 2 MHz）：
@@ -107,8 +107,11 @@ OTA 的回滾保護取決於 bootloader 版本，判斷方式見
 | --- | --- | --- | --- | --- | --- | --- |
 | ESP32-S3 | GPIO11 | GPIO12 | GPIO10 | GPIO13 | GPIO14 | GPIO4 |
 
-感測器腳位：光敏 ADC = GPIO5（`ADC1_CH4`）、DHT data = GPIO6；GPIO8／GPIO9
-保留給未來 I²C。**改接線前務必先讀 ADR-0003 的腳位限制**——octal PSRAM 佔用
+感測器腳位：光敏 ADC 通道 1 = GPIO5（`ADC1_CH4`）、DHT data = GPIO6、光敏 ADC
+通道 2 = GPIO7（`ADC1_CH6`）；GPIO8／GPIO9 保留給未來 I²C。兩個光敏通道都必須
+在 ADC1——ADC2 在 Wi-Fi 啟用時由 Wi-Fi driver 佔用。分壓接法、極性與校正流程見
+[硬體與接線](docs/hardware/HARDWARE.md)，合併判定規則見
+[ADR-0018](docs/adr/0018-dual-photoresistor-channels.md)。**改接線前務必先讀 ADR-0003 的腳位限制**——octal PSRAM 佔用
 GPIO33–37、native USB 佔用 GPIO19–20，GPIO0／3／45／46 是 strapping pins，
 GPIO4 已給 BUSY 不得再作 ADC。
 

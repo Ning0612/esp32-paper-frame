@@ -71,4 +71,126 @@ private:
     std::size_t filled_count_ = 0U;
 };
 
+
+// Two photoresistor channels, each its own voltage-divider branch with
+// nothing shared but 3V3 and ground (ADR-0018): channel 0 on GPIO5/ADC1_CH4,
+// channel 1 on GPIO7/ADC1_CH6. Each has its own enable flag and its own
+// threshold, and presence reads "every channel is dark" as darkness --
+// equivalently, any single lit channel keeps the device awake.
+inline constexpr std::size_t kLightChannelCount = 2U;
+
+// The GPIO each channel is wired to, reported through GET /api/v1/sensors so
+// the WebUI can name the pin it is showing readings for. This must stay in
+// step with kLightAdcChannels in sensor_task_esp_idf.cpp: the ADC channel and
+// the GPIO are two views of the same pin and the mapping is fixed by silicon
+// (GPIO5 = ADC1_CH4, GPIO7 = ADC1_CH6). Moving a channel to another pin means
+// changing both arrays.
+inline constexpr std::uint8_t kLightChannelGpios[kLightChannelCount] = {
+    5U,
+    7U,
+};
+
+struct LightChannelState {
+    LightSensorStatus status = LightSensorStatus::disabled;
+    // Only meaningful while `status` is `online`; 0 otherwise, so a
+    // reading from before the channel failed is never mistaken for a
+    // current one.
+    std::uint16_t raw_filtered = 0U;
+    // The configured threshold. Populated for a disabled or failed channel
+    // too -- the WebUI shows it while calibrating, when the channel is by
+    // definition not yet reporting usable samples. Only meaningful once
+    // SensorTask has published at all; see RuntimeSnapshot::light_published,
+    // which is what stops this 0 from being served as a real threshold.
+    std::uint16_t threshold = 0U;
+};
+
+// The single (status, raw, threshold) triple presence debouncing acts on,
+// reduced from every channel.
+struct LightDecision {
+    LightSensorStatus status = LightSensorStatus::disabled;
+    std::uint16_t raw_filtered = 0U;
+    std::uint16_t threshold = 0U;
+    // Which channel the triple came from, or kLightChannelCount when no
+    // channel is online and the other three fields carry no reading.
+    std::size_t channel_index = kLightChannelCount;
+};
+
+// Ranks the non-online statuses so an aggregate reports the most
+// actionable one: a read error outranks a saturated (stuck or unwired)
+// channel, which outranks one the ADC never came up for, which outranks
+// a channel the user switched off.
+constexpr std::uint8_t light_status_rank(const LightSensorStatus status)
+{
+    switch (status) {
+        case LightSensorStatus::error:
+            return 4U;
+        case LightSensorStatus::saturated:
+            return 3U;
+        case LightSensorStatus::not_detected:
+            return 2U;
+        case LightSensorStatus::disabled:
+            return 1U;
+        case LightSensorStatus::online:
+            return 0U;
+    }
+    return 0U;
+}
+
+// Reduces per-channel state to what presence debouncing consumes.
+//
+// A channel that is not `online` is ignored outright as long as some
+// other channel is online: an absent or broken second photoresistor must
+// not disable a working first one (AGENTS.md -- sensors are optional and
+// have to degrade rather than fail the feature).
+//
+// Among online channels the *largest* signed margin (raw - threshold)
+// wins. Because presence is a single threshold comparison, that one choice
+// fixes both directions: darkness needs every channel below its own
+// threshold, and any single lit channel is enough to read as light. Put
+// the other way round -- both sensors must agree it is dark before the
+// panel sleeps, and either one seeing light wakes it.
+//
+// Two sensors mounted in different places see genuinely different light
+// (measured 2026-08-23: one channel sat at ~42% of the other in the same
+// room), so "this one spot is dark" is not the same question as "the room
+// is dark". Requiring agreement also makes the wrong kind of error the
+// rare one: blanking the panel while someone is sitting there is far more
+// annoying than failing to blank it after they leave.
+//
+// The reported channel is therefore the brightest one -- the sensor
+// currently keeping the device awake, which is the useful thing to show
+// when someone is working out why it has not slept.
+inline LightDecision combine_light_channels(
+    const LightChannelState (&channels)[kLightChannelCount])
+{
+    LightDecision decision{};
+    std::int32_t best_margin = 0;
+    std::uint8_t worst_rank = 0U;
+    for (std::size_t index = 0U; index < kLightChannelCount; ++index) {
+        const LightChannelState& channel = channels[index];
+        if (channel.status != LightSensorStatus::online) {
+            const std::uint8_t rank = light_status_rank(channel.status);
+            if (rank > worst_rank) {
+                worst_rank = rank;
+                decision.status = channel.status;
+            }
+            continue;
+        }
+        const std::int32_t margin =
+            static_cast<std::int32_t>(channel.raw_filtered) -
+            static_cast<std::int32_t>(channel.threshold);
+        if (decision.channel_index == kLightChannelCount ||
+            margin > best_margin) {
+            best_margin = margin;
+            decision.channel_index = index;
+            decision.raw_filtered = channel.raw_filtered;
+            decision.threshold = channel.threshold;
+        }
+    }
+    if (decision.channel_index != kLightChannelCount) {
+        decision.status = LightSensorStatus::online;
+    }
+    return decision;
+}
+
 }  // namespace pf_sensors
