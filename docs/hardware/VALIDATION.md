@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | DHT22 讀值、**兩個光敏通道各自的 ADC 校正**、AWAY/PRESENT 實機轉換、**「任一通道變暗即判定為暗」的實機行為**、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；2026-08-23 雙光敏通道；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
+| Phase 7 sensors | 僅剩 **DHT22 拔除後回 `null`**（需拔線）與正式 180／30 debounce 的實際計時；DHT22 讀值、雙通道 ADC 校正、AWAY/PRESENT 轉換、「任一通道變暗」、白屏與返回重繪均已於 2026-08-23 實機閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
@@ -2597,3 +2597,109 @@ I (63898) paperframe: carousel_request=2 outcome=1 next_due_ms=1863198
 
 **仍未驗證**：presence 返回時的 welcome 重畫（需要光敏電阻，見 Phase 7 待驗證
 項）；DHCP 續約導致位址變更時的重畫。
+
+## 2026-08-23 — Phase 7 感測器：實機驗證（DHT22＋雙光敏通道）
+
+感測器首次實際接線。裝置韌體 `v0.9.3-4-g62766c9-dirty`（含 ADR-0018 雙通道），
+`R_fix` = 10 kΩ ×2，DHT22 於 GPIO6。以 `GET /api/v1/sensors` 每 2 秒取樣記錄，
+並同步側錄 serial。
+
+### 基線（正常室內光）
+
+| 通道 | GPIO | raw | 狀態 |
+| --- | --- | --- | --- |
+| 1 | GPIO5 | 2313 | online |
+| 2 | GPIO7 | 2040 | online |
+
+DHT22：`online`，26.3 °C / 63.9 % RH — **溫溼度讀值閉環**。
+
+`deciding_channel=2`：GPIO7 餘裕 640 小於 GPIO5 的 913，reducer 正確選了餘裕
+最小者。
+
+### ✅「任一通道變暗即判定為暗」（ADR-0018 核心）
+
+關燈過程，GPIO5 先暗、GPIO7 仍亮：
+
+```
+t= 4.3s  GPIO5   79 (暗)   GPIO7 2187 (亮)   deciding=1  present
+t= 8.6s  GPIO5 1126 (暗)   GPIO7 2190 (亮)   deciding=1  present
+t=15.0s  GPIO5  646        GPIO7 1376        deciding=1  away   ← 轉換
+```
+
+**單一通道低於自己的 threshold、另一通道仍讀到 2190，離席倒數就開始。** OR 語意
+在實機成立，此前只有 host test。
+
+`deciding_channel` 全程跟著較暗的通道移動：手遮 GPIO5 時於 GPIO5 1751 <
+GPIO7 1766 的交叉點由 2 切到 1；GPIO7 飽和被排除後主導權交還 GPIO5。
+
+### ✅ AWAY / PRESENT debounce 時序（以 10 s／1 s 縮時驗證）
+
+- AWAY：GPIO5 自 t≈4.3 s 起持續低於門檻，t=15.0 s 轉 `away`，間隔約 10.7 秒，
+  與 `away_duration_s=10` 相符。
+- PRESENT：GPIO7 於 t=53.1 s 回到 1447（>1400），t=55.3 s 轉 `present`，
+  與 `return_duration_s=1` 相符（取樣粒度 2.1 秒）。
+- **未單獨計時驗證正式值 180／30**：debounce 是同一段程式碼、只有常數不同，
+  且設定值已驗證能正確 round-trip；縮時驗證視為機制證據。
+
+### ✅ 離席白屏與返回重繪
+
+```
+I (12299) paperframe: presence_away_blank_queued request=2
+...
+I (189829) paperframe: presence_return_deadline_reset
+I (190089) paperframe: carousel_image_queued id=17 request=3
+```
+
+使用者目視確認離席期間面板確為白屏，開燈後重繪回圖片。
+
+### ⚠️ 已知限制：`R_fix` = 10 kΩ 在全暗時會飽和
+
+關燈（未遮蔽）後兩個通道都掉到可用範圍的底部：
+
+| 條件 | GPIO5 | GPIO7 |
+| --- | --- | --- |
+| 開燈 | 2313–2612 | 1017–2190 |
+| 關燈 | **23** | **saturated（≤10）** |
+
+韌體把 `saturated` 的通道排除在 presence 判定之外（`kSaturationLowRaw = 10`，
+用於偵測 ADC 浮空／損壞，此保護本身正確）。GPIO5 的 23 距離下界只剩 **13 counts
+（約 10 mV）**。
+
+**若兩個通道同時飽和，合併結果沒有任何 online 通道 → presence 立即塌成
+`unknown`，離席白屏會被取消。** 今天沒有觸發（GPIO5 始終維持 online），但更暗的
+環境（深夜、拉窗簾、無外部光源）會觸發。
+
+依實測反推 LDR：`R_亮 ≈ 7.7 kΩ`、`R_暗 ≈ 1.77 MΩ`，幾何平均約 117 kΩ；
+47 kΩ 可讓兩端都有餘裕（推算開燈 ~3519、關燈 ~106）。
+
+**使用者決定維持 10 kΩ**（2026-08-23）：目標只需分辨開燈／關燈，該情境今天已
+實測通過。上述深夜情境列為已接受的風險，未來若出現「關燈後白屏被取消」即為此因。
+
+### ⚠️ 兩顆感測器受光不同，門檻必須分別設定
+
+同一環境下 GPIO7 只有 GPIO5 的約 42%（擺放位置較暗）。原本兩顆共用 1400 的
+門檻造成**開燈時的誤判離席**：
+
+```
+t=27–46s   GPIO5 2442 (亮)   GPIO7 1022   presence=away   ← 燈亮著卻判離席
+```
+
+這是 OR 語意的直接代價，實機重現。依實測範圍改為**兩顆都 500**（低於開燈時最暗
+的 1017 且有 2 倍餘裕，高於關燈時的 <200），改後確認 presence 維持 `present`、
+誤判消失。debounce 已改回正式值 180／30。
+
+另外實測到兩顆位置太近：遮住 GPIO5 時 GPIO7 也從 2044 掉到 1758，會互相影響。
+
+### 尚未驗證
+
+- DHT22 拔除後是否正確回 `null`（不得偽造 0 或沿用歷史值）。
+- AP grace 的 presence 例外（AP 模式遮光不得白屏）——需要清除 Wi-Fi 憑證進入
+  AP 模式，具破壞性，尚未執行。
+- 正式 180／30 debounce 的實際計時（見上方說明）。
+
+### 測試方法上的坑（已修）
+
+側錄 serial 的腳本用 `serial.Serial(port, ...)` 開埠，**建構子當下就會拉
+DTR/RTS，在此板的 USB Serial/JTAG 上等同重置晶片**；事後再設
+`.dtr = False` 已經來不及。測試中因此意外重開機一次。正確做法是先建立未開啟的
+`serial.Serial()`、設好 `dtr`／`rts`、再 `open()`。
