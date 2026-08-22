@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | 剩 **DHT22 拔除後回 `null`**（需拔線）、**AND 合併語意的行為驗證**（遮一顆、另一顆亮時須維持 present；目前只確認 `deciding_channel` 已跟隨較亮通道）、正式 180／30 debounce 的實際計時。DHT22 讀值、雙通道 ADC 校正、AWAY/PRESENT 轉換、白屏與返回重繪已於 2026-08-23 實機閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
+| Phase 7 sensors | 僅剩正式 180／30 debounce 的實際計時（機制已以 10／1 縮時驗證）。DHT22 讀值、雙通道 ADC 校正、AWAY/PRESENT 轉換、AND 合併語意、白屏與返回重繪均已於 2026-08-23 實機閉環；DHT22 拔除回 `null` 以使用者回報為準 | 2026-08-23 Phase 7 感測器實機驗證 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
@@ -2703,3 +2703,47 @@ t=27–46s   GPIO5 2442 (亮)   GPIO7 1022   presence=away   ← 燈亮著卻判
 DTR/RTS，在此板的 USB Serial/JTAG 上等同重置晶片**；事後再設
 `.dtr = False` 已經來不及。測試中因此意外重開機一次。正確做法是先建立未開啟的
 `serial.Serial()`、設好 `dtr`／`rts`、再 `open()`。
+
+### 同日補充：改為 AND 合併語意後的行為驗證
+
+`combine_light_channels()` 於同日由 OR（任一通道暗即為暗）改為 AND（每個通道
+都暗才算暗，任一通道見光即為亮），見
+[ADR-0018 修訂 2026-08-23](../adr/0018-dual-photoresistor-channels.md)。
+
+**第一次嘗試不具鑑別力，已捨棄**：遮住 GPIO7 後讀值降到 728，但當時門檻是
+500，728 仍在門檻**之上**，該通道並未被判定為暗——這種條件下 OR 與 AND 都會
+維持 `present`，證明不了任何事。記錄於此以免日後誤讀為有效證據。
+
+**有效測試**：把 GPIO7 的門檻暫時拉到 1200（讀值 728 < 1200 → 判定為暗），
+GPIO5 維持 2587（門檻 500 → 判定為亮），`away_duration_s` 降為 10 秒。
+
+```
+[ 0.1s] GPIO5 2587 thr=500 | GPIO7 737 thr=1200 | deciding=1 | presence=present
+[10.8s] GPIO5 2587 thr=500 | GPIO7 734 thr=1200 | deciding=1 | presence=present
+[38.9s] GPIO5 2585 thr=500 | GPIO7 736 thr=1200 | deciding=1 | presence=present
+```
+
+**維持 39 秒（離席門檻的近 4 倍）presence 始終為 `present`。** 舊的 OR 邏輯
+在此條件下會於第 10 秒轉 `away`——這正是本次語意變更要消除的誤判。
+
+`deciding_channel` 全程為 1，指向亮著的 GPIO5，符合新語意「回報的是讓裝置保持
+清醒的那顆」。
+
+### DHT22 拔除後回 `null`
+
+**使用者回報先前已自行測試通過**（2026-08-23）。本次 session 未親自觀察，
+無讀值紀錄；此項以使用者回報為準，證據強度低於本文件其他實測段落。
+
+### 最終設定
+
+校正後採用的正式設定：
+
+| 項目 | 值 |
+| --- | --- |
+| `light1_threshold`／`light2_threshold` | 1200 |
+| `away_duration_s`／`return_duration_s` | 180／30 |
+| `R_fix` | 10 kΩ ×2（見上方已知限制） |
+
+門檻 1200 在 AND 語意下是安全的：開燈時 GPIO5 約 2587、GPIO7 約 2120，兩者都
+高於門檻；關燈時兩者都低於 30。單顆被遮（例如 GPIO7 降到 730）不再會拖累判定，
+因此門檻可以設得比 OR 時代的 500 更靈敏。
