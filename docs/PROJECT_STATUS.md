@@ -12,7 +12,7 @@ Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026
 Phase 2／3／4／5／6／8 的實機證據全數閉環——涵蓋 OTA 端到端與 rollback fault
 injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出圖管線、天氣四種
 失敗分類、forced-BUSY 隔離與面板 sleep 電流。**剩餘的硬體驗證只有 Phase 7 感測器
-整段**（DHT22 與光敏電阻尚未接線）與兩個低風險項。其餘待辦是公開 release
+整段**（DHT22 與兩顆光敏電阻尚未接線）與兩個低風險項。其餘待辦是公開 release
 security profile 與 MVP 以外功能的產品決策。
 
 ## 已完成或已決定
@@ -25,7 +25,7 @@ security profile 與 MVP 以外功能的產品決策。
 | Phase 4 PFR1 | format、validator、browser pipeline、quantizer、packer 與 host tests 已完成 | [PFR1](formats/PFR1.md) |
 | Phase 5 storage／catalog／carousel | partition、transaction、catalog、image API 與 runtime 接線已完成 | [Storage](STORAGE.md) |
 | Phase 6 weather | parser、cache、設定與 worker 程式已完成；實機證據另列於下表 | [Weather](WEATHER.md) |
-| Phase 7 sensors／presence | optional sensor contract、driver、filter、debounce 與 WebUI schema 已完成；硬體未接入 | [歷史 Implementation Plan](archive/IMPLEMENTATION_PLAN.md) |
+| Phase 7 sensors／presence | optional sensor contract、driver、filter、debounce 與 WebUI schema 已完成；2026-08-23 擴充為兩個獨立光敏通道（任一變暗即判定為暗）；硬體未接入 | [ADR-0018](adr/0018-dual-photoresistor-channels.md)、[歷史 Implementation Plan](archive/IMPLEMENTATION_PLAN.md) |
 | Phase 8 diagnostics／OTA | diagnostics、System UI、OTA worker 與 release checklist 已完成程式；實機 release gate 未關閉 | [OTA ADR](adr/0008-ota-github-releases-and-rollback.md) |
 | 認證 | PBKDF2 10,000 iterations、同步登入、session／CSRF contract 已決定 | [ADR-0007](adr/0007-auth-pbkdf2-iterations-and-sync-login.md) |
 | OTA／partition | GitHub Releases、A/B rollback、`imagefs` preservation 已決定 | [ADR-0004](adr/0004-freeze-image-preserving-partitions.md)、[ADR-0008](adr/0008-ota-github-releases-and-rollback.md) |
@@ -36,7 +36,7 @@ security profile 與 MVP 以外功能的產品決策。
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 7 sensors | DHT22 讀值、ADC threshold 校正、AWAY/PRESENT、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
+| Phase 7 sensors | DHT22 讀值、兩個光敏通道各自的 ADC threshold 校正、AWAY/PRESENT、「任一通道變暗」的實機行為、v1→v2 設定遷移的實機路徑、白屏 sleep／返回重繪與環境頁 browser 行為（硬體尚未接線） |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 

@@ -3,6 +3,9 @@
 - Status: accepted
 - Date: 2026-07-29
 - Supersedes: none
+- Amended by: [ADR-0018](0018-dual-photoresistor-channels.md)（G2 感測器
+  保留腳位表新增 GPIO7／`ADC1_CH6` 作為第二個光敏電阻通道；本 ADR 其餘
+  內容不變，GPIO4 仍不得作為 light-sensor ADC）
 
 ## Context
 

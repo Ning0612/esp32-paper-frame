@@ -27,7 +27,9 @@ PaperFrame 的文件分成「目前狀態」、「現行契約」、「設計決
 - [hardware/HARDWARE.md](hardware/HARDWARE.md)：元件清單、接線與腳位限制，
   回答「要買什麼、怎麼接」。**它不是決策權威**——腳位分配的理由固定在
   [ADR-0003](adr/0003-fix-phase2-display-integration.md)、感測器行為在
-  [ADR-0006](adr/0006-sensor-drivers-and-presence.md)，衝突時以 ADR 為準。
+  [ADR-0006](adr/0006-sensor-drivers-and-presence.md)（光敏電阻的雙通道
+  部分已由 [ADR-0018](adr/0018-dual-photoresistor-channels.md) 取代），
+  衝突時以 ADR 為準。
   根目錄 README 的「硬體」段是本檔摘要；**重要資訊刻意在兩處重複**，
   讓讀者不必先點進 docs 才知道要買什麼板子。
 

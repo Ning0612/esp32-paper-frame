@@ -184,10 +184,18 @@ struct RuntimeSnapshot {
     pf_sensors::SensorStatus environment_status =
         pf_sensors::SensorStatus::disabled;
     pf_sensors::DailyStats environment_daily{};
-    pf_sensors::LightSensorStatus light_status =
-        pf_sensors::LightSensorStatus::disabled;
-    std::uint16_t light_raw_filtered = 0U;
-    std::uint16_t light_threshold = 0U;
+    // Both photoresistor channels plus the reduction presence debouncing
+    // actually acted on, so a reader can show each sensor separately and
+    // still know which one drove the decision. See
+    // docs/adr/0018-dual-photoresistor-channels.md.
+    pf_sensors::LightChannelState
+        light_channels[pf_sensors::kLightChannelCount]{};
+    pf_sensors::LightDecision light_decision{};
+    // False until SensorTask publishes its first sample. Without this the
+    // zero-initialised thresholds above are indistinguishable from a user
+    // who configured a threshold of 0 -- and they stay zero forever if the
+    // sensor task failed to start at all.
+    bool light_published = false;
     pf_sensors::PresenceState presence = pf_sensors::PresenceState::unknown;
     // Set by RuntimeCoordinator::request_manual_carousel_activation() when a
     // WebUI "activate this image" request commits successfully. The carousel

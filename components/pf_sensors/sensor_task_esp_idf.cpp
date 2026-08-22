@@ -12,8 +12,18 @@ namespace pf_sensors {
 namespace {
 
 constexpr char kTag[] = "pf_sensors";
-// ADR-0003: photoresistor ADC = GPIO5 (ADC1_CH4), DHT22 data = GPIO6.
-constexpr adc_channel_t kLightAdcChannel = ADC_CHANNEL_4;
+// ADR-0003: DHT22 data = GPIO6, photoresistor channel 1 = GPIO5
+// (ADC1_CH4). ADR-0018 adds channel 2 = GPIO7 (ADC1_CH6). Both channels
+// are on ADC1 because ADC2 is claimed by the Wi-Fi driver and reads back
+// ESP_ERR_TIMEOUT while the radio is up.
+//
+// Must stay in step with pf_sensors::kLightChannelGpios (light_sensor.hpp),
+// which is what the API reports: these are two views of the same pins
+// (GPIO5 = ADC1_CH4, GPIO7 = ADC1_CH6). Moving a channel means changing both.
+constexpr adc_channel_t kLightAdcChannels[kLightChannelCount] = {
+    ADC_CHANNEL_4,
+    ADC_CHANNEL_6,
+};
 constexpr gpio_num_t kDhtPin = GPIO_NUM_6;
 
 }  // namespace
@@ -46,15 +56,21 @@ esp_err_t SensorTask::start(pf_runtime::RuntimeCoordinator& runtime)
             .atten = ADC_ATTEN_DB_12,
             .bitwidth = ADC_BITWIDTH_DEFAULT,
         };
-        result = adc_oneshot_config_channel(
-            adc_handle_, kLightAdcChannel, &channel_config);
-        if (result != ESP_OK) {
-            ESP_LOGE(
-                kTag,
-                "adc_channel_config_failed=%s; light sensing disabled",
-                esp_err_to_name(result));
-            adc_oneshot_del_unit(adc_handle_);
-            adc_handle_ = nullptr;
+        // A channel that fails to configure is left not-ready on its own;
+        // the other one keeps working, matching the rule that sensors are
+        // optional and degrade individually.
+        for (std::size_t index = 0U; index < kLightChannelCount; ++index) {
+            const esp_err_t channel_result = adc_oneshot_config_channel(
+                adc_handle_, kLightAdcChannels[index], &channel_config);
+            light_channel_ready_[index] = channel_result == ESP_OK;
+            if (channel_result != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "adc_channel_config_failed=%s channel=%u; "
+                    "light channel disabled",
+                    esp_err_to_name(channel_result),
+                    static_cast<unsigned>(index + 1U));
+            }
         }
     }
 
@@ -105,36 +121,63 @@ void SensorTask::task_main()
 
 void SensorTask::sample_light(const pf_config::SensorSettings& settings)
 {
-    pf_sensors::LightSensorStatus status =
-        pf_sensors::LightSensorStatus::disabled;
-    // Only an `online` sample feeds the filter; 0 is reported otherwise so
-    // a bad reading never pollutes the moving average with a spurious
-    // value.
-    std::uint16_t filtered = 0U;
+    const bool channel_enabled[kLightChannelCount] = {
+        settings.light1_enabled,
+        settings.light2_enabled,
+    };
+    const std::uint16_t channel_threshold[kLightChannelCount] = {
+        settings.light1_threshold,
+        settings.light2_threshold,
+    };
 
-    if (settings.light_enabled && adc_handle_ != nullptr) {
-        int raw = 0;
-        const esp_err_t result =
-            adc_oneshot_read(adc_handle_, kLightAdcChannel, &raw);
-        if (result != ESP_OK) {
-            status = pf_sensors::LightSensorStatus::error;
-        } else if (
-            raw <= kSaturationLowRaw || raw >= kSaturationHighRaw) {
-            status = pf_sensors::LightSensorStatus::saturated;
+    pf_sensors::LightChannelState channels[kLightChannelCount]{};
+    for (std::size_t index = 0U; index < kLightChannelCount; ++index) {
+        pf_sensors::LightChannelState& channel = channels[index];
+        // The threshold is reported even for a channel that is off or
+        // faulty: it is the configured value, and the WebUI shows it while
+        // the user is still calibrating.
+        channel.threshold = channel_threshold[index];
+        if (!channel_enabled[index]) {
+            channel.status = pf_sensors::LightSensorStatus::disabled;
+        } else if (adc_handle_ == nullptr || !light_channel_ready_[index]) {
+            channel.status = pf_sensors::LightSensorStatus::not_detected;
         } else {
-            status = pf_sensors::LightSensorStatus::online;
-            filtered = light_filter_.push(static_cast<std::uint16_t>(raw));
+            int raw = 0;
+            const esp_err_t result = adc_oneshot_read(
+                adc_handle_, kLightAdcChannels[index], &raw);
+            if (result != ESP_OK) {
+                channel.status = pf_sensors::LightSensorStatus::error;
+            } else if (
+                raw <= kSaturationLowRaw || raw >= kSaturationHighRaw) {
+                channel.status = pf_sensors::LightSensorStatus::saturated;
+            } else {
+                // Only an `online` sample feeds the filter; raw_filtered
+                // stays 0 otherwise so a bad reading never pollutes the
+                // moving average with a spurious value.
+                channel.status = pf_sensors::LightSensorStatus::online;
+                channel.raw_filtered = light_filters_[index].push(
+                    static_cast<std::uint16_t>(raw));
+            }
         }
-    } else if (settings.light_enabled) {
-        status = pf_sensors::LightSensorStatus::not_detected;
+        if (channel.status != pf_sensors::LightSensorStatus::online) {
+            // Drop the accumulated history too. Keeping it would average
+            // the first sample after recovery together with readings from
+            // before the channel was switched off, unplugged or faulty --
+            // exactly the "reuse a historical value" the optional-sensor
+            // contract forbids. The cost is a few seconds of ramp-up on
+            // recovery, well inside the presence debounce window.
+            light_filters_[index].reset();
+        }
     }
 
+    const pf_sensors::LightDecision decision =
+        pf_sensors::combine_light_channels(channels);
     const pf_sensors::PresenceUpdateResult presence_result =
         pf_sensors::update_presence(
             presence_tracker_,
-            status,
-            filtered,
-            settings.light_threshold,
+            decision.status,
+            decision.raw_filtered,
+            decision.threshold,
             now_ms_since_boot(),
             static_cast<std::uint64_t>(settings.away_duration_s) * 1000U,
             static_cast<std::uint64_t>(settings.return_duration_s) *
@@ -142,10 +185,7 @@ void SensorTask::sample_light(const pf_config::SensorSettings& settings)
 
     if (runtime_ != nullptr) {
         runtime_->update_light_and_presence(
-            status,
-            filtered,
-            settings.light_threshold,
-            presence_result.state);
+            channels, decision, presence_result.state);
     }
 }
 

@@ -276,16 +276,18 @@
                 <h2>環境與在場</h2>
               </div>
             </div>
-            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與光敏電阻在場偵測（GPIO5）都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。</p>
+            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與兩顆光敏電阻都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。兩顆光敏電阻各自設定 threshold，任一顆低於自己的 threshold 就判定為暗；未啟用或讀值異常的那顆會被忽略，不影響另一顆。</p>
             <form id="environment-form" class="setup-grid" novalidate>
               <section class="panel credential-panel">
                 <div class="panel-heading">
                   <div><span class="panel-no coral">A</span><h3>感測器設定</h3></div>
                 </div>
                 <label class="manual-toggle"><input id="environment-enabled" type="checkbox"><span>啟用溫溼度感測器（DHT22）</span></label>
-                <label class="manual-toggle"><input id="light-enabled" type="checkbox"><span>啟用光敏電阻在場偵測</span></label>
+                <label class="manual-toggle"><input id="light1-enabled" type="checkbox"><span>啟用光敏電阻 1</span></label>
+                <label class="manual-toggle"><input id="light2-enabled" type="checkbox"><span>啟用光敏電阻 2</span></label>
                 <div class="image-option-grid">
-                  <label class="field"><span>光線 threshold（ADC 0–4095）</span><input id="light-threshold" type="number" min="0" max="4095" required></label>
+                  <label class="field"><span>光敏 1 threshold（ADC 0–4095）</span><input id="light1-threshold" type="number" min="0" max="4095" required></label>
+                  <label class="field"><span>光敏 2 threshold（ADC 0–4095）</span><input id="light2-threshold" type="number" min="0" max="4095" required></label>
                   <label class="field"><span>離席持續時間（秒）</span><input id="away-duration" type="number" min="10" max="3600" required></label>
                   <label class="field"><span>返回持續時間（秒）</span><input id="return-duration" type="number" min="1" max="3600" required></label>
                 </div>
@@ -301,8 +303,11 @@
                   <div><dt>溫度</dt><dd id="environment-temperature">—</dd></div>
                   <div><dt>濕度</dt><dd id="environment-humidity">—</dd></div>
                   <div><dt>今日溫度 min/avg/max</dt><dd id="environment-today-temperature">—</dd></div>
-                  <div><dt>光敏狀態</dt><dd id="light-reading-status">未知</dd></div>
-                  <div><dt>光線 ADC</dt><dd id="light-raw">—</dd></div>
+                  <div><dt>光敏 1 狀態</dt><dd id="light1-reading-status">未知</dd></div>
+                  <div><dt>光敏 1 ADC / threshold</dt><dd id="light1-raw">—</dd></div>
+                  <div><dt>光敏 2 狀態</dt><dd id="light2-reading-status">未知</dd></div>
+                  <div><dt>光敏 2 ADC / threshold</dt><dd id="light2-raw">—</dd></div>
+                  <div><dt>判定來源</dt><dd id="light-deciding-channel">—</dd></div>
                   <div><dt>在場狀態</dt><dd id="presence-state">未知</dd></div>
                 </dl>
               </section>

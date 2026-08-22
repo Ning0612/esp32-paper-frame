@@ -19,10 +19,12 @@ class RuntimeCoordinator;
 
 namespace pf_sensors {
 
-// Owns the DHT22 (GPIO6) and photoresistor ADC (GPIO5 / ADC1_CH4) reads,
-// runs the light filter/threshold/presence debounce each tick, and
-// publishes results into RuntimeCoordinator. See
-// docs/adr/0006-sensor-drivers-and-presence.md.
+// Owns the DHT22 (GPIO6) and both photoresistor ADC channels (GPIO5 /
+// ADC1_CH4 and GPIO7 / ADC1_CH6) reads, runs the per-channel light
+// filters, the combined threshold decision and the presence debounce each
+// tick, and publishes results into RuntimeCoordinator. See
+// docs/adr/0006-sensor-drivers-and-presence.md and
+// docs/adr/0018-dual-photoresistor-channels.md.
 class SensorTask {
 public:
     SensorTask();
@@ -51,7 +53,11 @@ private:
     StackType_t task_stack_[kTaskStackWords]{};
 
     adc_oneshot_unit_handle_t adc_handle_ = nullptr;
-    MovingAverageFilter<kLightFilterCapacity> light_filter_{};
+    // Per-channel, because one channel failing to configure must not take
+    // the other one down with it.
+    bool light_channel_ready_[kLightChannelCount]{};
+    MovingAverageFilter<kLightFilterCapacity>
+        light_filters_[kLightChannelCount]{};
     PresenceTracker presence_tracker_{};
 
     Dht22EnvironmentSensor environment_sensor_;

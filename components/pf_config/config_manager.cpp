@@ -2,6 +2,7 @@
 #include "pf_config/config_manager.hpp"
 
 #include <cstdint>
+#include <cstring>
 
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -463,19 +464,30 @@ SensorSettingsLoadResult load_sensor_settings()
     if (result == ESP_ERR_NVS_NOT_FOUND) {
         return {ESP_OK, false, defaults};
     }
-    if (result != ESP_OK || length != sizeof(blob)) {
-        return {
-            result == ESP_OK ? ESP_ERR_INVALID_SIZE : result,
-            false,
-            {},
-        };
+    if (result != ESP_OK) {
+        return {result, false, {}};
     }
 
     SensorSettings settings{};
-    if (!decode_sensor_settings(blob, settings)) {
-        return {ESP_ERR_INVALID_CRC, false, {}};
+    if (length == sizeof(SensorSettingsBlob)) {
+        if (!decode_sensor_settings(blob, settings)) {
+            return {ESP_ERR_INVALID_CRC, false, {}};
+        }
+        return {ESP_OK, true, settings};
     }
-    return {ESP_OK, true, settings};
+    if (length == sizeof(SensorSettingsBlobV1)) {
+        // Pre-ADR-0018 single-channel record. It is migrated in memory
+        // only; the v2 rewrite happens on the next save, so loading stays
+        // read-only and a flash write can never turn a perfectly readable
+        // config into a load error.
+        SensorSettingsBlobV1 legacy{};
+        std::memcpy(&legacy, &blob, sizeof(legacy));
+        if (!decode_sensor_settings_v1(legacy, settings)) {
+            return {ESP_ERR_INVALID_CRC, false, {}};
+        }
+        return {ESP_OK, true, settings};
+    }
+    return {ESP_ERR_INVALID_SIZE, false, {}};
 }
 
 esp_err_t save_sensor_settings(const SensorSettings& settings)

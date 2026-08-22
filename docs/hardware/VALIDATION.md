@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | DHT22 讀值、ADC 校正、AWAY/PRESENT 實機轉換、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
+| Phase 7 sensors | DHT22 讀值、**兩個光敏通道各自的 ADC 校正**、AWAY/PRESENT 實機轉換、**「任一通道變暗即判定為暗」的實機行為**、白屏 sleep／返回重繪與環境頁 browser 行為 | 2026-07-31 Phase 7；2026-08-23 雙光敏通道；`docs/archive/IMPLEMENTATION_PLAN.md` Phase 7 checkpoint |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
@@ -2459,3 +2459,48 @@ success（run 32347525634）。
 - AP grace policy：整段。
 - 嵌入式 WebUI：移除 webfs 掛載後的 heap 差值量化（缺改動前對照值）。
 - 設定降級：`nvs_flash_init()` 失敗、NVS 滿導致 `pf_config` 開啟失敗。
+
+## 2026-08-23 — 光敏電阻擴充為兩個獨立通道：僅完成 host／build 驗證
+
+### 變更範圍
+
+依 [ADR-0018](../adr/0018-dual-photoresistor-channels.md) 把單一光敏電阻改為
+兩個獨立通道：通道 1 維持 GPIO5（`ADC1_CH4`），新增通道 2 為 GPIO7
+（`ADC1_CH6`）。兩顆各自有 enable 與 threshold，判定為 OR——任一顆已啟用且
+`online` 的通道低於自己的 threshold 就算暗。`SensorSettings` NVS blob 升到 v2
+並保留 v1 遷移；`GET /api/v1/sensors` 的 `light` 物件改為攜帶 `channels[]` 與
+`deciding_channel`；WebUI 環境頁改為兩組設定與兩組即時讀值。
+
+### 已通過的驗證
+
+| 項目 | 結果 |
+| --- | --- |
+| `pio run` | ✅ SUCCESS（RAM 32.6%、Flash 49.5%） |
+| `pio test -e native` | ✅ 333/333（此前 308，本次新增 25 個 case） |
+| `test/web/*.mjs`（11 支） | ✅ 全數通過，含新增的 `test_sensor_form_contract.mjs` |
+| embedded build ×3 | ✅ `test_runtime_coordinator`、`test_display_task`、`test_epd7in3e_driver` |
+| 新測試的 red-capable 驗證 | ✅ 把 ui.js 的 `light2_threshold` 改名為 `light_threshold_2` 後，`test_sensor_form_contract.mjs` 如預期報 `the firmware accepts "light2_threshold" but ui.js never submits it`；還原後恢復通過 |
+
+新增的 `test_sensor_form_contract.mjs` 是針對一個既有的結構性缺口：表單欄位名
+是 ui.js 與 C++ `parse_sensor_config_form()` 之間的純字串契約，任一邊改名都
+不會有任何編譯或測試失敗，只會在實機上變成 400 `unknown_field`。該測試雙向
+比對兩邊的欄位集合。
+
+### 尚未驗證（需要實體光敏電阻）
+
+**本段沒有任何實機驗證。** 硬體尚未接線，以下全部仍為未驗證風險：
+
+- **兩個通道的 ADC 校正**：GPIO5／GPIO7 在正常室內、手遮、全暗、直射四種
+  條件下的原始讀值範圍，以及據此決定的兩組 threshold 與 `R_fix`。韌體把
+  raw ≤ 10 或 ≥ 4085 判為 `saturated` 且不觸發離席，因此整個關心的光照範圍
+  必須落在 raw 11–4084 之間——這一點只能實機確認。
+- **「任一通道變暗」的實機行為**：遮住通道 2、通道 1 維持亮的情況下是否
+  如預期進入 AWAY；`deciding_channel` 是否正確指向被遮的那顆。
+- **單通道降級**：只接一顆、或第二顆中途拔除時，另一顆是否照常運作
+  （host test 已覆蓋合併邏輯，但 ADC 在實體未接線時的浮動讀值行為未知——
+  未接線的 ADC 腳未必落在 saturated 區間，這正是每通道 enable 存在的理由）。
+- **v1 → v2 設定遷移的實機路徑**：既有裝置 NVS 內若存有 v1 記錄，OTA 後是否
+  保住原本的 threshold 與 durations。目前只有 host test 覆蓋解碼與長度判別，
+  沒有在真實 NVS 上跑過。
+- AWAY／PRESENT debounce 的實機時序、白屏 sleep 與返回重繪、環境頁的
+  browser 行為——這些在 2026-07-31 就已列為未驗證，本次變更未改變其狀態。
