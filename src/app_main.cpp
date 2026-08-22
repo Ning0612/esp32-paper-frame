@@ -1496,12 +1496,20 @@ extern "C" void app_main()
         if (!has_displayable_image && presence_snapshot_read &&
             presence_snapshot.ip_address[0] != '\0' &&
             std::strcmp(presence_snapshot.ip_address, welcome_frame_ip) !=
-                0 &&
-            carousel.request_welcome_redraw(now_ms)) {
-            ESP_LOGI(
-                kTag,
-                "carousel_welcome_redraw_for_ip ip=%s",
-                presence_snapshot.ip_address);
+                0) {
+            // The condition stays true for as long as the displayed frame
+            // lacks the address, so this is asked every tick. Log only when
+            // the request actually brought the deadline forward, or a
+            // failure backoff would fill the diagnostics ring with one
+            // identical entry per second.
+            const std::uint64_t due_before = carousel.next_due_ms();
+            if (carousel.request_welcome_redraw(now_ms) &&
+                carousel.next_due_ms() != due_before) {
+                ESP_LOGI(
+                    kTag,
+                    "carousel_welcome_redraw_for_ip ip=%s",
+                    presence_snapshot.ip_address);
+            }
         }
 
         const pf_carousel::CarouselDecision decision =

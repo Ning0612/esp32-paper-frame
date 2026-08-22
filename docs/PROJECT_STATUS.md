@@ -40,6 +40,12 @@ security profile 與 MVP 以外功能的產品決策。
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
+已知遺留缺陷（有記錄、尚未修）：`DisplayOutcome` 把「畫面已刷上去」與「面板已
+成功 sleep」混為一談，導致 sleep 失敗時會重刷一張已經正確的畫面。既有行為，
+影響已由 welcome 重試的指數退避壓制；正確修法需拆開結果契約並取代 ADR-0003 的
+driver contract，詳見
+[ADR-0015 Update 2026-08-23](adr/0015-first-image-waits-for-ntp-and-weather.md)。
+
 2026-08-20 已閉環（證據見[硬體驗證紀錄](hardware/VALIDATION.md)同日段落）：
 OTA 端到端與 rollback confirmation、WebUI 隨韌體換版、reboot persistence、
 OTA worker stack high-water、active OTA upload wrapper 的 slot 選擇、面板刷新

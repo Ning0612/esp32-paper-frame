@@ -26,6 +26,22 @@ struct CarouselItem {
     bool shown_once;
 };
 
+// How long the *first* failed welcome refresh waits before being retried,
+// instead of the full carousel interval. Roughly one panel refresh (a full
+// e-paper refresh measures ~31 s): short enough that a transient failure
+// does not strand a blank or known-wrong panel.
+//
+// Each consecutive failure doubles the wait, capped at the normal carousel
+// interval. That cap matters more than it looks: an outcome that is not
+// refreshed_and_slept can mean the frame *did* reach the panel and only the
+// deep-sleep step failed, in which case every retry is a full refresh of a
+// picture that is already correct. A fixed short retry would turn that into
+// roughly 1,400 refreshes a day against a panel with a finite refresh life;
+// backing off to the carousel interval bounds a persistent fault at the
+// cadence the device would have used anyway, while still recovering from a
+// one-off failure in 30 seconds.
+inline constexpr std::uint64_t kWelcomeRetryMs = 30U * 1000U;
+
 enum class DecisionKind : std::uint8_t {
     wait,
     display_image,
@@ -171,11 +187,12 @@ public:
             return false;
         }
 
+        const bool was_welcome =
+            active_decision_.kind == DecisionKind::display_welcome;
         in_flight_ = false;
         if (succeeded) {
             has_current_ = true;
-            current_is_welcome_ =
-                active_decision_.kind == DecisionKind::display_welcome;
+            current_is_welcome_ = was_welcome;
             if (current_is_welcome_) {
                 // Whatever made the previous welcome frame stale is now on
                 // the panel.
@@ -187,8 +204,33 @@ public:
             if (active_decision_.reason == DecisionReason::manual) {
                 manual_pending_ = false;
             }
+            welcome_retry_backoff_ = false;
+            welcome_failure_count_ = 0U;
+            next_due_ms_ = add_interval(completed_at_ms);
+            return true;
         }
-        next_due_ms_ = add_interval(completed_at_ms);
+
+        // A failed welcome refresh leaves the panel showing either nothing
+        // (boot, before anything has been drawn) or a frame already known
+        // to be wrong -- a stale address, or the blank frame an away
+        // transition put there. Waiting out a whole carousel interval, up
+        // to 24 h at the configured maximum, would strand it in that state,
+        // so a failed welcome retries on a short fixed delay instead.
+        //
+        // A failed image is deliberately left on the normal interval: the
+        // previous image is still on the panel and perfectly readable, so
+        // there is nothing to rescue and retrying hard would only burn
+        // refreshes against a panel that just failed one.
+        welcome_retry_backoff_ = was_welcome;
+        if (was_welcome) {
+            if (welcome_failure_count_ <
+                std::numeric_limits<std::uint32_t>::max()) {
+                ++welcome_failure_count_;
+            }
+            next_due_ms_ = add_welcome_retry(completed_at_ms);
+        } else {
+            next_due_ms_ = add_interval(completed_at_ms);
+        }
         return true;
     }
 
@@ -233,15 +275,28 @@ public:
     // Refused while a decision is in flight, for the same reason
     // force_immediate() is: complete()/abandon() rely on that guard, so the
     // caller must retry once the in-flight decision resolves. Also refused
-    // when the panel is not showing a welcome frame -- a real image already
-    // carries a status bar rendered at its own refresh.
+    // when a real image is on the panel -- that image carries a status bar
+    // rendered at its own refresh, so there is nothing here to fix.
+    //
+    // Deliberately allowed when nothing has been displayed yet: that is the
+    // state after the very first welcome frame failed to refresh, and it is
+    // exactly when the panel most needs another attempt.
     bool request_welcome_redraw(const std::uint64_t now_ms)
     {
-        if (in_flight_ || !has_current_ || !current_is_welcome_) {
+        if (in_flight_ || (has_current_ && !current_is_welcome_)) {
             return false;
         }
         welcome_stale_ = true;
-        next_due_ms_ = now_ms;
+        // Never pull a failure backoff forward. The caller re-evaluates its
+        // condition every tick, so without this a permanently failing panel
+        // would have the kWelcomeRetryMs deadline reset to "now" one tick
+        // after every failure -- turning the backoff into a continuous
+        // refresh loop. A deadline that is merely the ordinary carousel
+        // interval is still pulled forward: that is the whole point of the
+        // redraw when the address changes right after a successful frame.
+        if (!welcome_retry_backoff_ || now_ms >= next_due_ms_) {
+            next_due_ms_ = now_ms;
+        }
         return true;
     }
 
@@ -318,6 +373,9 @@ private:
             active_sequence_,
         };
         in_flight_ = true;
+        // The backoff has done its job once the retry is actually issued;
+        // complete() sets it again if this attempt also fails.
+        welcome_retry_backoff_ = false;
         return active_decision_;
     }
 
@@ -346,6 +404,30 @@ private:
                        (std::numeric_limits<std::uint64_t>::max() - duration)
                    ? std::numeric_limits<std::uint64_t>::max()
                    : timestamp_ms + duration;
+    }
+
+    // kWelcomeRetryMs doubled once per consecutive failure already counted,
+    // capped at the normal carousel interval so a persistent fault settles
+    // at the cadence the device would have refreshed at anyway.
+    std::uint64_t welcome_retry_delay_ms() const
+    {
+        const std::uint64_t cap = interval_ms();
+        std::uint64_t delay = kWelcomeRetryMs;
+        for (std::uint32_t doubled = 1U;
+             doubled < welcome_failure_count_ && delay < cap;
+             ++doubled) {
+            delay *= 2U;
+        }
+        return delay > cap ? cap : delay;
+    }
+
+    std::uint64_t add_welcome_retry(const std::uint64_t timestamp_ms) const
+    {
+        const std::uint64_t delay = welcome_retry_delay_ms();
+        return timestamp_ms >
+                       (std::numeric_limits<std::uint64_t>::max() - delay)
+                   ? std::numeric_limits<std::uint64_t>::max()
+                   : timestamp_ms + delay;
     }
 
     std::size_t sequential_start(
@@ -468,6 +550,14 @@ private:
     // Set by request_welcome_redraw(); cleared once the replacement welcome
     // frame is actually on the panel.
     bool welcome_stale_ = false;
+    // True while next_due_ms_ holds a kWelcomeRetryMs backoff from a failed
+    // welcome refresh, as opposed to an ordinary carousel interval. Only
+    // the former is protected from being pulled forward by a redraw
+    // request; see request_welcome_redraw().
+    bool welcome_retry_backoff_ = false;
+    // Consecutive failed welcome refreshes; drives the doubling in
+    // welcome_retry_delay_ms(). Reset by any successful refresh.
+    std::uint32_t welcome_failure_count_ = 0U;
     std::uint32_t current_image_id_ = 0U;
     bool manual_pending_ = false;
     std::uint32_t manual_image_id_ = 0U;
