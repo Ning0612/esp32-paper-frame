@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | 僅剩正式 180／30 debounce 的實際計時（機制已以 10／1 縮時驗證）。DHT22 讀值、雙通道 ADC 校正、AWAY/PRESENT 轉換、AND 合併語意、白屏與返回重繪均已於 2026-08-23 實機閉環；DHT22 拔除回 `null` 以使用者回報為準 | 2026-08-23 Phase 7 感測器實機驗證 |
+| Phase 7 sensors | 僅剩正式 180／30 debounce 的實際計時（機制已以 10／1 縮時驗證）。DHT22 讀值與拔除降級（兩條路徑）、雙通道 ADC 校正、AWAY/PRESENT 轉換、AND 合併語意、白屏與返回重繪均已於 2026-08-23 實機閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
@@ -2770,3 +2770,72 @@ dht=not_detected  t=None rh=None
 狀態轉 `stale`——這是 ADR-0006 的設計（帶標記的舊值不等於偽造的新鮮值），但沒有
 實跑過。要關掉這一項需要：插回 DHT22 → 等一次成功讀取 → **不斷電**直接拔除 →
 確認狀態為 `stale` 且 `stale: true` 旗標存在。
+
+### 同日補充：DHT22 讀取失敗的狀態回報 — 抓到並修正兩個缺陷
+
+補驗「讀到過之後才拔除」（`has_reading == true`）那條路徑時抓到兩個缺陷。
+兩者都只有實機才會現形：host test 從未走過「重試之間的 tick」。
+
+#### 缺陷 1：死掉的感測器大部分時間回報 `online`
+
+拔除前剛成功讀到 26.8 °C / 64.2 %，拔掉資料線（未斷電）後：
+
+```
+t= 0.2s  dht=online  t=26.8 rh=64.2
+t= 4.4s  dht=stale   t=26.8 rh=64.2   ← 讀取失敗的那個 tick
+t=19.8s  dht=online  t=26.8 rh=64.2   ← 又跳回 online
+t=43.8s  dht=stale   t=26.8 rh=64.2
+t=63.1s  dht=online  t=26.8 rh=64.2
+```
+
+可排除「感測器短暫接通」：溫溼度全程完全相同，`today.temperature_max_c`
+也維持 27.3；若真的讀取成功，值會變動且 `consecutive_failures` 會歸零。
+
+根因：`sample_environment()` 的非重試分支只用快取年齡
+（`environment_stale()`，上限 300 秒）判定狀態，**完全忽略
+`consecutive_failures`**。於是只有重試的那個 tick 回 `stale`，其餘 tick 回
+`online`——狀態取決於呼叫端剛好在哪個 tick 發問。違反 AGENTS.md 的
+「讀取失敗要降級運作…不得沿用歷史值」。
+
+#### 缺陷 2：`stale` 旗標與 `status` 自相矛盾
+
+原始 JSON：
+
+```json
+{"status": "stale", "temperature_c": 26.8, "humidity_percent": 64.2, "stale": false}
+```
+
+根因：`dashboard_serializer.hpp` 的旗標寫成
+`environment_online && environment_stale_flag`，被 `status == online` 卡住，
+於是只可能在「status 是 online 且快取過期」時為 true——而那個組合正是缺陷 1
+修好後不該存在的。旗標在它該描述的情況下被強制為 `false`。
+
+#### 修正
+
+新增 header-only 純函式，狀態與序列化共用同一判準，不可能再互相矛盾：
+
+```cpp
+inline bool environment_reading_current(cache, now_epoch_s, max_age)
+{
+    return cache.has_reading && cache.consecutive_failures == 0U &&
+           !environment_stale(cache, now_epoch_s, max_age);
+}
+```
+
+一次讀取失敗之後就不再算 current。**值仍然回傳但帶 `stale: true`**——ADR-0006
+的設計是「有明確標記的舊值」，與「偽裝成新鮮的值」是兩回事。
+
+#### 修正後實機複驗（相同情境）
+
+```json
+{"status": "stale", "temperature_c": 26.5, "humidity_percent": 65.5, "stale": true}
+```
+
+連續 50 秒 **24/24 個樣本全部維持 `stale`，不再跳回 `online`**；`stale` 旗標與
+`status` 一致。開機後從未讀到的路徑仍正確回 `probing`／`not_detected` 與全
+`null`。
+
+host tests：新增 4 個 `test_environment_sensor` 案例（失敗後不再 current、
+恢復後回到 online、年齡本身仍會使其非 current、空快取回 probing）與 1 個
+`test_dashboard_serializer` 案例（`status` 與 `stale` 不得矛盾）。已 mutation
+驗證：改回「只看年齡」的舊邏輯後 2 個測試如預期變紅。全專案 356/356 通過。
