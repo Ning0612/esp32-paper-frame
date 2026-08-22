@@ -387,3 +387,24 @@ if ($LASTEXITCODE -ne 0) {
 恢復命令也必須回報 `Hash of data verified.`。確認一般 app 已重新枚舉後，
 才可刪除 backup；電子紙會保留最後畫面，
 恢復一般 app 不會立即清除已顯示的六色色帶。
+
+## 實測補充（2026-08-23，第一次走完整新板流程）
+
+- **新板不一定聽 esptool 的自動重置**。出廠韌體若用 USB-OTG（TinyUSB CDC，
+  hardware ID `303A:4001`）而非內建 USB Serial/JTAG（`303A:1001`），
+  `--before usb-reset`、`default-reset`、`no-reset` 三種都會失敗並回報
+  `No serial data received`。這不是線材或 port 選錯，直接改用下方「首次或
+  復原時進入 ROM」的 BOOT+RST 手動流程即可。進 ROM 後 port 會重新枚舉成
+  `303A:1001`，**COM 編號會變**，要重新辨識。
+- **燒完記得把 GPIO0 的接地線拔掉**。留著的話後續 hard reset 仍會落回
+  `boot:0x21 (DOWNLOAD(USB/UART0))`，開機 log 只有 `waiting for download`，
+  看起來像燒錄失敗——實際上四個區段可能早就 `Hash of data verified.` 了。
+  正常啟動應為 `boot:0x29 (SPI_FAST_FLASH_BOOT)`。
+- 已在 ROM 裡時，後續 esptool 命令用 `--before no-reset` 即可，不需要再
+  觸發一次 usb-reset。
+- 新板**必須**燒 factory imagefs image：`filesystem_manager.cpp` 的
+  littlefs 設定是 `format_if_mount_failed = false`，空白 flash 不會被自動
+  格式化，不燒的話 `imagefs` 會掛載失敗。
+
+完整的一次實測紀錄（含晶片驗證、開機 log 與各區段 hash 結果）見
+[VALIDATION.md](VALIDATION.md) 的 2026-08-23 段落。

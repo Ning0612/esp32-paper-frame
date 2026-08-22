@@ -393,6 +393,134 @@ void test_force_immediate_is_refused_while_a_decision_is_in_flight()
     TEST_ASSERT_EQUAL_UINT64(200U, scheduler.next_due_ms());
 }
 
+// Drives an empty-library scheduler until the welcome frame is on the
+// panel and poll() has settled into its park-forever state.
+CarouselScheduler welcome_displayed_scheduler()
+{
+    CarouselScheduler scheduler;
+    const CarouselDecision welcome = scheduler.poll(0U, nullptr, 0U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_welcome),
+        static_cast<int>(welcome.kind));
+    complete_success(scheduler, welcome, 0U);
+    return scheduler;
+}
+
+// Regression guard for the behaviour the redraw hook must not break: with
+// an empty library the welcome frame is drawn once and then never again on
+// its own, however far the clock runs.
+void test_welcome_is_shown_once_while_the_library_stays_empty()
+{
+    CarouselScheduler scheduler = welcome_displayed_scheduler();
+
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::wait),
+        static_cast<int>(scheduler.poll(1U, nullptr, 0U).kind));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::wait),
+        static_cast<int>(
+            scheduler.poll(600U * kMinuteMs, nullptr, 0U).kind));
+}
+
+// The device IP is drawn on the welcome frame's status bar, and at boot it
+// is not known yet. Without this the panel would never show the address.
+void test_welcome_redraw_reissues_the_welcome_frame()
+{
+    CarouselScheduler scheduler = welcome_displayed_scheduler();
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::wait),
+        static_cast<int>(scheduler.poll(1U, nullptr, 0U).kind));
+
+    TEST_ASSERT_TRUE(scheduler.request_welcome_redraw(2U));
+    const CarouselDecision redraw = scheduler.poll(2U, nullptr, 0U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_welcome),
+        static_cast<int>(redraw.kind));
+
+    // Once the replacement is on the panel the scheduler parks again, so a
+    // single address change costs exactly one refresh.
+    complete_success(scheduler, redraw, 3U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::wait),
+        static_cast<int>(
+            scheduler.poll(600U * kMinuteMs, nullptr, 0U).kind));
+}
+
+// An abandoned redraw must stay pending: dropping it would leave the stale
+// address on the panel with nothing left to trigger another attempt.
+void test_welcome_redraw_survives_an_abandoned_decision()
+{
+    CarouselScheduler scheduler = welcome_displayed_scheduler();
+    TEST_ASSERT_TRUE(scheduler.request_welcome_redraw(2U));
+
+    const CarouselDecision redraw = scheduler.poll(2U, nullptr, 0U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_welcome),
+        static_cast<int>(redraw.kind));
+    TEST_ASSERT_TRUE(scheduler.abandon(redraw, 5U));
+
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_welcome),
+        static_cast<int>(scheduler.poll(5U, nullptr, 0U).kind));
+}
+
+void test_welcome_redraw_is_refused_when_no_welcome_is_displayed()
+{
+    // Nothing displayed yet.
+    CarouselScheduler fresh;
+    TEST_ASSERT_FALSE(fresh.request_welcome_redraw(1U));
+
+    // A real image is on the panel: its status bar is redrawn at every
+    // rotation, so there is nothing for this to fix.
+    CarouselItem items[1] = {item(7U)};
+    CarouselScheduler scheduler;
+    const CarouselDecision image = scheduler.poll(0U, items, 1U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_image),
+        static_cast<int>(image.kind));
+    complete_success(scheduler, image, 0U);
+    const std::uint64_t due_before = scheduler.next_due_ms();
+    TEST_ASSERT_FALSE(scheduler.request_welcome_redraw(1U));
+    TEST_ASSERT_EQUAL_UINT64(due_before, scheduler.next_due_ms());
+}
+
+// Same in-flight guard as force_immediate(): complete()/abandon() rely on
+// it, so the caller has to retry after the in-flight decision resolves.
+void test_welcome_redraw_is_refused_while_a_decision_is_in_flight()
+{
+    CarouselScheduler scheduler = welcome_displayed_scheduler();
+    TEST_ASSERT_TRUE(scheduler.request_welcome_redraw(2U));
+    const CarouselDecision redraw = scheduler.poll(2U, nullptr, 0U);
+    TEST_ASSERT_TRUE(scheduler.in_flight());
+
+    const std::uint64_t due_before = scheduler.next_due_ms();
+    TEST_ASSERT_FALSE(scheduler.request_welcome_redraw(99U));
+    TEST_ASSERT_EQUAL_UINT64(due_before, scheduler.next_due_ms());
+
+    complete_success(scheduler, redraw, 100U);
+    TEST_ASSERT_TRUE(scheduler.request_welcome_redraw(200U));
+    TEST_ASSERT_EQUAL_UINT64(200U, scheduler.next_due_ms());
+}
+
+// A real image appearing wins over a pending redraw, and the pending flag
+// must not then resurrect the welcome frame over that image.
+void test_welcome_redraw_does_not_override_a_newly_available_image()
+{
+    CarouselScheduler scheduler = welcome_displayed_scheduler();
+    TEST_ASSERT_TRUE(scheduler.request_welcome_redraw(2U));
+
+    CarouselItem items[1] = {item(7U, false)};
+    const CarouselDecision image = scheduler.poll(2U, items, 1U);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::display_image),
+        static_cast<int>(image.kind));
+    complete_success(scheduler, image, 3U);
+
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(DecisionKind::wait),
+        static_cast<int>(scheduler.poll(4U, items, 1U).kind));
+}
+
 }  // namespace
 
 void setUp()
@@ -425,5 +553,12 @@ int main(int, char**)
     RUN_TEST(test_force_immediate_makes_the_next_poll_issue_a_decision);
     RUN_TEST(
         test_force_immediate_is_refused_while_a_decision_is_in_flight);
+    RUN_TEST(test_welcome_is_shown_once_while_the_library_stays_empty);
+    RUN_TEST(test_welcome_redraw_reissues_the_welcome_frame);
+    RUN_TEST(test_welcome_redraw_survives_an_abandoned_decision);
+    RUN_TEST(test_welcome_redraw_is_refused_when_no_welcome_is_displayed);
+    RUN_TEST(
+        test_welcome_redraw_is_refused_while_a_decision_is_in_flight);
+    RUN_TEST(test_welcome_redraw_does_not_override_a_newly_available_image);
     return UNITY_END();
 }

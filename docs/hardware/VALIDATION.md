@@ -2504,3 +2504,96 @@ success（run 32347525634）。
   沒有在真實 NVS 上跑過。
 - AWAY／PRESENT debounce 的實機時序、白屏 sleep 與返回重繪、環境頁的
   browser 行為——這些在 2026-07-31 就已列為未驗證，本次變更未改變其狀態。
+
+## 2026-08-23 — 新板初始化燒錄：完整流程實機通過
+
+第一次依 [FLASHING.md](FLASHING.md)「新裝置首次燒錄」對一塊全新
+ESP32-S3-N16R8 走完整流程，該節文件在本次之前只有推導、沒有實跑證據。
+
+### 進 ROM 的實際情況
+
+新板出廠韌體用的是 **USB-OTG（TinyUSB CDC，`303A:4001`）**，不是內建的
+USB Serial/JTAG，因此 esptool 的 `--before usb-reset`／`default-reset`／
+`no-reset` 三種方式**全部失敗**（`No serial data received`）。必須依
+FLASHING.md「首次或復原時進入 ROM」用 BOOT+RST 手動進 ROM；進入後 port
+重新枚舉為 `303A:1001`（USB Serial/JTAG），COM 編號也換了一個。
+
+**同一個坑要記住**：進 ROM 用的 GPIO0 接地線若沒拔掉，後續 hard reset 會
+再次落回 download mode（`boot:0x21 (DOWNLOAD(USB/UART0))`），看起來像燒錄
+失敗，其實燒錄早就成功了。拔掉後為 `boot:0x29 (SPI_FAST_FLASH_BOOT)`。
+
+### 燒錄與驗證結果
+
+| 區段 | 位址 | 結果 |
+| --- | --- | --- |
+| bootloader | `0x0` | ✅ `Hash of data verified.` |
+| partition table | `0x8000` | ✅ `Hash of data verified.` |
+| firmware（`ota_0`） | `0x10000` | ✅ `Hash of data verified.` |
+| OTA metadata | `0xd000` | ✅ `erase-region 0xd000 0x2000` |
+| factory imagefs | `0x630000` | ✅ 10,289,152 bytes = `0x9D0000`，與 partition 大小完全吻合 |
+
+燒錄前以 esptool 驗證晶片：ESP32-S3、**16 MB flash**、**Embedded PSRAM 8MB
+(AP_3v3)**。partition CSV 的 SHA-256 為 `427fd414…5870`，與 ADR-0004 凍結值
+一致。
+
+開機 log 確認：QIO / 80 MHz / 16 MB；octal PSRAM 8 MB @ 80 MHz、
+`SPI SRAM memory test OK`；partition table 八個分割區與 CSV 完全一致；
+`Loaded app from partition at offset 0x10000`；
+`filesystem=imagefs mounted=true total=10289152 used=8192`；
+`rollback_confirmed=ESP_OK`；`carousel_request=1 outcome=1`
+（`refreshed_and_slept`，面板實際完成一次全刷）；
+`provisioning_ap_ready ssid=PaperFrame-Setup-… ip=192.168.4.1`。
+
+### 這塊板從出廠就有回滾保護
+
+已確認燒進去的 bootloader binary 是由目前設定建置：
+`.pio/build/paperframe-s3/bootloader/config/sdkconfig.h:339` 有
+`#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1`。舊板需要手動補燒
+bootloader 才有回滾保護（見 2026-08-20 rollback fault injection 段落），
+**在 2026-08-01 之後才首次燒錄的新板不需要**。
+
+### 本次發現的產品缺陷（已修，尚未實機驗證）
+
+空圖庫的裝置永遠看不到自己的區網 IP：welcome frame 的狀態列印著 IP，但
+開機時 Wi-Fi 還沒拿到位址，而 `CarouselScheduler::poll()` 在圖庫為空且
+welcome 已顯示後會永久停住，不再刷新。使用者因此無法得知位址、進不了
+WebUI 上傳第一張圖。修正見
+[ADR-0015 Update 2026-08-23](../adr/0015-first-image-waits-for-ntp-and-weather.md)。
+**修正本身只有 host test（340/340）與 mutation 驗證，配網 → 取得 IP →
+面板重畫的完整流程尚未在裝置上跑過。**
+
+### 同日補充：welcome frame 取得 IP 後重畫 — 實機驗證通過
+
+本文件同日稍早那段記錄「修正本身只有 host test 與 mutation 驗證，配網 →
+取得 IP → 面板重畫的完整流程尚未在裝置上跑過」——該項**已於同日完成實機驗證**，
+以本段為準。
+
+裝置：新板（已完成首次燒錄），已設定 Wi-Fi 與管理密碼，**圖庫為空**
+（`imagefs used=8192`），韌體 `v0.9.3-4-g62766c9-dirty`。
+
+```
+I (808)   paperframe: carousel_welcome_queued request=1
+I (1968)  wifi:state: init -> auth
+I (3038)  esp_netif_handlers: sta ip: <REDACTED>, mask: 255.255.255.0
+I (31878) paperframe: carousel_request=1 outcome=1 next_due_ms=1831178
+I (31878) paperframe: carousel_welcome_redraw_for_ip ip=<REDACTED>
+I (31898) paperframe: carousel_welcome_queued request=2
+I (63898) paperframe: carousel_request=2 outcome=1 next_due_ms=1863198
+```
+
+確認的行為：
+
+| 觀察 | 意義 |
+| --- | --- |
+| 第一張 welcome 在 t≈0.8s 送出，IP 在 t≈3.0s 才到 | 重現了原始缺陷的成因：畫面畫好時位址還不存在 |
+| `carousel_welcome_redraw_for_ip` 出現在 t=31.878s，與第一次刷新完成同一時刻 | 刷新進行中 `request_welcome_redraw()` 依 in-flight 保護拒絕，下一個 tick 才成功——重試路徑如設計運作 |
+| 第二次 `outcome=1`（`refreshed_and_slept`） | 帶著 IP 的畫面確實刷上面板 |
+| `next_due_ms=1863198`（約 30 分鐘後） | 重畫後排程器重新停住，**一次位址變更只換一次刷新**，沒有反覆刷 |
+
+修正前的行為是：第一次刷新之後 `poll()` 永久回傳
+`wait_decision(UINT64_MAX)`，面板永遠停在沒有 IP 的歡迎畫面。
+
+使用者於同日目視確認面板實際顯示內容：**IP、天氣資訊與日期均正確顯示**。
+
+**仍未驗證**：presence 返回時的 welcome 重畫（需要光敏電阻，見 Phase 7 待驗證
+項）；DHCP 續約導致位址變更時的重畫。

@@ -151,7 +151,7 @@ public:
             return issue_image(now_ms, *selected, reason);
         }
 
-        if (has_current_ && current_is_welcome_) {
+        if (has_current_ && current_is_welcome_ && !welcome_stale_) {
             return wait_decision(
                 std::numeric_limits<std::uint64_t>::max());
         }
@@ -176,6 +176,11 @@ public:
             has_current_ = true;
             current_is_welcome_ =
                 active_decision_.kind == DecisionKind::display_welcome;
+            if (current_is_welcome_) {
+                // Whatever made the previous welcome frame stale is now on
+                // the panel.
+                welcome_stale_ = false;
+            }
             if (!current_is_welcome_) {
                 current_image_id_ = active_decision_.image_id;
             }
@@ -211,6 +216,31 @@ public:
         if (in_flight_) {
             return false;
         }
+        next_due_ms_ = now_ms;
+        return true;
+    }
+
+    // Marks the welcome frame currently on the panel as stale so the next
+    // poll() issues it again.
+    //
+    // While the library is empty the welcome frame is drawn exactly once
+    // and poll() then parks on an infinite deadline -- correct for its
+    // static content, wrong for the status bar overlaid on it. At boot that
+    // frame is drawn before Wi-Fi has an address, so without a way to
+    // redraw it a device with no images would never show the IP its owner
+    // needs to reach the WebUI and upload the first image.
+    //
+    // Refused while a decision is in flight, for the same reason
+    // force_immediate() is: complete()/abandon() rely on that guard, so the
+    // caller must retry once the in-flight decision resolves. Also refused
+    // when the panel is not showing a welcome frame -- a real image already
+    // carries a status bar rendered at its own refresh.
+    bool request_welcome_redraw(const std::uint64_t now_ms)
+    {
+        if (in_flight_ || !has_current_ || !current_is_welcome_) {
+            return false;
+        }
+        welcome_stale_ = true;
         next_due_ms_ = now_ms;
         return true;
     }
@@ -435,6 +465,9 @@ private:
     std::uint64_t next_due_ms_ = 0U;
     bool has_current_ = false;
     bool current_is_welcome_ = false;
+    // Set by request_welcome_redraw(); cleared once the replacement welcome
+    // frame is actually on the panel.
+    bool welcome_stale_ = false;
     std::uint32_t current_image_id_ = 0U;
     bool manual_pending_ = false;
     std::uint32_t manual_image_id_ = 0U;
