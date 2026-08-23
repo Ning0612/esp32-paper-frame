@@ -2889,8 +2889,8 @@ release 於本日發布後在實機執行。裝置韌體 `v0.10.0`，圖庫 21 �
 | `rollback_confirmed=ESP_OK` | **通過**，兩次重開機都在 boot log 出現（`I (1238) paperframe: rollback_confirmed=ESP_OK`、`I (1158) …`），`reboot_reason=software_reset`，app 由 `0x10000`（`ota_0`）載入 |
 | bootloader 回滾能力 | **沿用 2026-08-20 該裝置的驗證紀錄**。本次 release 未觸及 bootloader、partition table 或 rollback 相關程式碼——`git diff main..HEAD` 對 `sdkconfig.defaults`、`partitions/`、`CMakeLists.txt` 為空，`app_main.cpp` 內 rollback／`mark_app_valid` 呼叫未改動，符合 checklist 的跳過條件 |
 | OTA 檢查更新 | **通過**，且是一次前後對照：release 發布**前**檢查回報「最新版本 v0.9.3／已是最新」（`v0.10.0 > v0.9.3` 的數值比較正確，未落入字典序陷阱）；發布**後**再檢查回報「最新版本 v0.10.0／已是最新」。證明裝置能連到 GitHub Releases、解析新 release 並正確比較版本 |
-| OTA 下載與安裝 | **本次無法執行**：裝置已是 `v0.10.0`，沒有更新的版本可下載。端到端更新與 rollback confirmation 的實機證據見 2026-08-20 段落 |
-| WebUI 版本一致性 | **通過**（限於本次條件）：瀏覽器載入的前端來自執行中的 v0.10.0 app image。OTA 換版後的一致性未在本次驗證，理由同上 |
+| OTA 下載與安裝 | **通過**，見下方「OTA 端到端」段落。先以降版韌體燒入建立可更新的起點 |
+| WebUI 版本一致性 | **通過**，且經 OTA 換版驗證：更新後取得的 `/ui.js` 含 `light2_threshold`（雙通道欄位，v0.10.0 才有） |
 | System 頁操作 | 重新整理、檢查更新、重新啟動裝置**已在真實瀏覽器觸發並回應符合預期**（重新啟動含 confirm 對話框）。「立即更新」因已是最新無法觸發；「更新管理密碼」未觸發，避免更動裝置密碼 |
 | STA 已連線時不提供手動 Recovery AP | **通過**。Wi-Fi `connected`／Internet `reachable` 狀態下，WebUI DOM 內不存在任何 Recovery AP 的操作入口 |
 
@@ -2920,3 +2920,34 @@ t≈42.2s→75.0s），以及一段約 30 秒面板顯示的不是 `current` 的
 `unknown → present` 不視為「返回」——只有 `away → present` 才是。這與
 [ADR-0006](../adr/0006-sensor-drivers-and-presence.md) 的 presence 轉換定義相關，
 修改前需要確認不會影響離席白屏後的正常返回路徑。
+
+
+### OTA 端到端（同日稍後）
+
+前一段的 OTA 下載無法執行，原因是裝置已經是被發布的版本。為了補上這格，把
+`kFirmwareVersion` **暫時**改成 `v0.9.9` 建置並以 USB 燒入（原始碼隨即還原成
+`v0.10.0`，此暫時值未進版控），讓裝置有一個真實的舊版起點。
+
+| 階段 | 觀察 |
+| --- | --- |
+| 檢查更新 | 「有新版本／最新版本 v0.10.0」，「立即更新」按鈕由 disabled 轉為可按 |
+| 下載與寫入 | `esp_https_ota: Writing to <ota_1> partition at offset 0x290000`——寫進**非作用中**的 slot（當時由 `ota_0` 開機），符合 A/B 設計 |
+| 耗時 | `Starting OTA` 18:06:05 → 重開機後 `Loaded app from partition` 18:06:18，約 **13 秒**完成 1.3 MB 的下載、寫入與重開機 |
+| 開機 slot | `boot: Loaded app from partition at offset 0x290000`＝`ota_1`，slot 確實切換 |
+| rollback 確認 | `rollback_confirmed=ESP_OK` |
+| 版本 | `GET /api/v1/device` 回報 `v0.10.0` |
+
+更新後的保留狀況（OTA **不得**清除使用者資料，ADR-0004／ADR-0016）：
+
+- `imagefs` 掛載後 `used=1875968`，與更新前完全相同
+- 21 張圖片、`order` 連續且未變、catalog `current` 仍是 id 19（`DSC07861.pfr1`）
+- 感測器設定（1200／1200／180／30）與顯示設定（30 分鐘、random）皆保留
+- 取得的 `/ui.js` 含 `light2_threshold`，證明前端跟著 app image 一起換版
+  （ADR-0016：WebUI 編在韌體裡，一次 OTA 同時更新兩者）
+
+heap 觀察：`ota_heap_headroom point=update_now_start internal_free=114279
+internal_largest=31744 dma_free=106395 dma_largest=31744`，
+`before_esp_https_ota_begin` 時 `internal_free=110855`。
+
+**裝置目前執行的是從 GitHub Release 下載的韌體，不是本機建置的 image**，
+且執行 slot 為 `ota_1`。
