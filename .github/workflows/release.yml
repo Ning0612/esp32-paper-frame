@@ -130,12 +130,21 @@ jobs:
             zip -r ../paperframe-licenses.zip .
           )
           rm -rf release-assets/licenses-staging
+          # Enclosure CAD ships with the firmware so a downloaded
+          # release is everything needed to build the device: STEP to
+          # modify, STL to print. Zipped for the same reason as the
+          # licence bundle -- the part list README links to siblings.
+          (
+            cd hardware
+            zip -r ../release-assets/paperframe-enclosure.zip enclosure
+          )
           (
             cd release-assets
             sha256sum \
               paperframe-firmware.bin \
               paperframe-partitions.csv \
               paperframe-licenses.zip \
+              paperframe-enclosure.zip \
               > SHA256SUMS
           )
           printf '%s\n' \
@@ -146,6 +155,7 @@ jobs:
             '- paperframe-firmware.bin is the app image used by device OTA.' \
             '- paperframe-partitions.csv records the partition layout used for this build.' \
             '- paperframe-licenses.zip: third-party asset attribution (weather icon bitmaps converted from erikflowers/weather-icons, SIL OFL-1.1) required to accompany this compiled firmware -- contains ASSET_CREDITS.md, THIRD_PARTY_NOTICES.md, and LICENSES/OFL-1.1.txt.' \
+            '- paperframe-enclosure.zip: 3D-printable enclosure CAD, STEP plus STL for every part, with a part list in hardware/enclosure/README.md.' \
             '- SHA256SUMS contains SHA-256 checksums for the release assets.' \
             '' \
             "- Hardware validation checklist: https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/docs/hardware/VALIDATION.md" \
@@ -163,6 +173,7 @@ jobs:
             release-assets/paperframe-firmware.bin
             release-assets/paperframe-partitions.csv
             release-assets/paperframe-licenses.zip
+            release-assets/paperframe-enclosure.zip
             release-assets/SHA256SUMS
           )
           release_args=(
