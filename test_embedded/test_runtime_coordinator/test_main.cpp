@@ -290,6 +290,7 @@ void test_runtime_queues_and_snapshot()
             .display_outcome =
                 pf_runtime::DisplayOutcome::refreshed_and_slept,
             .driver_stage = 10,
+            .frame_on_panel = true,
         };
         TEST_ASSERT_TRUE(runtime.try_publish_result(result));
     }
@@ -358,6 +359,7 @@ void test_runtime_queues_and_snapshot()
         .display_outcome =
             pf_runtime::DisplayOutcome::refreshed_and_slept,
         .driver_stage = 10,
+        .frame_on_panel = true,
     };
     const pf_runtime::RuntimeResult retained_second{
         .request_id = second_request_id,
@@ -424,6 +426,7 @@ void test_runtime_queues_and_snapshot()
             .display_outcome =
                 pf_runtime::DisplayOutcome::refreshed_and_slept,
             .driver_stage = 10,
+            .frame_on_panel = true,
         };
         TEST_ASSERT_TRUE(runtime.retain_terminal_result(completed));
         TEST_ASSERT_TRUE(

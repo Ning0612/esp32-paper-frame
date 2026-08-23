@@ -1129,7 +1129,10 @@ extern "C" void app_main()
     // so the caller does not have to care which result it consumed first.
     const auto note_frame_on_panel =
         [&](const std::uint32_t request_id, const bool is_blank) {
-        if (request_id <= panel_frame_request_id) {
+        // Wrap-safe: request ids restart at 1 after UINT32_MAX, so a
+        // plain `<=` would ignore every result from then on.
+        if (static_cast<std::int32_t>(request_id - panel_frame_request_id) <=
+            0) {
             return;
         }
         panel_frame_request_id = request_id;
@@ -1139,6 +1142,17 @@ extern "C" void app_main()
             // settled; leaving the flag armed would spend another full
             // refresh putting an image on a panel that already has one.
             pending_presence_force_immediate = false;
+            if (previous_presence == pf_sensors::PresenceState::away) {
+                // ...but the device is away, so this frame must not be
+                // what stays there. submit_presence_away_blank() treats an
+                // already-in-flight blank as "handled", which is wrong
+                // when a real frame was queued behind it: that frame lands
+                // last. Re-arm the blank instead of leaving the panel
+                // showing content while nobody is there. Reachable with
+                // the shortest configurable debounces (10 s away, 1 s
+                // return) against a ~31 s refresh.
+                pending_presence_away_blank = true;
+            }
         }
     };
 
@@ -1165,6 +1179,14 @@ extern "C" void app_main()
         const pf_display::SubmitStatus blank_submit =
             pf_display::display_task().try_submit_refresh(
                 blank_request_id, blank_frame);
+        if (blank_submit == pf_display::SubmitStatus::accepted) {
+            // Accepted means this frame is going to take the panel. The AP
+            // screen's claim has to drop now, not when the result is
+            // consumed a refresh later: a new AP session starting inside
+            // that window would see a stale claim, skip its refresh and
+            // bring the radio up over a blank panel.
+            ap_presenter.screen_cache.mark_superseded();
+        }
         if (blank_submit != pf_display::SubmitStatus::accepted) {
             xSemaphoreGive(ap_presenter.display_submission_mutex);
             ESP_LOGW(
@@ -1307,7 +1329,6 @@ extern "C" void app_main()
                     // sleep afterwards (ADR-0019), which is a power
                     // concern, not a reason to redraw the same blank.
                     note_frame_on_panel(completed_blank_id, true);
-                    ap_presenter.screen_cache.mark_superseded();
                     if (panel_shows_blank &&
                         previous_presence ==
                             pf_sensors::PresenceState::present) {
@@ -1347,12 +1368,6 @@ extern "C" void app_main()
                 const bool succeeded = terminal_result.frame_on_panel;
                 if (succeeded) {
                     note_frame_on_panel(active_carousel_request_id, false);
-                    // The AP instruction screen is no longer what the
-                    // panel shows, so its skip-the-refresh cache must not
-                    // claim it is: a later AP session in the same boot has
-                    // an unchanged payload and would otherwise start the
-                    // radio without redrawing.
-                    ap_presenter.screen_cache.mark_superseded();
                 }
                 carousel.complete(
                     active_carousel_decision,
@@ -1631,6 +1646,10 @@ extern "C" void app_main()
                         request_id,
                         frame);
                 if (submit == pf_display::SubmitStatus::accepted) {
+                    // See submit_presence_away_blank: the AP screen's claim
+                    // on the panel ends when another frame is accepted, not
+                    // when that frame's result is consumed.
+                    ap_presenter.screen_cache.mark_superseded();
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
                     // Record what this frame actually says, taken from the
@@ -1731,6 +1750,10 @@ extern "C" void app_main()
                         request_id,
                         frame);
                 if (submit == pf_display::SubmitStatus::accepted) {
+                    // See submit_presence_away_blank: the AP screen's claim
+                    // on the panel ends when another frame is accepted, not
+                    // when that frame's result is consumed.
+                    ap_presenter.screen_cache.mark_superseded();
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
                     first_real_image_pending = false;
