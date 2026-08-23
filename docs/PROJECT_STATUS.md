@@ -42,7 +42,7 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
-已知遺留缺陷（有記錄、尚未修）：`DisplayOutcome` 把「畫面已刷上去」與「面板已
+已知遺留缺陷（有記錄、尚未修）：開機時 presence 由 `unknown` 收斂到 `present` 會被當成「返回」而多觸發一次 31 秒全刷，裝置其實從未離席（2026-08-23 兩次重開機完整重現，見[硬體驗證紀錄](hardware/VALIDATION.md)同日 release gate 段落）。另一項：`DisplayOutcome` 把「畫面已刷上去」與「面板已
 成功 sleep」混為一談，導致 sleep 失敗時會重刷一張已經正確的畫面。既有行為，
 影響已由 welcome 重試的指數退避壓制；正確修法需拆開結果契約並取代 ADR-0003 的
 driver contract，詳見

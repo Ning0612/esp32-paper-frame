@@ -2874,3 +2874,49 @@ host tests：新增 4 個 `test_environment_sensor` 案例（失敗後不再 cur
 ADC 校正、AND 合併語意、AWAY／PRESENT 轉換（縮時與正式值）、離席白屏與返回重繪。
 **不含** `SensorSettings` v1→v2 的實機 NVS 遷移與只接一顆光敏電阻的降級——
 這兩項仍列在本檔頂端索引。
+
+
+## 2026-08-23 — v0.10.0 release gate（RELEASE_CHECKLIST §3）
+
+release 於本日發布後在實機執行。裝置韌體 `v0.10.0`，圖庫 21 張，輪播 random／
+30 分鐘，光敏門檻 1200／1200，離席／返回 180／30 秒。
+
+### 結果
+
+| 檢查項 | 結果 |
+| --- | --- |
+| 重開機 persistence | **通過**。兩次由 WebUI 觸發的重開機後，設定（`refresh_minutes=30`、`random=true`、四個感測器欄位）、21 張圖片、排序（`order` 連續且與重開機前一致）與 catalog 的 `current` 旗標都保留 |
+| `rollback_confirmed=ESP_OK` | **通過**，兩次重開機都在 boot log 出現（`I (1238) paperframe: rollback_confirmed=ESP_OK`、`I (1158) …`），`reboot_reason=software_reset`，app 由 `0x10000`（`ota_0`）載入 |
+| bootloader 回滾能力 | **沿用 2026-08-20 該裝置的驗證紀錄**。本次 release 未觸及 bootloader、partition table 或 rollback 相關程式碼——`git diff main..HEAD` 對 `sdkconfig.defaults`、`partitions/`、`CMakeLists.txt` 為空，`app_main.cpp` 內 rollback／`mark_app_valid` 呼叫未改動，符合 checklist 的跳過條件 |
+| OTA 檢查更新 | **通過**，且是一次前後對照：release 發布**前**檢查回報「最新版本 v0.9.3／已是最新」（`v0.10.0 > v0.9.3` 的數值比較正確，未落入字典序陷阱）；發布**後**再檢查回報「最新版本 v0.10.0／已是最新」。證明裝置能連到 GitHub Releases、解析新 release 並正確比較版本 |
+| OTA 下載與安裝 | **本次無法執行**：裝置已是 `v0.10.0`，沒有更新的版本可下載。端到端更新與 rollback confirmation 的實機證據見 2026-08-20 段落 |
+| WebUI 版本一致性 | **通過**（限於本次條件）：瀏覽器載入的前端來自執行中的 v0.10.0 app image。OTA 換版後的一致性未在本次驗證，理由同上 |
+| System 頁操作 | 重新整理、檢查更新、重新啟動裝置**已在真實瀏覽器觸發並回應符合預期**（重新啟動含 confirm 對話框）。「立即更新」因已是最新無法觸發；「更新管理密碼」未觸發，避免更動裝置密碼 |
+| STA 已連線時不提供手動 Recovery AP | **通過**。Wi-Fi `connected`／Internet `reachable` 狀態下，WebUI DOM 內不存在任何 Recovery AP 的操作入口 |
+
+### 發現：開機時多花一次全刷
+
+兩次重開機都完整重現同一序列（房間開燈、presence 最終為 `present`）：
+
+```
+[reboot 1]                                   [reboot 2]
+carousel_image_queued id=2  request=1        carousel_image_queued id=17 request=1
+carousel_request=1 outcome=1                 carousel_request=1 outcome=1
+presence_return_deadline_reset_deferred      presence_return_deadline_reset_deferred
+carousel_image_queued id=19 request=2        carousel_image_queued id=19 request=2
+carousel_request=2 outcome=1                 carousel_request=2 outcome=1
+```
+
+第一次刷新畫的是輪播當下的決定，完成的同時出現
+`presence_return_deadline_reset_deferred`，緊接著第二次刷新把 catalog 的
+`current`（兩次都是 id 19）畫上去。**裝置從未離席**——presence 在開機時由
+`unknown` 收斂到 `present`，這個轉換被當成「返回」而觸發重繪。
+
+代價是每次開機多一次 31 秒全刷（實測第一次刷新 t≈9.5s→41.9s，第二次
+t≈42.2s→75.0s），以及一段約 30 秒面板顯示的不是 `current` 的期間。
+
+**影響評估**：不影響資料正確性，最終顯示的仍是持久化的 `current`；成本是面板
+壽命與開機後多 30 秒才穩定。**未修**，列為已知行為。正確修法應該是讓
+`unknown → present` 不視為「返回」——只有 `away → present` 才是。這與
+[ADR-0006](../adr/0006-sensor-drivers-and-presence.md) 的 presence 轉換定義相關，
+修改前需要確認不會影響離席白屏後的正常返回路徑。
