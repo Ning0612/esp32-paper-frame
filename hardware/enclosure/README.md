@@ -15,9 +15,9 @@ STL 直接送切片軟體列印。組裝後的實機外觀見
 02 相框外框
 03 電子零件背板
    └─ 電子零件（ESP32-S3、感測器、配線）
-04 腳架
+04 腳架旋轉件
 05 相框背板
-06 腳架旋轉件
+06 腳架
 ```
 
 ## 零件
@@ -29,9 +29,9 @@ STL 直接送切片軟體列印。組裝後的實機外觀見
 | `01-screen-back-shell` | 螢幕背板殼 | 176 × 116 × 3 |
 | `02-outer-frame` | 相框外框 | 180 × 120 × 26 |
 | `03-electronics-back-panel` | 電子零件背板 | 176 × 116 × 4 |
-| `04-stand` | 腳架 | 16 × 11 × 16 |
+| `04-stand-pivot` | 腳架旋轉件 | 16 × 11 × 16 |
 | `05-frame-back-panel` | 相框背板 | 176 × 120 × 19 |
-| `06-stand-pivot` | 腳架旋轉件 | 30 × 88 × 4 |
+| `06-stand` | 腳架 | 30 × 88 × 4 |
 
 原始檔名對照（重新命名前）：
 
@@ -40,9 +40,9 @@ STL 直接送切片軟體列印。組裝後的實機外觀見
 | `01-screen-back-shell` | `epaper-screen-1` |
 | `02-outer-frame` | `epaper-screen-2` |
 | `03-electronics-back-panel` | `epaper-screen-4` |
-| `04-stand` | `epaper-screen-5` |
+| `04-stand-pivot` | `epaper-screen-5` |
 | `05-frame-back-panel` | `epaper-screen-3` |
-| `06-stand-pivot` | `epaper-screen-6` |
+| `06-stand` | `epaper-screen-6` |
 
 ## 已知限制
 
