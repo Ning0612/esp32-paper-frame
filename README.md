@@ -65,7 +65,7 @@ WebUI 全部資產（HTML／CSS／JS）都 gzip 後編進 app 韌體，不從任
 | --- | --- |
 | 已完成 | Phase 1–8 的程式、host tests 與韌體 build 全部完成。 |
 | 已實機驗證 | Phase 2–8 的實機證據已閉環：面板刷新與 sleep 電流、AP／STA 配網與存取邊界、browser 出圖管線、五種斷電路徑、天氣四種失敗分類、OTA 端到端與 rollback fault injection，以及 Phase 7 的 DHT22、雙光敏通道與在場判定。 |
-| 待驗證 | 三個領域、四條路徑，都是低優先：`SensorSettings` v1→v2 的實機遷移、只接一顆光敏電阻的降級、AP grace 的 presence 例外與低 DMA heap guard、NVS 滿導致 `pf_config` 開啟失敗。 |
+| 待驗證 | 四個領域、八條路徑，都是低優先：`SensorSettings` v1→v2 的實機遷移與只接一顆光敏電阻的降級；presence 返回重畫、DHCP 續約後的位址重畫與 welcome 刷新失敗重試；AP grace 的 presence 例外與低 DMA heap guard；NVS 滿導致 `pf_config` 開啟失敗。 |
 | 待決定 | production security profile（Secure Boot／Flash Encryption）與 MVP 以外的 P1 功能尚未納入開發。 |
 
 已知遺留缺陷（有記錄、尚未修）：`DisplayOutcome` 把「畫面已刷上去」與
@@ -200,12 +200,14 @@ GPIO4 已給 BUSY 不得再作 ADC。
 
 - 目標基線是 ESP32-S3-N16R8、16 MB Flash、8 MB octal PSRAM 與 7.3 吋
   800×480 E6 全彩電子紙；光敏與溫溼度感測器是可選周邊（見上方硬體段）。
-- WebUI 與圖片管理以離線優先為原則，不依賴外部 CDN 或後端服務。
+- WebUI 與圖片管理以離線優先為原則：所有前端資產編在韌體裡，圖片處理在
+  瀏覽器本機完成。唯一會連外的是天氣頁的地圖選點（OSM 圖磚）與天氣抓取
+  本身，兩者都可停用，停用後整套功能仍可在無網際網路的區網內運作。
 - 電子紙完整刷新預設 30 分鐘，可設 10 分鐘至 24 小時（1440 分鐘）；實測一次
   全刷約 31 秒，每次刷新後面板進入 sleep。31 秒是 E6 面板的物理特性，不是
   可調優的軟體延遲。
 - 未啟用 Secure Boot 與 Flash Encryption，僅適用於可信任 LAN 或裝置自身的 AP。
-- 仍有三個低優先的實機驗證缺口（見上方目前狀態）。
+- 仍有八條低優先的實機驗證路徑未閉環（見上方目前狀態）。
 - 真實裝置測試資料、裝置識別資訊與執行期 imagefs 不屬於公開 repository 內容。
 
 ## 開發基線

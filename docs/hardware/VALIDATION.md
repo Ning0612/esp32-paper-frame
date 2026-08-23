@@ -14,6 +14,7 @@
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
 | Phase 7 sensors | 感測器**行為**已於 2026-08-23 全部閉環（DHT22 讀值與兩條拔除降級路徑、雙通道 ADC 校正、AND 合併語意、AWAY/PRESENT 轉換含正式 180／30 計時、白屏與返回重繪）。仍待驗證：`SensorSettings` v1→v2 的實機 NVS 遷移；只接一顆光敏電阻（另一通道實體未接線）時的降級行為 | 2026-08-23 Phase 7 感測器實機驗證 |
+| Welcome／重繪生命週期 | presence 返回時的 welcome 重畫（需感測器實際觸發 AWAY→PRESENT 且圖庫為空）；DHCP 續約導致位址變更時的重畫；welcome 刷新失敗後的 30 秒短重試（需刻意讓面板刷新失敗）。開機取得位址後的重畫已於 2026-08-23 閉環 | [ADR-0015](../adr/0015-first-image-waits-for-ntp-and-weather.md)；2026-08-23 空圖庫 welcome 重畫 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
