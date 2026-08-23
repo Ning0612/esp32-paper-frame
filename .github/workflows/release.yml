@@ -159,7 +159,7 @@ jobs:
             '- SHA256SUMS contains SHA-256 checksums for the release assets.' \
             '' \
             "- Hardware validation checklist: https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/docs/hardware/VALIDATION.md" \
-            '- Hardware OTA, rollback, power-loss recovery, TLS, and heap high-water-mark validation remain manual.' \
+            '- Hardware OTA, rollback, power-loss recovery, TLS, and heap high-water-mark checks are verified by hand, not by CI; see the validation record above for what has evidence and what does not.' \
             > release-assets/release-notes.md
 
       - name: Create GitHub Release

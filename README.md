@@ -31,10 +31,12 @@ framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內
 
 ## 管理介面
 
-WebUI 全部資產（HTML／CSS／JS／字型）都 gzip 後編進 app 韌體，不連任何
-CDN 或雲端後端；一次 OTA 會同時更新韌體與前端
-（[ADR-0016](docs/adr/0016-embed-webui-assets-in-firmware.md)）。以下截圖取自
-執行 v0.10.0 的實機。
+WebUI 全部資產（HTML／CSS／JS）都 gzip 後編進 app 韌體，不從任何 CDN 取得；
+一次 OTA 會同時更新韌體與前端
+（[ADR-0016](docs/adr/0016-embed-webui-assets-in-firmware.md)）。**唯一的例外是
+天氣頁的地圖選點**：連得上網時會向 `tile.openstreetmap.org` 取圖磚（因此該頁
+會把你選的位置附近座標揭露給該服務），連不上時同一個控制項自動改成純離線的
+經緯度格線，其餘所有頁面完全不需要外部網路。以下截圖取自執行 v0.10.0 的實機。
 
 | 總覽 | 環境與在場 |
 | --- | --- |
@@ -61,7 +63,7 @@ CDN 或雲端後端；一次 OTA 會同時更新韌體與前端
 | --- | --- |
 | 已完成 | Phase 1–8 的程式、host tests 與韌體 build 全部完成。 |
 | 已實機驗證 | Phase 2–8 的實機證據已閉環：面板刷新與 sleep 電流、AP／STA 配網與存取邊界、browser 出圖管線、五種斷電路徑、天氣四種失敗分類、OTA 端到端與 rollback fault injection，以及 Phase 7 的 DHT22、雙光敏通道與在場判定。 |
-| 待驗證 | 只剩三個低優先項：`SensorSettings` v1→v2 的實機遷移路徑、AP grace 的 presence 例外與低 DMA heap guard、NVS 滿導致 `pf_config` 開啟失敗。 |
+| 待驗證 | 三個領域、四條路徑，都是低優先：`SensorSettings` v1→v2 的實機遷移、只接一顆光敏電阻的降級、AP grace 的 presence 例外與低 DMA heap guard、NVS 滿導致 `pf_config` 開啟失敗。 |
 | 待決定 | production security profile（Secure Boot／Flash Encryption）與 MVP 以外的 P1 功能尚未納入開發。 |
 
 已知遺留缺陷（有記錄、尚未修）：`DisplayOutcome` 把「畫面已刷上去」與
@@ -69,8 +71,10 @@ CDN 或雲端後端；一次 OTA 會同時更新韌體與前端
 已由 welcome 重試的指數退避壓制，正確修法需取代 ADR-0003 的 driver contract，
 見 [ADR-0015 的 2026-08-23 Update](docs/adr/0015-first-image-waits-for-ntp-and-weather.md)。
 
-Secure Boot 與 Flash Encryption 尚未啟用，所以這**不是**可直接放到不可信任
-網路的產品；設計前提是可信任 LAN 或裝置自身的 AP。
+「實機證據已閉環」指的是那些行為已經在真實硬體上驗證過，**不等於 release
+gate 已關閉**——[release checklist](docs/RELEASE_CHECKLIST.md) 的手動 on-device
+檢查仍要每次依裝置狀況執行。Secure Boot 與 Flash Encryption 也尚未啟用，所以
+這**不是**可直接放到不可信任網路的產品；設計前提是可信任 LAN 或裝置自身的 AP。
 
 ## 功能
 
@@ -78,7 +82,8 @@ Secure Boot 與 Flash Encryption 尚未啟用，所以這**不是**可直接放�
 [硬體驗證紀錄](docs/hardware/VALIDATION.md) 為準。
 
 - **離線優先圖片輪播**：區網或裝置 AP 內即可完成全部操作，不依賴外部 CDN
-  或後端服務（已驗證，含長時間輪播）
+  或後端服務（已驗證，含長時間輪播）。天氣功能本身需要 OpenWeatherMap，
+  地圖選點需要 OSM 圖磚，兩者都是可停用的選配，停用後不影響輪播
 - **PFR1 自有圖片格式**：瀏覽器端完成量化與打包，裝置只負責解碼與顯示，
   避免在 MCU 上做重量級影像處理（已驗證：browser 出圖、上傳與下載）
 - **交易式 imagefs 儲存**：圖片分區與韌體分區分離，OTA 更新不會清除既有圖片
@@ -134,7 +139,7 @@ OTA 的回滾保護取決於 bootloader 版本，判斷方式見
 | 主控 | ESP32-S3-N16R8（16 MB Flash、8 MB octal PSRAM） | 必要 |
 | 顯示器 | Waveshare 7.3 吋 e-Paper HAT (E)，800×480 E6 六色 | 必要 |
 | 溫溼度 | DHT22／AM2302 | 可選；已實機驗證 |
-| 光感測 | 光敏電阻＋分壓 ×2，接 `ADC1_CH4` 與 `ADC1_CH6` | 可選（可只接一顆）；已實機驗證 |
+| 光感測 | 光敏電阻＋分壓 ×2，接 `ADC1_CH4` 與 `ADC1_CH6` | 可選；兩顆同時接線已實機驗證，**只接一顆的降級行為僅有 host test** |
 | 外殼 | 3D 列印，CAD 見 [`hardware/enclosure/`](hardware/enclosure/) | 可選 |
 
 顯示器接線（3.3 V logic、SPI2、mode 0、MSB-first、起始 clock 2 MHz）：
@@ -158,6 +163,9 @@ GPIO4 已給 BUSY 不得再作 ADC。
 軟體。零件清單、量到的外接方框尺寸與已知問題見
 [該目錄的 README](hardware/enclosure/README.md)。同一份內容也會以
 `paperframe-enclosure.zip` 附在每個 GitHub Release 的 assets。
+
+**列印前請先讀該 README 的「已知問題」**：`06-button-cap` 的 STEP 與 STL
+目前不是同一版，其餘五個零件兩種格式一致。
 
 ## 架構概覽
 
@@ -192,8 +200,9 @@ GPIO4 已給 BUSY 不得再作 ADC。
 - 目標基線是 ESP32-S3-N16R8、16 MB Flash、8 MB octal PSRAM 與 7.3 吋
   800×480 E6 全彩電子紙；光敏與溫溼度感測器是可選周邊（見上方硬體段）。
 - WebUI 與圖片管理以離線優先為原則，不依賴外部 CDN 或後端服務。
-- 電子紙完整刷新預設 30 分鐘、下限 10 分鐘，實測一次全刷約 31 秒，每次刷新
-  後面板進入 sleep。這是 E6 面板的物理特性，不是可調優的軟體延遲。
+- 電子紙完整刷新預設 30 分鐘，可設 10 分鐘至 24 小時（1440 分鐘）；實測一次
+  全刷約 31 秒，每次刷新後面板進入 sleep。31 秒是 E6 面板的物理特性，不是
+  可調優的軟體延遲。
 - 未啟用 Secure Boot 與 Flash Encryption，僅適用於可信任 LAN 或裝置自身的 AP。
 - 仍有三個低優先的實機驗證缺口（見上方目前狀態）。
 - 真實裝置測試資料、裝置識別資訊與執行期 imagefs 不屬於公開 repository 內容。
