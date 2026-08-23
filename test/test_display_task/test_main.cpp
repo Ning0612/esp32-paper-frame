@@ -308,6 +308,108 @@ void test_blocked_display_worker_does_not_block_health_serialization()
         static_cast<int>(display_result.status));
 }
 
+// ADR-0019: the picture is on the panel once DISPLAY_REFRESH completes,
+// three steps before the panel is asked to sleep. A failure in those last
+// steps used to be indistinguishable from "this refresh never happened",
+// which made the owner redraw a picture that was already correct -- a full
+// ~31 s refresh for no visible change.
+void test_frame_on_panel_survives_a_failure_after_the_refresh()
+{
+    static std::array<std::uint8_t, pf_display::kFullFramebufferBytes> frame{};
+    frame.fill(0x11);
+    FakePanel panel;
+    DisplayCommandProcessor processor{panel};
+    const RuntimeCommand command{
+        .request_id = 11,
+        .kind = CommandKind::refresh_display,
+        .frame = FrameToken{1, 8},
+    };
+
+    // Every stage at or after refresh_power_off means DISPLAY_REFRESH
+    // already completed.
+    for (const DriverStage stage : {DriverStage::refresh_power_off,
+                                    DriverStage::sleep_power_off,
+                                    DriverStage::deep_sleep}) {
+        panel.result = {DriverStatus::busy_timeout, stage};
+        const RuntimeResult result =
+            processor.process(command, frame.data(), frame.size());
+        TEST_ASSERT_TRUE(result.frame_on_panel);
+        // The failure itself is still reported as what it was.
+        TEST_ASSERT_EQUAL_INT(
+            static_cast<int>(DisplayOutcome::busy_timeout),
+            static_cast<int>(result.display_outcome));
+    }
+}
+
+// The conservative half of the threshold: a timeout during `refresh` means
+// the panel never confirmed it finished, so the frame cannot be claimed as
+// displayed.
+void test_frame_on_panel_is_false_before_the_refresh_completes()
+{
+    static std::array<std::uint8_t, pf_display::kFullFramebufferBytes> frame{};
+    frame.fill(0x22);
+    FakePanel panel;
+    DisplayCommandProcessor processor{panel};
+    const RuntimeCommand command{
+        .request_id = 12,
+        .kind = CommandKind::refresh_display,
+        .frame = FrameToken{1, 8},
+    };
+
+    for (const DriverStage stage : {DriverStage::validate,
+                                    DriverStage::reset,
+                                    DriverStage::initial_busy,
+                                    DriverStage::register_init,
+                                    DriverStage::init_power_on,
+                                    DriverStage::frame_write,
+                                    DriverStage::refresh}) {
+        panel.result = {DriverStatus::transport_error, stage};
+        const RuntimeResult result =
+            processor.process(command, frame.data(), frame.size());
+        TEST_ASSERT_FALSE(result.frame_on_panel);
+    }
+}
+
+void test_a_fully_successful_refresh_reports_both_facts()
+{
+    static std::array<std::uint8_t, pf_display::kFullFramebufferBytes> frame{};
+    frame.fill(0x33);
+    FakePanel panel;
+    DisplayCommandProcessor processor{panel};
+    const RuntimeCommand command{
+        .request_id = 13,
+        .kind = CommandKind::refresh_display,
+        .frame = FrameToken{1, 8},
+    };
+
+    panel.result = {DriverStatus::ok, DriverStage::deep_sleep};
+    const RuntimeResult result =
+        processor.process(command, frame.data(), frame.size());
+    TEST_ASSERT_TRUE(result.frame_on_panel);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(DisplayOutcome::refreshed_and_slept),
+        static_cast<int>(result.display_outcome));
+}
+
+// A rejected command never touches the panel at all.
+void test_a_rejected_command_never_claims_the_panel()
+{
+    static std::array<std::uint8_t, pf_display::kFullFramebufferBytes> frame{};
+    frame.fill(0x44);
+    FakePanel panel;
+    DisplayCommandProcessor processor{panel};
+    const RuntimeCommand command{
+        .request_id = 14,
+        .kind = CommandKind::refresh_display,
+        .frame = FrameToken{1, 8},
+    };
+    // A short buffer is rejected during validation, before refresh_and_sleep.
+    const RuntimeResult result =
+        processor.process(command, frame.data(), frame.size() - 1U);
+    TEST_ASSERT_FALSE(result.frame_on_panel);
+    TEST_ASSERT_EQUAL_UINT(0U, panel.refresh_count);
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -319,5 +421,9 @@ int main(int, char**)
     RUN_TEST(test_processor_maps_success_only_after_deep_sleep);
     RUN_TEST(test_processor_maps_timeout_and_transport_failure);
     RUN_TEST(test_blocked_display_worker_does_not_block_health_serialization);
+    RUN_TEST(test_frame_on_panel_survives_a_failure_after_the_refresh);
+    RUN_TEST(test_frame_on_panel_is_false_before_the_refresh_completes);
+    RUN_TEST(test_a_fully_successful_refresh_reports_both_facts);
+    RUN_TEST(test_a_rejected_command_never_claims_the_panel);
     return UNITY_END();
 }

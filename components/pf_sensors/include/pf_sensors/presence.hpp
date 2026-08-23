@@ -89,4 +89,42 @@ inline PresenceUpdateResult update_presence(
     return {tracker.state, tracker.state != previous_state};
 }
 
+// What the panel owner has to do about a presence change.
+enum class PresencePanelAction : std::uint8_t {
+    none,
+    blank_for_away,
+    restore_after_away,
+};
+
+// The transition table lives here rather than inline in app_main so it can
+// be tested without hardware.
+//
+// `blank_on_panel` is what stops the boot case from being read as a
+// return: presence starts `unknown` and converges to `present` a few
+// seconds into every boot, and treating that as "the user came back" spent
+// a full ~31 s panel refresh restoring a panel that was never blanked
+// (2026-08-23, reproduced across two reboots). Keying on what the panel is
+// actually showing -- rather than on which state it came from -- also
+// keeps away -> unknown -> present working: a sensor fault mid-debounce
+// leaves the blank on the panel, and that really does need restoring.
+inline constexpr PresencePanelAction presence_panel_action(
+    const PresenceState previous,
+    const PresenceState current,
+    const bool blank_on_panel)
+{
+    if (current == previous) {
+        return PresencePanelAction::none;
+    }
+    if (current == PresenceState::away) {
+        return PresencePanelAction::blank_for_away;
+    }
+    if (current == PresenceState::present) {
+        return blank_on_panel ? PresencePanelAction::restore_after_away
+                              : PresencePanelAction::none;
+    }
+    // Collapsing to `unknown` (sensor error) neither blanks nor restores:
+    // presence is simply not known, and whatever is on the panel stays.
+    return PresencePanelAction::none;
+}
+
 }  // namespace pf_sensors

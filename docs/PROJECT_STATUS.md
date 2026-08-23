@@ -37,16 +37,20 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 7 sensors | 剩 `SensorSettings` v1→v2 遷移的實機路徑，以及只接一顆光敏電阻（另一通道實體未接線）的降級行為；兩顆都接線時的感測器行為已於 2026-08-23 全部實機閉環 |
+| Phase 7 sensors | 剩 `SensorSettings` v1→v2 遷移的實機路徑，以及**啟用但實體未接線**的通道會讀到什麼（浮接 ADC）；兩顆都接線、以及只接一顆並正確停用另一顆的行為，均已於 2026-08-23 實機閉環 |
 | Welcome／重繪生命週期 | presence 返回時的 welcome 重畫、DHCP 續約後的位址重畫、welcome 刷新失敗後的 30 秒短重試（見 [ADR-0015](adr/0015-first-image-waits-for-ntp-and-weather.md)） |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
-已知遺留缺陷（有記錄、尚未修）：開機時 presence 由 `unknown` 收斂到 `present` 會被當成「返回」而多觸發一次 31 秒全刷，裝置其實從未離席（2026-08-23 兩次重開機完整重現，見[硬體驗證紀錄](hardware/VALIDATION.md)同日 release gate 段落）。另一項：`DisplayOutcome` 把「畫面已刷上去」與「面板已
-成功 sleep」混為一談，導致 sleep 失敗時會重刷一張已經正確的畫面。既有行為，
-影響已由 welcome 重試的指數退避壓制；正確修法需拆開結果契約並取代 ADR-0003 的
-driver contract，詳見
-[ADR-0015 Update 2026-08-23](adr/0015-first-image-waits-for-ntp-and-weather.md)。
+**2026-08-23 已修**（同日發現、同日修）：`DisplayOutcome` 把「畫面已刷上去」
+與「面板已成功 sleep」混為一談，sleep 失敗時會重刷一張已經正確的畫面；以及
+開機時 presence 由 `unknown` 收斂到 `present` 被當成「返回」而多觸發一次 31 秒
+全刷，裝置其實從未離席（兩次重開機完整重現，見[硬體驗證紀錄](hardware/VALIDATION.md)
+同日 release gate 段落）。前者是後者浪費一次刷新的成因之一。修法見
+[ADR-0019](adr/0019-separate-frame-displayed-from-panel-slept.md)：`RuntimeResult`
+新增 `frame_on_panel` 把兩個事實分開回報，離席／返回的面板動作改由可 host-test
+的 `pf_sensors::presence_panel_action()` 決定。**尚未在實機確認**修正後的開機
+序列只剩一次全刷。
 
 2026-08-20 已閉環（證據見[硬體驗證紀錄](hardware/VALIDATION.md)同日段落）：
 OTA 端到端與 rollback confirmation、WebUI 隨韌體換版、reboot persistence、

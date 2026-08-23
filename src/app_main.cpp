@@ -174,10 +174,6 @@ HardwareProfile log_hardware_profile()
         static_cast<unsigned>(kExpectedPsramBytes),
         psram_ready && psram_bytes >= kExpectedPsramBytes ? "ready" : "degraded");
 
-    ESP_LOGI(
-        kTag,
-        "optional_sensors=not_configured gpio_probe=skipped");
-
     return {
         flash_result == ESP_OK && flash_bytes == kExpectedFlashBytes,
         psram_ready && psram_bytes >= kExpectedPsramBytes,
@@ -449,6 +445,14 @@ esp_err_t present_access_point_screen(
         if (pf_runtime::coordinator().try_take_terminal_result(
                 request_id,
                 result)) {
+            // Deliberately still the full outcome, not
+            // frame_on_panel (ADR-0019): PROVISIONING.md requires the AP
+            // radio to start only once the panel reports
+            // refreshed_and_slept, and the payload cache below cannot be
+            // separated from that gate -- a cache hit returns ESP_OK
+            // early and skips the refresh, so caching a displayed-but-not
+            // -slept frame would let the next call start the radio
+            // without a slept panel ever having been confirmed.
             if (result.display_outcome ==
                 pf_runtime::DisplayOutcome::refreshed_and_slept) {
                 presenter->last_payload = payload;
@@ -1000,6 +1004,12 @@ extern "C" void app_main()
     std::uint32_t pending_manual_activate_image_id = 0U;
     bool pending_presence_force_immediate = false;
     bool pending_presence_away_blank = false;
+    // True only while the away blank frame is the thing on the panel.
+    // Presence starts at `unknown` and converges to `present` a few
+    // seconds into every boot; without this, that first transition was
+    // treated as a return from away and spent a full ~31 s refresh
+    // restoring a panel that had never been blanked.
+    bool presence_blank_on_panel = false;
     static CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
     std::size_t carousel_shown_count = 0U;
     static pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
@@ -1201,7 +1211,13 @@ extern "C" void app_main()
             // from an earlier `present` transition armed indefinitely.
             pending_presence_force_immediate = false;
             pending_presence_away_blank = false;
-            if (current_presence == pf_sensors::PresenceState::away &&
+            const pf_sensors::PresencePanelAction presence_action =
+                pf_sensors::presence_panel_action(
+                    previous_presence,
+                    current_presence,
+                    presence_blank_on_panel);
+            if (presence_action ==
+                    pf_sensors::PresencePanelAction::blank_for_away &&
                 display_started) {
                 if (ap_mode_active) {
                     pending_presence_away_blank = true;
@@ -1209,13 +1225,16 @@ extern "C" void app_main()
                     pending_presence_away_blank =
                         !submit_presence_away_blank(now_ms);
                 }
-            } else if (current_presence ==
-                       pf_sensors::PresenceState::present) {
-                // Returning from away or unknown: redraw immediately and
-                // never reuse a deadline computed while away. If a
-                // carousel decision is still in flight, force_immediate
-                // refuses to mutate scheduler state (by contract); defer
-                // and retry once that decision completes, below.
+            } else if (presence_action ==
+                       pf_sensors::PresencePanelAction::restore_after_away) {
+                // A return only needs a redraw if the away blank is what
+                // the panel is currently showing. The unknown -> present
+                // transition every boot performs is not a return: nothing
+                // was blanked, and forcing a refresh there costs ~31 s and
+                // leaves the panel showing a fresh carousel pick instead
+                // of the stored current image. away -> unknown -> present
+                // (sensor fault mid-debounce) still redraws, because the
+                // panel really is blank in that path.
                 if (ap_mode_active) {
                     // AP instructions own the panel until the AP grace
                     // window ends; presence must not blank or reschedule it.
@@ -1256,14 +1275,30 @@ extern "C" void app_main()
                     active_blank_request_id,
                     static_cast<unsigned>(blank_result.display_outcome));
                 active_blank_request_id = 0U;
-                if (blank_result.display_outcome !=
-                        pf_runtime::DisplayOutcome::refreshed_and_slept &&
-                    previous_presence == pf_sensors::PresenceState::away) {
-                    // Accepted into the queue but the refresh itself
-                    // failed (e.g. panel/transport error): the panel
-                    // never actually went blank, so retry rather than
-                    // silently giving up for the rest of this away
-                    // period.
+                if (blank_result.frame_on_panel) {
+                    // The panel is blank now. It may still have failed to
+                    // sleep afterwards (ADR-0019), which is a power
+                    // concern, not a reason to redraw the same blank.
+                    presence_blank_on_panel = true;
+                    if (previous_presence ==
+                        pf_sensors::PresenceState::present) {
+                        // The user came back while this blank was still in
+                        // flight -- plausible, since the return debounce
+                        // (30 s) and a full refresh (~31 s) are the same
+                        // order. That transition already happened and saw
+                        // presence_blank_on_panel == false, so it did not
+                        // schedule a restore. Arm one now, or the panel
+                        // stays blank until the next carousel interval --
+                        // and with an empty library the scheduler parks
+                        // forever, so it would stay blank indefinitely.
+                        pending_presence_force_immediate = true;
+                    }
+                } else if (previous_presence ==
+                           pf_sensors::PresenceState::away) {
+                    // Accepted into the queue but the frame never reached
+                    // the panel (e.g. transport error, or a BUSY timeout
+                    // during the refresh itself): retry rather than
+                    // silently giving up for the rest of this away period.
                     pending_presence_away_blank = true;
                 }
             }
@@ -1275,9 +1310,16 @@ extern "C" void app_main()
             if (pf_runtime::coordinator().try_take_terminal_result(
                     active_carousel_request_id,
                     terminal_result)) {
-                const bool succeeded =
-                    terminal_result.display_outcome ==
-                    pf_runtime::DisplayOutcome::refreshed_and_slept;
+                // Everything below asks "is this frame what the panel
+                // is showing" -- whether the panel also slept afterwards
+                // does not change the answer, and treating a failed sleep
+                // as a failed refresh made the scheduler redraw a picture
+                // that was already correct (ADR-0019).
+                const bool succeeded = terminal_result.frame_on_panel;
+                if (succeeded) {
+                    // Whatever this frame is, it replaced the away blank.
+                    presence_blank_on_panel = false;
+                }
                 carousel.complete(
                     active_carousel_decision,
                     succeeded,
