@@ -3036,3 +3036,36 @@ carousel_request=2 outcome=1
 已排隊時的新鮮度、離席期間 real frame 落板後重排白屏——**都需要刻意製造的時序
 才會發生**，本次未在實機重現。這些路徑由 host test 與程式碼審查覆蓋，不是實機
 證據。
+
+
+## 2026-08-23 — v0.10.1 OTA 與修正在發布產物上的確認
+
+前一次 OTA 端到端（同日稍早）是為了補驗下載路徑而**刻意降版**建立起點。這次是
+真實情境：裝置跑著本機燒入的 v0.10.0 建置，v0.10.1 發布後由 WebUI 走
+「檢查更新 → 立即更新」。
+
+| 階段 | 觀察 |
+| --- | --- |
+| 檢查更新 | 「有新版本／最新版本 v0.10.1」 |
+| 下載與寫入 | `Writing to <ota_0> partition at offset 0x10000`——寫入非作用中的 slot（當時由 `ota_1` 開機） |
+| 耗時 | `Starting OTA` 22:06:40 → `Loaded app from partition` 22:07:21，約 **41 秒** |
+| 開機 slot | `0x10000`＝`ota_0`，slot 切換 |
+| rollback 確認 | `rollback_confirmed=ESP_OK`；`reboot_reason=software_reset` |
+| 版本 | `GET /api/v1/device` 回報 `v0.10.1` |
+
+更新後保留狀況：21 張圖片、`order` 連續且未變、catalog `current`、感測器設定
+（1200／1200／180／30）與顯示設定（30 分鐘、random）皆保留。
+
+### 修正確實進入了發布產物
+
+這是本段的重點。這份韌體**是從 GitHub Release 下載的**，不是本機建置：
+
+- `carousel_image_queued` 在開機期間出現 **1 次**（修正前為 2 次）
+- `presence_return_deadline_reset_deferred` 未出現
+- `optional_sensors=not_configured` 未出現
+
+亦即 2026-08-23 的兩項修正（顯示結果契約拆分、開機 presence 誤判）在正式發布的
+`paperframe-firmware.bin` 上成立，而不只在本機建置上。
+
+heap 觀察：`ota_heap_headroom point=update_now_start internal_free=114195
+dma_free=106307`。
