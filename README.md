@@ -44,7 +44,7 @@ CDN 或雲端後端；一次 OTA 會同時更新韌體與前端
 | 圖片處理 | 系統與韌體 |
 | --- | --- |
 | [![圖片處理](docs/media/webui-images.png)](docs/media/webui-images.png) | [![系統](docs/media/webui-system.png)](docs/media/webui-system.png) |
-| 方向、裁切、六色量化與 PFR1 打包都在瀏覽器本機完成，原圖不會送到外部服務。 | 面板與網路狀態、容量與版本、OTA 更新、重設管理密碼與診斷事件。 |
+| 方向、裁切、六色量化與 PFR1 打包都在瀏覽器本機完成，原圖不會送到外部服務。範例圖為公有領域的葛飾北齋《神奈川沖浪裏》（[出處](ASSET_CREDITS.md)）。 | 面板與網路狀態、容量與版本、OTA 更新、重設管理密碼與診斷事件。 |
 
 [![天氣與時間](docs/media/webui-weather.png)](docs/media/webui-weather.png)
 

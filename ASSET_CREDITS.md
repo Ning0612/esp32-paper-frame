@@ -3,6 +3,23 @@
 The MIT `LICENSE` at the root of this repository applies to original
 source code only.
 
+## README screenshot sample image
+
+The artwork visible in the image-preparation screenshot
+(`docs/media/webui-images.png`) is Katsushika Hokusai's *Under the Wave off
+Kanagawa (Kanagawa oki nami ura)*, also known as *The Great Wave*, from the
+series *Thirty-six Views of Mount Fuji*, ca. 1830-32. The digital image is
+from the Metropolitan Museum of Art's Open Access programme (accession
+`JP1847`, object [45434](https://www.metmuseum.org/art/collection/search/45434)),
+released under **CC0 1.0** -- the API reports `isPublicDomain: true` for
+this object.
+
+It appears only inside that screenshot, as a demonstration of the
+browser-side six-colour quantization; the source JPEG is not committed to
+this repository. It was chosen because its palette (Prussian blue, white,
+black and a beige ground) maps unusually cleanly onto the E6 panel's six
+inks, so the screenshot shows what the dithering actually does.
+
 ## Weather status-bar icons
 
 The 9 weather condition icons baked into
