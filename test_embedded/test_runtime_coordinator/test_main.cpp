@@ -227,6 +227,7 @@ void test_runtime_queues_and_snapshot()
         .error = pf_runtime::RuntimeError::timeout,
         .display_outcome = pf_runtime::DisplayOutcome::busy_timeout,
         .driver_stage = 7,
+        .frame_on_panel = false,
     };
     TEST_ASSERT_TRUE(runtime.retain_terminal_result(zero_result));
     pf_runtime::RuntimeResult released_terminal{};
@@ -266,6 +267,7 @@ void test_runtime_queues_and_snapshot()
         .error = pf_runtime::RuntimeError::timeout,
         .display_outcome = pf_runtime::DisplayOutcome::busy_timeout,
         .driver_stage = 7,
+        .frame_on_panel = false,
     };
     TEST_ASSERT_TRUE(runtime.retain_terminal_result(three_result));
     TEST_ASSERT_TRUE(
@@ -300,6 +302,7 @@ void test_runtime_queues_and_snapshot()
         .error = pf_runtime::RuntimeError::transport,
         .display_outcome = pf_runtime::DisplayOutcome::transport_error,
         .driver_stage = 5,
+        .frame_on_panel = false,
     };
     TEST_ASSERT_FALSE(runtime.try_publish_result(overflow_result));
 
@@ -321,6 +324,7 @@ void test_runtime_queues_and_snapshot()
             .display_outcome =
                 pf_runtime::DisplayOutcome::invalid_lease,
             .driver_stage = 0,
+            .frame_on_panel = false,
         };
         TEST_ASSERT_TRUE(runtime.retain_terminal_result(cleanup));
         TEST_ASSERT_TRUE(
@@ -368,6 +372,7 @@ void test_runtime_queues_and_snapshot()
         .display_outcome =
             pf_runtime::DisplayOutcome::transport_error,
         .driver_stage = 5,
+        .frame_on_panel = false,
     };
     TEST_ASSERT_TRUE(
         runtime.retain_terminal_result(retained_first));
@@ -448,6 +453,7 @@ void test_runtime_queues_and_snapshot()
         .display_outcome =
             pf_runtime::DisplayOutcome::invalid_lease,
         .driver_stage = 0,
+        .frame_on_panel = false,
     };
     TEST_ASSERT_TRUE(
         runtime.retain_terminal_result(after_release));

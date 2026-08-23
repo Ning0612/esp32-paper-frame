@@ -19,6 +19,13 @@
   .\.venv\Scripts\pio.exe run
   ```
 
+- **推送前請跑 `bash scripts/verify-like-ci.sh`**，它按順序複製 CI 與 release
+  workflow 的每一個驗證步驟。上面兩個常用指令**不足以代表 CI**：`pio run`
+  只編譯韌體，`test_embedded/` 的測試原始碼是由
+  `pio test --without-uploading --without-testing` 編譯的，而該 environment
+  開啟 `-Werror`。只跑常用指令曾讓 `-Werror=missing-field-initializers` 的
+  失敗漏到 CI（2026-08-23）。
+
 - 涉及面板、Wi-Fi、NVS、partition、OTA 或斷電復原時，必須區分 host/build
   結果與實機證據，並更新 [硬體驗證紀錄](docs/hardware/VALIDATION.md)。
 - 不要提交 `.pio/`、build output、`sdkconfig`、執行期 imagefs、credential、
