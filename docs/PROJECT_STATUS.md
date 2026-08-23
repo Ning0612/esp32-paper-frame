@@ -42,6 +42,18 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
+**已知缺陷（2026-08-23 審查發現，未修）**：AP 畫面呈現完成到 AP radio 實際啟動
+之間存在空窗。`present_access_point_screen()` 成功後會釋放 `display_submission_mutex`
+並回傳 `ESP_OK`，NetworkService 才繼續啟動 radio；在這段期間 carousel 仍可能讀到
+尚未更新的 `ap_mode_active == false` snapshot，取得 gate 並把面板換成輪播畫面。
+結果是 radio 起來了但面板不是 SSID／密碼／QR。若 radio 啟動失敗，
+`presentation_confirmed_` 已為 true，後續重試可能跳過 presenter 而沿用被覆寫的面板。
+
+此缺陷**早於 2026-08-23 的顯示結果契約變更**（`main` 上的原始程式有相同結構，
+`ap_screen_owns_panel` 的判定本次未改動），同日的修正只縮小了其他窗口、未觸及這一個。
+正確修法是讓「AP 畫面擁有面板」成為一個 carousel 會原子性檢查的明確狀態，而不是從
+落後的 runtime snapshot 推論——那會動到 PROVISIONING.md 的畫面契約，應另立 ADR。
+
 **2026-08-23 發現並修復**：provisioning AP 畫面的 payload cache
 一旦設立就不再重設（`src/app_main.cpp` 的 `payload_valid` 只有設為 `true` 的
 路徑，全專案沒有任何地方把它設回 `false`）。同一次開機內 AP password 固定，
