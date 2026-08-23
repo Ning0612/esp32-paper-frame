@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -179,14 +180,30 @@ bool render_access_point_screen(
 // A named type rather than two loose fields, so `invalidate()` is a call
 // site that can be found and tested instead of an assignment that is easy
 // to forget.
+// Two tasks touch this, so each field has exactly one writer.
+// `payload`/`displayed` belong to the task that presents the AP
+// screen; `superseded` is set by whichever task owns the panel
+// afterwards. They share no lock on purpose: the presenter holds its
+// submission mutex across a full ~31 s refresh, so making the panel
+// owner wait for it would stall the carousel loop for half a minute.
+//
+// The residual race is deliberately biased safe. If an AP frame lands
+// and an older carousel result is consumed just after, the cache is
+// dropped while the AP screen really is on the panel -- costing one
+// unnecessary refresh next session. The opposite error, claiming the
+// panel while something else is on it, is the one that strands a user
+// without their credentials, and that cannot happen: only the
+// presenter sets the claim, and only after its own refresh.
 struct AccessPointScreenCache {
     AccessPointScreenPayload payload{};
     bool displayed = false;
+    std::atomic<bool> superseded{false};
 
     // True only when this exact payload is believed to be on the panel.
     bool shows(const AccessPointScreenPayload& candidate) const
     {
         return displayed &&
+               !superseded.load(std::memory_order_acquire) &&
                same_access_point_screen_payload(payload, candidate);
     }
 
@@ -194,12 +211,13 @@ struct AccessPointScreenCache {
     {
         payload = shown;
         displayed = true;
+        superseded.store(false, std::memory_order_release);
     }
 
     // Call whenever any other frame reaches the panel.
-    void invalidate()
+    void mark_superseded()
     {
-        displayed = false;
+        superseded.store(true, std::memory_order_release);
     }
 };
 

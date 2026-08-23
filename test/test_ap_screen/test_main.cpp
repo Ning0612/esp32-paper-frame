@@ -197,14 +197,14 @@ void test_a_displayed_payload_is_recognised()
 // boot -- same password, therefore same payload -- skipped its refresh
 // even though the carousel had owned the panel in between. The radio came
 // up with an image on the panel and the credentials nowhere to be seen.
-void test_another_frame_on_the_panel_invalidates_the_cache()
+void test_another_frame_on_the_panel_supersedes_the_cache()
 {
     AccessPointScreenCache cache{};
     const pf_network::AccessPointScreenPayload payload = cache_payload("PF-Setup");
     cache.mark_displayed(payload);
     TEST_ASSERT_TRUE(cache.shows(payload));
 
-    cache.invalidate();
+    cache.mark_superseded();
 
     // Same payload, but the panel is showing something else now, so the
     // refresh must not be skipped.
@@ -228,6 +228,6 @@ int main(int, char**)
     RUN_TEST(test_ap_screen_policy_is_inactive_outside_ap_mode);
     RUN_TEST(test_an_empty_cache_never_claims_the_panel);
     RUN_TEST(test_a_displayed_payload_is_recognised);
-    RUN_TEST(test_another_frame_on_the_panel_invalidates_the_cache);
+    RUN_TEST(test_another_frame_on_the_panel_supersedes_the_cache);
     return UNITY_END();
 }

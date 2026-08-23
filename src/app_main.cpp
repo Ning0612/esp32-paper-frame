@@ -999,12 +999,25 @@ extern "C" void app_main()
     std::uint32_t pending_manual_activate_image_id = 0U;
     bool pending_presence_force_immediate = false;
     bool pending_presence_away_blank = false;
-    // True only while the away blank frame is the thing on the panel.
-    // Presence starts at `unknown` and converges to `present` a few
-    // seconds into every boot; without this, that first transition was
-    // treated as a return from away and spent a full ~31 s refresh
-    // restoring a panel that had never been blanked.
-    bool presence_blank_on_panel = false;
+    // Which submitted frame is on the panel, and whether it was the away
+    // blank. Presence starts at `unknown` and converges to `present` a few
+    // seconds into every boot; without tracking what the panel shows, that
+    // first transition was treated as a return from away and spent a full
+    // ~31 s refresh restoring a panel that had never been blanked.
+    //
+    // A plain boolean was not enough. Terminal results are consumed in a
+    // fixed order every tick -- the blank first, then the carousel -- which
+    // is not the order the panel displayed them: a carousel refresh
+    // submitted before an away transition lands first but is consumed
+    // second, and would then clear a blank that really is on the panel.
+    // Request ids are allocated monotonically, so comparing them lets the
+    // frame that actually landed last win regardless of consumption order.
+    //
+    // The AP instruction screen is submitted from another task and its
+    // result is not consumed here; presence deliberately does not blank
+    // while AP mode owns the panel, so it never competes for this state.
+    std::uint32_t panel_frame_request_id = 0U;
+    bool panel_shows_blank = false;
     static CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
     std::size_t carousel_shown_count = 0U;
     static pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
@@ -1112,6 +1125,23 @@ extern "C" void app_main()
                     ap_mode_started_ms));
     };
 
+    // Records a frame that reached the panel. Older frames are ignored,
+    // so the caller does not have to care which result it consumed first.
+    const auto note_frame_on_panel =
+        [&](const std::uint32_t request_id, const bool is_blank) {
+        if (request_id <= panel_frame_request_id) {
+            return;
+        }
+        panel_frame_request_id = request_id;
+        panel_shows_blank = is_blank;
+        if (!panel_shows_blank) {
+            // A real frame is on the panel, so any restore still owed is
+            // settled; leaving the flag armed would spend another full
+            // refresh putting an image on a panel that already has one.
+            pending_presence_force_immediate = false;
+        }
+    };
+
     const auto submit_presence_away_blank =
         [&](const std::uint64_t now) -> bool {
         if (active_blank_request_id != 0U) {
@@ -1210,7 +1240,7 @@ extern "C" void app_main()
                 pf_sensors::presence_panel_action(
                     previous_presence,
                     current_presence,
-                    presence_blank_on_panel);
+                    panel_shows_blank);
             if (presence_action ==
                     pf_sensors::PresencePanelAction::blank_for_away &&
                 display_started) {
@@ -1269,20 +1299,23 @@ extern "C" void app_main()
                     "presence_away_blank_request=%" PRIu32 " outcome=%u",
                     active_blank_request_id,
                     static_cast<unsigned>(blank_result.display_outcome));
+                const std::uint32_t completed_blank_id =
+                    active_blank_request_id;
                 active_blank_request_id = 0U;
                 if (blank_result.frame_on_panel) {
                     // The panel is blank now. It may still have failed to
                     // sleep afterwards (ADR-0019), which is a power
                     // concern, not a reason to redraw the same blank.
-                    presence_blank_on_panel = true;
-                    ap_presenter.screen_cache.invalidate();
-                    if (previous_presence ==
-                        pf_sensors::PresenceState::present) {
+                    note_frame_on_panel(completed_blank_id, true);
+                    ap_presenter.screen_cache.mark_superseded();
+                    if (panel_shows_blank &&
+                        previous_presence ==
+                            pf_sensors::PresenceState::present) {
                         // The user came back while this blank was still in
                         // flight -- plausible, since the return debounce
                         // (30 s) and a full refresh (~31 s) are the same
                         // order. That transition already happened and saw
-                        // presence_blank_on_panel == false, so it did not
+                        // panel_shows_blank == false, so it did not
                         // schedule a restore. Arm one now, or the panel
                         // stays blank until the next carousel interval --
                         // and with an empty library the scheduler parks
@@ -1313,21 +1346,13 @@ extern "C" void app_main()
                 // that was already correct (ADR-0019).
                 const bool succeeded = terminal_result.frame_on_panel;
                 if (succeeded) {
-                    // Whatever this frame is, it replaced the away blank,
-                    // which also settles any restore still owed: the
-                    // deferred path would otherwise spend a second full
-                    // refresh putting a real frame on a panel that already
-                    // has one. Reachable when presence returns while the
-                    // blank is still in flight and the carousel issues its
-                    // own refresh before the blank's result is consumed.
-                    presence_blank_on_panel = false;
-                    pending_presence_force_immediate = false;
+                    note_frame_on_panel(active_carousel_request_id, false);
                     // The AP instruction screen is no longer what the
                     // panel shows, so its skip-the-refresh cache must not
                     // claim it is: a later AP session in the same boot has
                     // an unchanged payload and would otherwise start the
                     // radio without redrawing.
-                    ap_presenter.screen_cache.invalidate();
+                    ap_presenter.screen_cache.mark_superseded();
                 }
                 carousel.complete(
                     active_carousel_decision,

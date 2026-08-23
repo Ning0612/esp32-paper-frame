@@ -92,8 +92,9 @@ BUSY timeout 代表面板從未確認刷新完成，此時不能宣稱畫面已�
 - provisioning AP 畫面**不受本 ADR 影響**：該路徑刻意維持以
   `refreshed_and_slept` 為準（PROVISIONING.md：「AP radio 只有在回報
   `refreshed_and_slept` 後才啟動」），sleep 失敗時會重試整次刷新。
-  （該路徑另有一個與本 ADR 無關的既有缺陷：payload cache 一旦設立就
-  不再重設，見 PROJECT_STATUS 的已知缺陷。）
+  （該路徑另有一個與本 ADR 無關的既有缺陷：payload cache 一旦設立就不再重設，
+  導致同一次開機的第二次 AP session 會跳過刷新。該缺陷已於 2026-08-23 一併修復，
+  見 `pf_network::AccessPointScreenCache`。）
 - 本 ADR **不**新增「只 sleep 不刷新」的 command：ADR-0003 的 driver 只暴露
   `refresh_and_sleep()`，新增 sleep-only 進入點會擴大 driver 契約與
   DisplayTask 的狀態機。那正是上一點殘留風險的正解，留待實機證據顯示這個
