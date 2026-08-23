@@ -46,6 +46,12 @@ CDN 或雲端後端；一次 OTA 會同時更新韌體與前端
 | [![圖片處理](docs/media/webui-images.png)](docs/media/webui-images.png) | [![系統](docs/media/webui-system.png)](docs/media/webui-system.png) |
 | 方向、裁切、六色量化與 PFR1 打包都在瀏覽器本機完成，原圖不會送到外部服務。 | 面板與網路狀態、容量與版本、OTA 更新、重設管理密碼與診斷事件。 |
 
+[![天氣與時間](docs/media/webui-weather.png)](docs/media/webui-weather.png)
+
+天氣與時間頁：OpenWeatherMap 座標可直接在地圖上拖曳選點，離線時同一個
+控制項改成經緯度格線；API key 只回報「是否已設定」，不會出現在任何回應或
+畫面上。截圖中的座標是台北，不是實際部署位置。
+
 ## 目前狀態
 
 目前狀態的唯一進度入口是 [專案狀態](docs/PROJECT_STATUS.md)，實機證據在
