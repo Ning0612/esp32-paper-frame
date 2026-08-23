@@ -2994,3 +2994,45 @@ if (!channel_enabled[index]) {
 **啟用但實體未接線**的通道實際會讀到什麼——需要實際拔掉一顆光敏電阻才能量測，
 本次未做。這是文件明確要求使用者避免的設定，但量到浮接讀值的分佈能判斷飽和
 判定是否有機會涵蓋它。仍列於頂端索引。
+
+
+## 2026-08-23 — 開機多餘全刷的修正驗證
+
+同日 release gate 段落記錄的「開機多花一次全刷」已修（ADR-0019 與 presence
+轉換表）。本段是修正後的實機對照。
+
+### 條件
+
+兩次量測都在同一台裝置、房間開燈、兩個光敏通道都高於門檻（因此 presence 最終
+為 `present`）——正是原本重現雙刷的條件。門檻 1200／1200，離席／返回 180／30。
+
+| | 光敏讀值 | `carousel_image_queued` 次數 |
+| --- | --- | --- |
+| 修正前 | — | **2**（兩次重開機都重現） |
+| 修正後（第一版） | 1743 / 1794 | **1** |
+| 修正後（審查第四輪後重燒） | 2135 / 2253 | **1** |
+
+### 修正前後的 log 對照
+
+```
+修正前                                        修正後
+carousel_image_queued id=17 request=1        carousel_image_queued id=1 request=1
+carousel_request=1 outcome=1                 carousel_request=1 outcome=1
+presence_return_deadline_reset_deferred        （無）
+carousel_image_queued id=19 request=2          （無）
+carousel_request=2 outcome=1
+```
+
+`presence_return_deadline_reset_deferred` 不再出現——`unknown → present` 不再被
+當成「從離席返回」。刷新完成後 `next_due_ms` 直接回到正常輪播間隔
+（`1843028`≈30.7 分鐘），沒有殘留的 pending 狀態。
+
+同時確認：`rollback_confirmed=ESP_OK` 仍正常；**`optional_sensors=not_configured`
+假 log 已不再出現**（該缺陷的實機確認）。
+
+### 未在實機驗證的部分
+
+審查第三至第四輪修掉的併發情境——terminal result 反序消費、AP cache 在 frame
+已排隊時的新鮮度、離席期間 real frame 落板後重排白屏——**都需要刻意製造的時序
+才會發生**，本次未在實機重現。這些路徑由 host test 與程式碼審查覆蓋，不是實機
+證據。

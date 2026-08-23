@@ -72,7 +72,7 @@ WebUI 全部資產（HTML／CSS／JS）都 gzip 後編進 app 韌體，不從任
 像「這次刷新沒成功」而導致重刷一張已經正確的畫面；以及每次開機 presence 由
 `unknown` 收斂到 `present` 被當成「從離席返回」，白白多花一次 31 秒全刷。
 修法見 [ADR-0019](docs/adr/0019-separate-frame-displayed-from-panel-slept.md)。
-修正本身有 host test 覆蓋，但**修正後的開機序列尚未在實機確認**。
+修正後的開機序列**已在實機確認只剩一次全刷**。
 
 「實機證據已閉環」指的是那些行為已經在真實硬體上驗證過，**不等於 release
 gate 已關閉**——[release checklist](docs/RELEASE_CHECKLIST.md) 的手動 on-device

@@ -59,8 +59,9 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 同日 release gate 段落）。前者是後者浪費一次刷新的成因之一。修法見
 [ADR-0019](adr/0019-separate-frame-displayed-from-panel-slept.md)：`RuntimeResult`
 新增 `frame_on_panel` 把兩個事實分開回報，離席／返回的面板動作改由可 host-test
-的 `pf_sensors::presence_panel_action()` 決定。**尚未在實機確認**修正後的開機
-序列只剩一次全刷。
+的 `pf_sensors::presence_panel_action()` 決定。修正後的開機序列**已實機確認只剩一次全刷**（見[硬體驗證紀錄](hardware/VALIDATION.md)
+同日「開機多餘全刷的修正驗證」段落）。審查過程中另修掉數個併發情境，那些需要
+刻意製造的時序，僅由 host test 與審查覆蓋，未在實機重現。
 
 2026-08-20 已閉環（證據見[硬體驗證紀錄](hardware/VALIDATION.md)同日段落）：
 OTA 端到端與 rollback confirmation、WebUI 隨韌體換版、reboot persistence、
