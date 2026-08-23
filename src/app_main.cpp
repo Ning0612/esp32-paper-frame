@@ -395,13 +395,6 @@ esp_err_t present_access_point_screen(
             payload)) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (presenter->screen_cache.shows(payload)) {
-        ESP_LOGI(
-            kTag,
-            "provisioning_screen_unchanged refresh_skipped=true");
-        return ESP_OK;
-    }
-
     if (presenter->display_submission_mutex == nullptr ||
         xSemaphoreTake(
             presenter->display_submission_mutex,
@@ -411,6 +404,24 @@ esp_err_t present_access_point_screen(
     const auto release_submission_gate = [&]() {
         xSemaphoreGive(presenter->display_submission_mutex);
     };
+
+    // Checked inside the gate on purpose. Every path that can take the
+    // panel -- the away blank and both carousel submissions -- goes
+    // through try_lock_carousel_submission_gate() on this same mutex, so
+    // holding it here makes the check and any competing submission
+    // mutually exclusive. Testing outside it was a time-of-check race: the
+    // hit could be read an instant before a carousel frame was submitted,
+    // and success has already been reported to NetworkService by then, so
+    // the later mark_superseded() has nothing left to correct. The radio
+    // would come up over a carousel image with the credentials nowhere on
+    // the panel.
+    if (presenter->screen_cache.shows(payload)) {
+        release_submission_gate();
+        ESP_LOGI(
+            kTag,
+            "provisioning_screen_unchanged refresh_skipped=true");
+        return ESP_OK;
+    }
 
     pf_display::FrameWriteLease frame =
         pf_display::display_task().try_acquire_frame();
