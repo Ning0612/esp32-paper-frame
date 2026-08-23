@@ -42,6 +42,14 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
+**已知缺陷（2026-08-23 發現，尚未修）**：provisioning AP 畫面的 payload cache
+一旦設立就不再重設（`src/app_main.cpp` 的 `payload_valid` 只有設為 `true` 的
+路徑，全專案沒有任何地方把它設回 `false`）。同一次開機內 AP password 固定，
+所以第二次進入 AP（例如 STA 失敗 fallback）時 payload 相同會命中 cache，
+函式開頭直接 `return ESP_OK` 跳過刷新——**AP radio 會啟動，但電子紙可能還顯示
+著 carousel 圖片，使用者看不到 SSID、密碼與 QR code**，Recovery AP 因此可能
+無法使用。此缺陷早於今日的顯示結果契約變更，由 2026-08-23 的 codex 審查發現。
+
 **2026-08-23 已修**（同日發現、同日修）：`DisplayOutcome` 把「畫面已刷上去」
 與「面板已成功 sleep」混為一談，sleep 失敗時會重刷一張已經正確的畫面；以及
 開機時 presence 由 `unknown` 收斂到 `present` 被當成「返回」而多觸發一次 31 秒

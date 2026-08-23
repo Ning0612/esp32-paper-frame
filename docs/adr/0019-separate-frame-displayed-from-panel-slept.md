@@ -81,15 +81,19 @@ BUSY timeout 代表面板從未確認刷新完成，此時不能宣稱畫面已�
 ## Consequences
 
 - 刷新成功但 sleep 失敗時，不再浪費一次 31 秒全刷。這是本 ADR 的主要目的。
-- **面板可能停留在 active 狀態直到下一次刷新，而有兩個狀態不保證會有下一次**：
-  （1）空圖片庫時 welcome frame 一旦成功顯示，`CarouselScheduler` 就把
-  `next_due_ms` 設為 `UINT64_MAX` 永久停等；（2）provisioning AP 畫面在
-  payload 未變時會跳過刷新。第（2）點在本 ADR 的實作中不成立——AP 路徑
-  刻意維持以 `refreshed_and_slept` 為準（見 PROVISIONING.md 的「AP radio
-  只有在回報 `refreshed_and_slept` 後才啟動」），sleep 失敗時會重試整次
-  刷新。第（1）點是**已知且未解的殘留風險**：空圖片庫 + welcome sleep 失敗
-  時，面板會維持 active 直到下次開機或使用者上傳圖片。觸發條件罕見，
-  且 diagnostic event 會記錄，但這是真實的功耗與面板壽命風險。
+- **面板可能停留在 active 狀態直到下一次刷新**。空圖片庫時這段可能很長：
+  welcome frame 成功後 `CarouselScheduler::complete()` 先設定正常的輪播
+  interval，等該 deadline 到期、`poll()` 判定「welcome 已顯示且未過期」
+  之後才停在 `UINT64_MAX`。之後仍有三條路徑會再刷新 welcome——IP 變更、
+  presence 返回、以及使用者上傳第一張圖片——但都不保證會發生。
+  這是**已知且未解的殘留風險**：觸發條件（空圖片庫 ＋ welcome sleep 失敗）
+  罕見，且 `RuntimeCoordinator` 會記一筆 display diagnostic event，
+  但確實是真實的功耗與面板壽命風險。
+- provisioning AP 畫面**不受本 ADR 影響**：該路徑刻意維持以
+  `refreshed_and_slept` 為準（PROVISIONING.md：「AP radio 只有在回報
+  `refreshed_and_slept` 後才啟動」），sleep 失敗時會重試整次刷新。
+  （該路徑另有一個與本 ADR 無關的既有缺陷：payload cache 一旦設立就
+  不再重設，見 PROJECT_STATUS 的已知缺陷。）
 - 本 ADR **不**新增「只 sleep 不刷新」的 command：ADR-0003 的 driver 只暴露
   `refresh_and_sleep()`，新增 sleep-only 進入點會擴大 driver 契約與
   DisplayTask 的狀態機。那正是上一點殘留風險的正解，留待實機證據顯示這個

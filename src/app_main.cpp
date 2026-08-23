@@ -1317,8 +1317,15 @@ extern "C" void app_main()
                 // that was already correct (ADR-0019).
                 const bool succeeded = terminal_result.frame_on_panel;
                 if (succeeded) {
-                    // Whatever this frame is, it replaced the away blank.
+                    // Whatever this frame is, it replaced the away blank,
+                    // which also settles any restore still owed: the
+                    // deferred path would otherwise spend a second full
+                    // refresh putting a real frame on a panel that already
+                    // has one. Reachable when presence returns while the
+                    // blank is still in flight and the carousel issues its
+                    // own refresh before the blank's result is consumed.
                     presence_blank_on_panel = false;
+                    pending_presence_force_immediate = false;
                 }
                 carousel.complete(
                     active_carousel_decision,
