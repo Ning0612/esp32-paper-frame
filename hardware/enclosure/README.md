@@ -3,7 +3,7 @@
 7.3 吋 800×480 E6 電子紙桌上型相框的外殼素材，SolidWorks 2019 建模，
 每個零件同時提供 **STEP（AP214）** 與 **STL**：STEP 用來改尺寸或重新出圖，
 STL 直接送切片軟體列印。組裝後的實機外觀見
-[README 的實機照片](../../docs/media/device-front.jpg)。
+[README 的實機照片](https://github.com/Ning0612/esp32-paper-frame/blob/main/docs/media/device-front.jpg)。
 
 ## 組裝順序
 
@@ -53,4 +53,7 @@ STL 直接送切片軟體列印。組裝後的實機外觀見
 
 ## 授權
 
-與本 repository 相同，見 [LICENSE](../../LICENSE)。
+與本 repository 相同（MIT），見 [LICENSE](https://github.com/Ning0612/esp32-paper-frame/blob/main/LICENSE)。
+
+本檔會與 CAD 一起打包成 GitHub Release 的 `paperframe-enclosure.zip`，
+所以上面的連結刻意用絕對網址——解壓後的資料夾沒有 repository 的目錄結構。

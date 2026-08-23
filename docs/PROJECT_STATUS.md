@@ -9,7 +9,7 @@
 ## 一分鐘結論
 
 Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026-08-20，
-Phase 2／3／4／5／6／8 的實機證據全數閉環——涵蓋 OTA 端到端與 rollback fault
+Phase 2／3／4／5／6／8 的主要實機證據已閉環——涵蓋 OTA 端到端與 rollback fault
 injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出圖管線、天氣四種
 失敗分類、forced-BUSY 隔離與面板 sleep 電流。Phase 7 感測器已於 2026-08-23 接線
 並完成主要實機驗證（DHT22 讀值、雙光敏通道校正、AWAY/PRESENT 轉換、白屏與

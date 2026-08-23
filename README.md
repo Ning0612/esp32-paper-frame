@@ -64,7 +64,7 @@ WebUI 全部資產（HTML／CSS／JS）都 gzip 後編進 app 韌體，不從任
 | 分類 | 目前結論 |
 | --- | --- |
 | 已完成 | Phase 1–8 的程式、host tests 與韌體 build 全部完成。 |
-| 已實機驗證 | Phase 2–8 的實機證據已閉環：面板刷新與 sleep 電流、AP／STA 配網與存取邊界、browser 出圖管線、五種斷電路徑、天氣四種失敗分類、OTA 端到端與 rollback fault injection，以及 Phase 7 的 DHT22、雙光敏通道與在場判定。 |
+| 已實機驗證 | Phase 2–8 的**主要**路徑都有實機證據：面板刷新與 sleep 電流、AP／STA 配網與存取邊界、browser 出圖管線、五種斷電路徑、天氣四種失敗分類、OTA 端到端與 rollback fault injection，以及 Phase 7 的 DHT22、雙光敏通道與在場判定。這不代表每個 Phase 都沒有剩餘項目——見下一列。 |
 | 待驗證 | 四個領域、八條路徑，都是低優先：`SensorSettings` v1→v2 的實機遷移與只接一顆光敏電阻的降級；presence 返回重畫、DHCP 續約後的位址重畫與 welcome 刷新失敗重試；AP grace 的 presence 例外與低 DMA heap guard；NVS 滿導致 `pf_config` 開啟失敗。 |
 | 待決定 | production security profile（Secure Boot／Flash Encryption）與 MVP 以外的 P1 功能尚未納入開發。 |
 
