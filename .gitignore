@@ -37,3 +37,6 @@ components/pf_web/generated/
 
 # Analysis/scratch reports (workflow convention: never checked in)
 claudedocs/
+
+# Locally staged release assets (CI rebuilds these from source)
+dist/

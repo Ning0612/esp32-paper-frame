@@ -1,6 +1,6 @@
 # PaperFrame 專案狀態
 
-- 最後整理：2026-08-20（目前發布版本：`v0.9.2`）
+- 最後整理：2026-08-23（目前發布版本：`v0.10.0`）
 - 本文件是目前進度的唯一摘要入口；詳細實機證據仍保留在
   [硬體驗證紀錄](hardware/VALIDATION.md)。
 - `已完成` 代表程式／host/build 已完成；只有明確標成 `已驗證` 才代表有實機
@@ -9,11 +9,11 @@
 ## 一分鐘結論
 
 Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026-08-20，
-Phase 2／3／4／5／6／8 的實機證據全數閉環——涵蓋 OTA 端到端與 rollback fault
+Phase 2／3／4／5／6／8 的主要實機證據已閉環——涵蓋 OTA 端到端與 rollback fault
 injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出圖管線、天氣四種
 失敗分類、forced-BUSY 隔離與面板 sleep 電流。Phase 7 感測器已於 2026-08-23 接線
 並完成主要實機驗證（DHT22 讀值、雙光敏通道校正、AWAY/PRESENT 轉換、白屏與
-返回重繪）。**剩餘的硬體驗證只有三個小項與兩個低風險項**。其餘
+返回重繪）。**剩餘的硬體驗證是八條低優先路徑**，分佈在四個領域。其餘
 待辦是公開 release security profile 與 MVP 以外功能的產品決策。
 
 ## 已完成或已決定
@@ -37,7 +37,8 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 7 sensors | 僅剩 `SensorSettings` v1→v2 遷移的實機路徑；感測器行為已於 2026-08-23 全部實機閉環 |
+| Phase 7 sensors | 剩 `SensorSettings` v1→v2 遷移的實機路徑，以及只接一顆光敏電阻（另一通道實體未接線）的降級行為；兩顆都接線時的感測器行為已於 2026-08-23 全部實機閉環 |
+| Welcome／重繪生命週期 | presence 返回時的 welcome 重畫、DHCP 續約後的位址重畫、welcome 刷新失敗後的 30 秒短重試（見 [ADR-0015](adr/0015-first-image-waits-for-ntp-and-weather.md)） |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 

@@ -40,6 +40,9 @@ PaperFrame 的文件分成「目前狀態」、「現行契約」、「設計決
   包含**新裝置首次燒錄**（日常 upload 只寫 app slot，不含 bootloader，
   空白板無法只靠它開機）與**判斷 bootloader 是否具備 OTA 回滾保護**。
 
+- [../hardware/enclosure/README.md](../hardware/enclosure/README.md)：3D 列印外殼的零件清單、量到的尺寸與已知問題；CAD 本體（STEP／STL）
+  與韌體一起附在每個 GitHub Release 的 assets。
+
 這兩份文件回答「實際測了什麼」與「如何操作」，不取代
 [PROJECT_STATUS.md](PROJECT_STATUS.md) 的進度摘要。
 
@@ -55,7 +58,7 @@ PaperFrame 的文件分成「目前狀態」、「現行契約」、「設計決
 
 - `hardware/VALIDATION.md`：頂端有目前未閉環索引，後面的 append-only 紀錄仍是可追溯的實機證據；不把整份移入 archive。
 - `hardware/FLASHING.md` 與 `RELEASE_CHECKLIST.md`：仍會直接用於燒錄、驗證與發布，屬於現行操作文件。
-- ADR：目前 15 份都是已接受的公開設計決策；即使部分決策後來被新 ADR 取代，也要保留決策歷史，不搬到 archive。
+- ADR：目前 18 份都是已接受的公開設計決策；即使部分決策後來被新 ADR 取代，也要保留決策歷史，不搬到 archive。
 - `REFERENCES.md`、`ASSET_CREDITS.md`、`THIRD_PARTY_NOTICES.md`：授權與 provenance 是開源交付的一部分，不是過時開發計畫。
 - `AUTHENTICATION.md`、`PROVISIONING.md`、`WEBUI.md`、`HEALTH_API.md`、`STORAGE.md`、`WEATHER.md` 與 `formats/`：描述目前仍有效的外部行為與資料格式。
 

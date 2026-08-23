@@ -66,4 +66,4 @@ NNNN-short-imperative-title.md
 - [ADR-0015：開機首張真實圖片等待 NTP／天氣就緒或逾時](0015-first-image-waits-for-ntp-and-weather.md)（Update 2026-08-23：空圖庫的 welcome frame 在取得區網 IP 後重畫一次）
 - [ADR-0016：WebUI 資產 gzip 後編入 app image，webfs 分割區轉為 reserved](0016-embed-webui-assets-in-firmware.md)（取代 ADR-0008 Context 第 1 條）
 - [ADR-0017：設定載入的降級邊界與中央記錄的寫入規則](0017-config-degradation-boundaries.md)
-- [ADR-0018：光敏電阻擴充為兩個獨立通道，任一變暗即判定為暗](0018-dual-photoresistor-channels.md)（取代 ADR-0006 的單一光敏判定與 `light` schema；增修 ADR-0003 的 G2 保留腳位表）
+- [ADR-0018：光敏電阻擴充為兩個獨立通道，兩顆都變暗才判定為暗](0018-dual-photoresistor-channels.md)（取代 ADR-0006 的單一光敏判定與 `light` schema；增修 ADR-0003 的 G2 保留腳位表）

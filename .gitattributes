@@ -1,0 +1,5 @@
+# STL is a binary format here (84-byte header + 50 bytes per triangle);
+# any end-of-line normalisation corrupts the mesh. STEP is plain text and
+# normalises safely.
+*.stl binary
+*.step text eol=lf

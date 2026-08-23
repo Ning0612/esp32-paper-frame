@@ -39,6 +39,10 @@ void test_runtime_queues_and_snapshot()
         .last_display_request_id = 0,
         .last_display_outcome = pf_runtime::DisplayOutcome::none,
         .last_display_stage = 0,
+        // Named explicitly: RuntimeSnapshot has no default member
+        // initialiser on this array (see runtime_snapshot.hpp), and
+        // the firmware build treats a missing one as an error.
+        .light_channels = {},
     };
     TEST_ASSERT_EQUAL(ESP_OK, runtime.initialize(initial));
     TEST_ASSERT_TRUE(runtime.read_snapshot(observed));
