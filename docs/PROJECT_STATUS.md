@@ -1,12 +1,19 @@
 # PaperFrame 專案狀態
 
-- 最後整理：2026-08-23（目前發布版本：`v0.10.0`）
+- 最後整理：2026-08-23（目前發布版本：`v0.10.1`）
 - 本文件是目前進度的唯一摘要入口；詳細實機證據仍保留在
   [硬體驗證紀錄](hardware/VALIDATION.md)。
 - `已完成` 代表程式／host/build 已完成；只有明確標成 `已驗證` 才代表有實機
   證據。`待決定` 不等於 bug，也不應在決策前自行擴張 scope。
 
 ## 一分鐘結論
+
+**MVP 功能範圍已完成**（2026-08-23 由專案擁有者判定）：Phase 1–8 的功能、
+WebUI、OTA、感測器與外殼 CAD 都已交付，並在實機上使用。這是**功能範圍**
+的判定，不代表每條路徑都有實機證據——剩餘缺口見下方兩節，都是低優先項。
+
+**電源方案尚未設計**：目前直接接線供電，沒有評估過電池、UPS 或低功耗
+運行模式。這是 MVP 之後的第一個硬體待辦。
 
 Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026-08-20，
 Phase 2／3／4／5／6／8 的主要實機證據已閉環——涵蓋 OTA 端到端與 rollback fault
@@ -93,8 +100,12 @@ OTA worker stack high-water、active OTA upload wrapper 的 slot 選擇、面板
 
 1. **Production security profile**：是否啟用 Secure Boot、Flash Encryption／
    NVS Encryption，以及對應的燒錄、key custody、recovery 與 release 流程。
-2. **MVP release gate**：是否要求所有上表硬體證據關閉後才發布第一個公開版。
-3. **MVP 以外的 P1 功能**：多 Wi-Fi profile、批次上傳、週排程、歷史圖表、
+2. **~~MVP release gate~~**（2026-08-23 已決定）：不要求所有硬體證據關閉才
+   發布。剩餘八條路徑都是低優先且觸發條件罕見，逐項列在上表與
+   [硬體驗證紀錄](hardware/VALIDATION.md)，發布不隱藏它們。
+3. **電源方案**：目前直接接線供電。是否要做電池／UPS、目標續航、以及對應的
+   低功耗運行模式（面板本身已在每次刷新後 sleep，主控未做 deep sleep）。
+4. **MVP 以外的 P1 功能**：多 Wi-Fi profile、批次上傳、週排程、歷史圖表、
    Discord 通知、自動清圖、MQTT、蜂鳴器、音效與 AI 功能是否要進入後續 roadmap。
 
 在這些決策完成前，不新增對應設定旗標、API 或預留式抽象層。
