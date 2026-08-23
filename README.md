@@ -11,10 +11,12 @@ PaperFrame 是以 ESP32-S3 驅動 7.3 吋 800×480 E6 全彩電子紙的離線�
 圖片輪播裝置。韌體使用 PlatformIO 管理的原生 ESP-IDF，不依賴 Arduino
 framework；圖片處理、設定與管理 WebUI 在區域網路或裝置 AP 內即可運作。
 
-![PaperFrame 實機：3D 列印相框中的 7.3 吋六色電子紙，狀態列顯示日期、天氣、IP 與室內溫溼度](docs/media/device-front.jpg)
+![PaperFrame 實機：3D 列印相框中的 7.3 吋六色電子紙，狀態列顯示日期、天氣、IP 與室內溫溼度，下方是六色抖色後的《神奈川沖浪裏》](docs/media/device-front.jpg)
 
-上圖是實機外觀。狀態列由左至右是日期與星期、目前天氣、裝置 IP（畫面中已
-遮蔽）與 DHT22 的室內溫溼度；下方是輪播中的圖片。外殼 CAD 一併收錄於
+上圖是實機外觀，未經後製，只把狀態列上的區網位址遮成 `192.168.x.x`。狀態列
+由左至右是日期與星期、目前天氣、裝置 IP 與 DHT22 的室內溫溼度；下方是輪播中
+的圖片，這裡是公有領域的葛飾北齋《神奈川沖浪裏》經六色抖色後的實際顯示結果
+（[出處](ASSET_CREDITS.md)）。外殼 CAD 一併收錄於
 [`hardware/enclosure/`](hardware/enclosure/)，也附在每個 release 的 assets。
 
 > **與其他 e-paper 專案的關係**
