@@ -717,6 +717,11 @@ extern "C" void app_main()
         .carousel_random = config_result.record_available &&
                            config_result.record.carousel_random,
         .timezone_offset_minutes = initial_timezone_offset_minutes,
+        // Named explicitly because RuntimeSnapshot deliberately has no
+        // default member initialiser on this array (see
+        // runtime_snapshot.hpp); without it the firmware build fails
+        // on -Werror=missing-field-initializers.
+        .light_channels = {},
         .reboot_reason = pf_runtime::classify_reset_reason(
             static_cast<int>(esp_reset_reason())),
     };

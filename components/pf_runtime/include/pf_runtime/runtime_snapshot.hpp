@@ -188,8 +188,18 @@ struct RuntimeSnapshot {
     // actually acted on, so a reader can show each sensor separately and
     // still know which one drove the decision. See
     // docs/adr/0018-dual-photoresistor-channels.md.
+    // No `{}` here on purpose: GCC 13 (the compiler on the Linux CI
+    // runner) cannot aggregate-initialise a struct that has an array of
+    // class type carrying a default member initialiser, and rejects every
+    // partial `RuntimeSnapshot{...}` in the test suite with "could not
+    // convert from <brace-enclosed initializer list>". LightChannelState
+    // initialises all of its own members, so an omitted initialiser here
+    // still value-initialises every channel -- the `{}` bought nothing.
+    // The trade is that firmware code (built with
+    // -Werror=missing-field-initializers) has to name this member
+    // explicitly in a designated initialiser; see src/app_main.cpp.
     pf_sensors::LightChannelState
-        light_channels[pf_sensors::kLightChannelCount]{};
+        light_channels[pf_sensors::kLightChannelCount];
     pf_sensors::LightDecision light_decision{};
     // False until SensorTask publishes its first sample. Without this the
     // zero-initialised thresholds above are indistinguishable from a user

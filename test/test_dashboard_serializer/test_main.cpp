@@ -754,6 +754,26 @@ void test_serialize_events_reports_events_oldest_first()
         std::strstr(output, "\"sequence_id\":4"));
 }
 
+// RuntimeSnapshot deliberately carries no default member initialiser on
+// `light_channels` -- one there makes GCC 13 (the Linux CI compiler)
+// reject every partial `RuntimeSnapshot{...}` in this file. Omitting it is
+// only safe while LightChannelState initialises all of its own members, so
+// guard exactly that: a default-initialised snapshot (not `{}`) must still
+// come back with defined channels. If someone strips an NSDMI from
+// LightChannelState this fails instead of silently serving uninitialised
+// ADC readings to the dashboard.
+void test_default_initialised_snapshot_has_defined_light_channels()
+{
+    pf_runtime::RuntimeSnapshot fresh;
+    for (const pf_sensors::LightChannelState& channel : fresh.light_channels) {
+        TEST_ASSERT_EQUAL_INT(
+            static_cast<int>(pf_sensors::LightSensorStatus::disabled),
+            static_cast<int>(channel.status));
+        TEST_ASSERT_EQUAL_UINT16(0U, channel.raw_filtered);
+        TEST_ASSERT_EQUAL_UINT16(0U, channel.threshold);
+    }
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -784,5 +804,6 @@ int main(int, char**)
     RUN_TEST(test_serialize_ota_status_reports_unknown_when_never_checked);
     RUN_TEST(test_serialize_events_reports_empty_array_when_none);
     RUN_TEST(test_serialize_events_reports_events_oldest_first);
+    RUN_TEST(test_default_initialised_snapshot_has_defined_light_channels);
     return UNITY_END();
 }
