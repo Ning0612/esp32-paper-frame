@@ -165,4 +165,42 @@ bool render_access_point_screen(
     std::size_t length,
     const AccessPointScreenPayload& payload);
 
+// Tracks whether the AP instruction screen is what the panel is currently
+// showing, so an unchanged payload can skip a ~31 s refresh.
+//
+// The skip is only sound while the claim is true. Holding the payload
+// without tracking that -- which is what the presenter did until
+// 2026-08-23 -- means the second AP session in a boot skips its refresh:
+// the password, and so the payload, is unchanged since the first session,
+// but the carousel has owned the panel in between. The radio then comes up
+// with an image on the panel and the user cannot read the SSID, password
+// or QR code, which is exactly when they need them.
+//
+// A named type rather than two loose fields, so `invalidate()` is a call
+// site that can be found and tested instead of an assignment that is easy
+// to forget.
+struct AccessPointScreenCache {
+    AccessPointScreenPayload payload{};
+    bool displayed = false;
+
+    // True only when this exact payload is believed to be on the panel.
+    bool shows(const AccessPointScreenPayload& candidate) const
+    {
+        return displayed &&
+               same_access_point_screen_payload(payload, candidate);
+    }
+
+    void mark_displayed(const AccessPointScreenPayload& shown)
+    {
+        payload = shown;
+        displayed = true;
+    }
+
+    // Call whenever any other frame reaches the panel.
+    void invalidate()
+    {
+        displayed = false;
+    }
+};
+
 }  // namespace pf_network

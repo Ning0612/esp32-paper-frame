@@ -160,6 +160,62 @@ void test_ap_screen_policy_is_inactive_outside_ap_mode()
 
 }  // namespace
 
+using pf_network::AccessPointScreenCache;
+
+namespace {
+
+pf_network::AccessPointScreenPayload cache_payload(const char* const ssid)
+{
+    pf_network::AccessPointScreenPayload payload{};
+    pf_network::build_access_point_screen_payload(
+        ssid, "PF-ABCDEFGHJKMN", "A1B2", payload);
+    return payload;
+}
+
+}  // namespace
+
+// The refresh skip is only sound while the AP screen really is on the
+// panel. An empty cache claims nothing.
+void test_an_empty_cache_never_claims_the_panel()
+{
+    const AccessPointScreenCache cache{};
+    TEST_ASSERT_FALSE(cache.shows(cache_payload("PF-Setup")));
+}
+
+void test_a_displayed_payload_is_recognised()
+{
+    AccessPointScreenCache cache{};
+    const pf_network::AccessPointScreenPayload payload = cache_payload("PF-Setup");
+    cache.mark_displayed(payload);
+    TEST_ASSERT_TRUE(cache.shows(payload));
+    // A different payload is a different screen, cached or not.
+    TEST_ASSERT_FALSE(cache.shows(cache_payload("PF-Other")));
+}
+
+// The defect this type exists to prevent (2026-08-23): the presenter held
+// the payload but never dropped it, so a second AP session in the same
+// boot -- same password, therefore same payload -- skipped its refresh
+// even though the carousel had owned the panel in between. The radio came
+// up with an image on the panel and the credentials nowhere to be seen.
+void test_another_frame_on_the_panel_invalidates_the_cache()
+{
+    AccessPointScreenCache cache{};
+    const pf_network::AccessPointScreenPayload payload = cache_payload("PF-Setup");
+    cache.mark_displayed(payload);
+    TEST_ASSERT_TRUE(cache.shows(payload));
+
+    cache.invalidate();
+
+    // Same payload, but the panel is showing something else now, so the
+    // refresh must not be skipped.
+    TEST_ASSERT_FALSE(cache.shows(payload));
+
+    // And it recovers: showing it again re-establishes the claim.
+    cache.mark_displayed(payload);
+    TEST_ASSERT_TRUE(cache.shows(payload));
+}
+
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -170,5 +226,8 @@ int main(int, char**)
     RUN_TEST(test_ap_screen_stays_until_image_timeout_when_image_exists);
     RUN_TEST(test_ap_screen_stays_forever_without_a_displayable_image);
     RUN_TEST(test_ap_screen_policy_is_inactive_outside_ap_mode);
+    RUN_TEST(test_an_empty_cache_never_claims_the_panel);
+    RUN_TEST(test_a_displayed_payload_is_recognised);
+    RUN_TEST(test_another_frame_on_the_panel_invalidates_the_cache);
     return UNITY_END();
 }

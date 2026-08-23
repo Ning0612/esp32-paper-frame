@@ -100,8 +100,7 @@ struct HardwareProfile {
 
 struct AccessPointPresenterContext {
     bool display_started = false;
-    bool payload_valid = false;
-    pf_network::AccessPointScreenPayload last_payload{};
+    pf_network::AccessPointScreenCache screen_cache{};
     StaticSemaphore_t display_submission_mutex_control{};
     SemaphoreHandle_t display_submission_mutex = nullptr;
 };
@@ -396,10 +395,7 @@ esp_err_t present_access_point_screen(
             payload)) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (presenter->payload_valid &&
-        pf_network::same_access_point_screen_payload(
-            presenter->last_payload,
-            payload)) {
+    if (presenter->screen_cache.shows(payload)) {
         ESP_LOGI(
             kTag,
             "provisioning_screen_unchanged refresh_skipped=true");
@@ -455,8 +451,7 @@ esp_err_t present_access_point_screen(
             // without a slept panel ever having been confirmed.
             if (result.display_outcome ==
                 pf_runtime::DisplayOutcome::refreshed_and_slept) {
-                presenter->last_payload = payload;
-                presenter->payload_valid = true;
+                presenter->screen_cache.mark_displayed(payload);
                 ESP_LOGI(
                     kTag,
                     "provisioning_screen_ready request=%" PRIu32,
@@ -1280,6 +1275,7 @@ extern "C" void app_main()
                     // sleep afterwards (ADR-0019), which is a power
                     // concern, not a reason to redraw the same blank.
                     presence_blank_on_panel = true;
+                    ap_presenter.screen_cache.invalidate();
                     if (previous_presence ==
                         pf_sensors::PresenceState::present) {
                         // The user came back while this blank was still in
@@ -1326,6 +1322,12 @@ extern "C" void app_main()
                     // own refresh before the blank's result is consumed.
                     presence_blank_on_panel = false;
                     pending_presence_force_immediate = false;
+                    // The AP instruction screen is no longer what the
+                    // panel shows, so its skip-the-refresh cache must not
+                    // claim it is: a later AP session in the same boot has
+                    // an unchanged payload and would otherwise start the
+                    // radio without redrawing.
+                    ap_presenter.screen_cache.invalidate();
                 }
                 carousel.complete(
                     active_carousel_decision,
