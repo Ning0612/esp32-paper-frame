@@ -166,8 +166,8 @@ GPIO4 已給 BUSY 不得再作 ADC。
 [該目錄的 README](hardware/enclosure/README.md)。同一份內容也會以
 `paperframe-enclosure.zip` 附在每個 GitHub Release 的 assets。
 
-**列印前請先讀該 README 的「已知問題」**：`06-button-cap` 的 STEP 與 STL
-目前不是同一版，其餘五個零件兩種格式一致。
+六個零件的檔名前綴就是組裝堆疊順序。**列印前請先讀該 README 的「已知問題」**：
+`04-stand` 的 STEP 與 STL 目前不是同一版，其餘五個零件兩種格式一致。
 
 ## 架構概覽
 
