@@ -469,6 +469,7 @@ public:
                 pf_runtime::RuntimeError::invalid_argument,
                 pf_runtime::DisplayOutcome::invalid_lease,
                 static_cast<std::uint8_t>(DriverStage::validate),
+                false,
             };
         }
 
@@ -476,6 +477,17 @@ public:
             panel_.refresh_and_sleep(frame, length);
         const std::uint8_t stage =
             static_cast<std::uint8_t>(driver.stage);
+        // DISPLAY_REFRESH is step 3 of 6; the picture is on the panel once
+        // it completes, and the three power-off/sleep steps after it change
+        // nothing visible. Report that separately from the outcome so a
+        // failure in those steps does not read as "this refresh did not
+        // happen" and cost another full refresh of a correct picture. The
+        // threshold is deliberately the stage *after* `refresh`: a BUSY
+        // timeout during `refresh` means the panel never confirmed it
+        // finished, so the frame cannot be claimed as displayed.
+        // See docs/adr/0019-separate-frame-displayed-from-panel-slept.md.
+        const bool frame_on_panel =
+            driver.stage >= DriverStage::refresh_power_off;
         switch (driver.status) {
             case DriverStatus::ok:
                 if (driver.stage == DriverStage::deep_sleep &&
@@ -486,6 +498,7 @@ public:
                         pf_runtime::RuntimeError::none,
                         pf_runtime::DisplayOutcome::refreshed_and_slept,
                         stage,
+                        frame_on_panel,
                     };
                 }
                 return {
@@ -494,6 +507,7 @@ public:
                     pf_runtime::RuntimeError::invalid_state,
                     pf_runtime::DisplayOutcome::panel_state_error,
                     stage,
+                    frame_on_panel,
                 };
             case DriverStatus::invalid_frame:
                 return {
@@ -502,6 +516,7 @@ public:
                     pf_runtime::RuntimeError::invalid_argument,
                     pf_runtime::DisplayOutcome::invalid_lease,
                     stage,
+                    frame_on_panel,
                 };
             case DriverStatus::busy_timeout:
                 return {
@@ -510,6 +525,7 @@ public:
                     pf_runtime::RuntimeError::timeout,
                     pf_runtime::DisplayOutcome::busy_timeout,
                     stage,
+                    frame_on_panel,
                 };
             case DriverStatus::transport_error:
                 return {
@@ -518,6 +534,7 @@ public:
                     pf_runtime::RuntimeError::transport,
                     pf_runtime::DisplayOutcome::transport_error,
                     stage,
+                    frame_on_panel,
                 };
         }
         return {
@@ -526,6 +543,7 @@ public:
             pf_runtime::RuntimeError::invalid_state,
             pf_runtime::DisplayOutcome::panel_state_error,
             stage,
+            frame_on_panel,
         };
     }
 

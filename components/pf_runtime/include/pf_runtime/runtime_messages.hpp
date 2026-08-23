@@ -68,6 +68,17 @@ struct RuntimeResult {
     RuntimeError error;
     DisplayOutcome display_outcome;
     std::uint8_t driver_stage;
+    // Whether the frame reached the panel, which is a different question
+    // from whether the command succeeded: the picture is displayed once
+    // DISPLAY_REFRESH completes, four steps before the panel is asked to
+    // sleep. A failure after that point leaves a correct picture on an
+    // awake panel, and redrawing it costs a full ~31 s refresh for no
+    // visible change. See
+    // docs/adr/0019-separate-frame-displayed-from-panel-slept.md.
+    // Deliberately has no default member initialiser so that
+    // -Werror=missing-field-initializers catches any construction site
+    // that forgets to answer this.
+    bool frame_on_panel;
 };
 
 static_assert(std::is_trivially_copyable_v<FrameToken>);

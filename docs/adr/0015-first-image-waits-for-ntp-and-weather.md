@@ -64,6 +64,12 @@
 - 尚未驗證項目（記錄於 `docs/hardware/VALIDATION.md`）：實機開機時序
   下這個 60 秒視窗與 welcome/手動啟用互動的實際行為。
 
+> **2026-08-23 後續**：本節描述的 `DisplayOutcome` 契約問題已由
+> [ADR-0019](0019-separate-frame-displayed-from-panel-slept.md) 解決
+> （`RuntimeResult` 新增 `frame_on_panel`，把「畫面已上到面板」與
+> 「面板已 sleep」分開回報）。以下段落保留當時的分析與退避理由——
+> 退避本身仍然有效，只是現在只保護真正沒上到面板的失敗。
+
 ## Update 2026-08-23：空圖庫的 welcome frame 在取得區網 IP 後重畫一次
 
 ### Context

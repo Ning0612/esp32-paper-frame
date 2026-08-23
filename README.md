@@ -3,7 +3,7 @@
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-6.1.19-orange?logo=platformio)](https://platformio.org)
 [![Board](https://img.shields.io/badge/Board-ESP32--S3--N16R8-red?logo=espressif)](https://www.espressif.com/en/products/socs/esp32-s3)
 [![Framework](https://img.shields.io/badge/Framework-ESP--IDF-blue?logo=espressif)](https://docs.espressif.com/projects/esp-idf/en/latest/)
-[![Version](https://img.shields.io/badge/Version-0.10.0-yellow)](https://github.com/Ning0612/esp32-paper-frame/releases)
+[![Version](https://img.shields.io/badge/Version-0.10.1-yellow)](https://github.com/Ning0612/esp32-paper-frame/releases)
 [![CI](https://github.com/Ning0612/esp32-paper-frame/actions/workflows/ci.yml/badge.svg)](https://github.com/Ning0612/esp32-paper-frame/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
@@ -63,15 +63,17 @@ WebUI 全部資產（HTML／CSS／JS）都 gzip 後編進 app 韌體，不從任
 
 | 分類 | 目前結論 |
 | --- | --- |
+| MVP | **功能範圍已完成**並在實機使用中。**電源方案尚未設計**——目前直接接線供電，電池／低功耗運行未評估。 |
 | 已完成 | Phase 1–8 的程式、host tests 與韌體 build 全部完成。 |
 | 已實機驗證 | Phase 2–8 的**主要**路徑都有實機證據：面板刷新與 sleep 電流、AP／STA 配網與存取邊界、browser 出圖管線、五種斷電路徑、天氣四種失敗分類、OTA 端到端與 rollback fault injection，以及 Phase 7 的 DHT22、雙光敏通道與在場判定。這不代表每個 Phase 都沒有剩餘項目——見下一列。 |
-| 待驗證 | 四個領域、八條路徑，都是低優先：`SensorSettings` v1→v2 的實機遷移與只接一顆光敏電阻的降級；presence 返回重畫、DHCP 續約後的位址重畫與 welcome 刷新失敗重試；AP grace 的 presence 例外與低 DMA heap guard；NVS 滿導致 `pf_config` 開啟失敗。 |
+| 待驗證 | 四個領域、八條路徑，都是低優先：`SensorSettings` v1→v2 的實機遷移與啟用但未接線通道的浮接讀值；presence 返回重畫、DHCP 續約後的位址重畫與 welcome 刷新失敗重試；AP grace 的 presence 例外與低 DMA heap guard；NVS 滿導致 `pf_config` 開啟失敗。 |
 | 待決定 | production security profile（Secure Boot／Flash Encryption）與 MVP 以外的 P1 功能尚未納入開發。 |
 
-已知遺留缺陷（有記錄、尚未修）：`DisplayOutcome` 把「畫面已刷上去」與
-「面板已成功 sleep」混為一談，sleep 失敗時會重刷一張已經正確的畫面；影響
-已由 welcome 重試的指數退避壓制，正確修法需取代 ADR-0003 的 driver contract，
-見 [ADR-0015 的 2026-08-23 Update](docs/adr/0015-first-image-waits-for-ntp-and-weather.md)。
+2026-08-23 修掉兩個互相關聯的缺陷：刷新完成但面板 sleep 失敗時，結果讀起來
+像「這次刷新沒成功」而導致重刷一張已經正確的畫面；以及每次開機 presence 由
+`unknown` 收斂到 `present` 被當成「從離席返回」，白白多花一次 31 秒全刷。
+修法見 [ADR-0019](docs/adr/0019-separate-frame-displayed-from-panel-slept.md)。
+修正後的開機序列**已在實機確認只剩一次全刷**。
 
 「實機證據已閉環」指的是那些行為已經在真實硬體上驗證過，**不等於 release
 gate 已關閉**——[release checklist](docs/RELEASE_CHECKLIST.md) 的手動 on-device
@@ -141,8 +143,9 @@ OTA 的回滾保護取決於 bootloader 版本，判斷方式見
 | 主控 | ESP32-S3-N16R8（16 MB Flash、8 MB octal PSRAM） | 必要 |
 | 顯示器 | Waveshare 7.3 吋 e-Paper HAT (E)，800×480 E6 六色 | 必要 |
 | 溫溼度 | DHT22／AM2302 | 可選；已實機驗證 |
-| 光感測 | 光敏電阻＋分壓 ×2，接 `ADC1_CH4` 與 `ADC1_CH6` | 可選；兩顆同時接線已實機驗證，**只接一顆的降級行為僅有 host test** |
+| 光感測 | 光敏電阻＋分壓 ×2，接 `ADC1_CH4` 與 `ADC1_CH6` | 可選；兩顆同時接線已實機驗證。**只接一顆時必須在 WebUI 停用另一顆**（[原因](docs/hardware/HARDWARE.md)） |
 | 外殼 | 3D 列印，CAD 見 [`hardware/enclosure/`](hardware/enclosure/) | 可選 |
+| 供電 | 直接接線（開發板 USB） | **尚未設計**；電池／低功耗運行未評估 |
 
 顯示器接線（3.3 V logic、SPI2、mode 0、MSB-first、起始 clock 2 MHz）：
 

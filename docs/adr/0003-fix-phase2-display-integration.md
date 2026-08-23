@@ -1,7 +1,11 @@
 # ADR-0003：固定 Phase 2 顯示器接線與 driver contract
 
-- Status: accepted
+- Status: accepted（部分被取代）
 - Date: 2026-07-29
+- Superseded in part by: [ADR-0019](0019-separate-frame-displayed-from-panel-slept.md)——Verification 的「成功 result 只能在 driver 回報 deep sleep 後發布」
+  已被取代：driver 現在同時回報「畫面是否已上到面板」，刷新完成但 sleep
+  失敗不再讀作刷新失敗。本 ADR 的 driver 行為（sequence、BUSY timeout
+  處理、`0x07, 0xA5` 才標記 deep sleep）維持有效。
 - Supersedes: none
 - Amended by: [ADR-0018](0018-dual-photoresistor-channels.md)（G2 感測器
   保留腳位表新增 GPIO7／`ADC1_CH6` 作為第二個光敏電阻通道；本 ADR 其餘

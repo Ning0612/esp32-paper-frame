@@ -100,8 +100,7 @@ struct HardwareProfile {
 
 struct AccessPointPresenterContext {
     bool display_started = false;
-    bool payload_valid = false;
-    pf_network::AccessPointScreenPayload last_payload{};
+    pf_network::AccessPointScreenCache screen_cache{};
     StaticSemaphore_t display_submission_mutex_control{};
     SemaphoreHandle_t display_submission_mutex = nullptr;
 };
@@ -173,10 +172,6 @@ HardwareProfile log_hardware_profile()
         static_cast<unsigned>(psram_bytes),
         static_cast<unsigned>(kExpectedPsramBytes),
         psram_ready && psram_bytes >= kExpectedPsramBytes ? "ready" : "degraded");
-
-    ESP_LOGI(
-        kTag,
-        "optional_sensors=not_configured gpio_probe=skipped");
 
     return {
         flash_result == ESP_OK && flash_bytes == kExpectedFlashBytes,
@@ -400,16 +395,6 @@ esp_err_t present_access_point_screen(
             payload)) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (presenter->payload_valid &&
-        pf_network::same_access_point_screen_payload(
-            presenter->last_payload,
-            payload)) {
-        ESP_LOGI(
-            kTag,
-            "provisioning_screen_unchanged refresh_skipped=true");
-        return ESP_OK;
-    }
-
     if (presenter->display_submission_mutex == nullptr ||
         xSemaphoreTake(
             presenter->display_submission_mutex,
@@ -419,6 +404,24 @@ esp_err_t present_access_point_screen(
     const auto release_submission_gate = [&]() {
         xSemaphoreGive(presenter->display_submission_mutex);
     };
+
+    // Checked inside the gate on purpose. Every path that can take the
+    // panel -- the away blank and both carousel submissions -- goes
+    // through try_lock_carousel_submission_gate() on this same mutex, so
+    // holding it here makes the check and any competing submission
+    // mutually exclusive. Testing outside it was a time-of-check race: the
+    // hit could be read an instant before a carousel frame was submitted,
+    // and success has already been reported to NetworkService by then, so
+    // the later mark_superseded() has nothing left to correct. The radio
+    // would come up over a carousel image with the credentials nowhere on
+    // the panel.
+    if (presenter->screen_cache.shows(payload)) {
+        release_submission_gate();
+        ESP_LOGI(
+            kTag,
+            "provisioning_screen_unchanged refresh_skipped=true");
+        return ESP_OK;
+    }
 
     pf_display::FrameWriteLease frame =
         pf_display::display_task().try_acquire_frame();
@@ -449,10 +452,17 @@ esp_err_t present_access_point_screen(
         if (pf_runtime::coordinator().try_take_terminal_result(
                 request_id,
                 result)) {
+            // Deliberately still the full outcome, not
+            // frame_on_panel (ADR-0019): PROVISIONING.md requires the AP
+            // radio to start only once the panel reports
+            // refreshed_and_slept, and the payload cache below cannot be
+            // separated from that gate -- a cache hit returns ESP_OK
+            // early and skips the refresh, so caching a displayed-but-not
+            // -slept frame would let the next call start the radio
+            // without a slept panel ever having been confirmed.
             if (result.display_outcome ==
                 pf_runtime::DisplayOutcome::refreshed_and_slept) {
-                presenter->last_payload = payload;
-                presenter->payload_valid = true;
+                presenter->screen_cache.mark_displayed(payload);
                 ESP_LOGI(
                     kTag,
                     "provisioning_screen_ready request=%" PRIu32,
@@ -1000,6 +1010,25 @@ extern "C" void app_main()
     std::uint32_t pending_manual_activate_image_id = 0U;
     bool pending_presence_force_immediate = false;
     bool pending_presence_away_blank = false;
+    // Which submitted frame is on the panel, and whether it was the away
+    // blank. Presence starts at `unknown` and converges to `present` a few
+    // seconds into every boot; without tracking what the panel shows, that
+    // first transition was treated as a return from away and spent a full
+    // ~31 s refresh restoring a panel that had never been blanked.
+    //
+    // A plain boolean was not enough. Terminal results are consumed in a
+    // fixed order every tick -- the blank first, then the carousel -- which
+    // is not the order the panel displayed them: a carousel refresh
+    // submitted before an away transition lands first but is consumed
+    // second, and would then clear a blank that really is on the panel.
+    // Request ids are allocated monotonically, so comparing them lets the
+    // frame that actually landed last win regardless of consumption order.
+    //
+    // The AP instruction screen is submitted from another task and its
+    // result is not consumed here; presence deliberately does not blank
+    // while AP mode owns the panel, so it never competes for this state.
+    std::uint32_t panel_frame_request_id = 0U;
+    bool panel_shows_blank = false;
     static CarouselShownState carousel_shown[pf_storage::kCatalogMaxEntries]{};
     std::size_t carousel_shown_count = 0U;
     static pf_carousel::CarouselItem carousel_items[pf_storage::kCatalogMaxEntries]{};
@@ -1107,6 +1136,37 @@ extern "C" void app_main()
                     ap_mode_started_ms));
     };
 
+    // Records a frame that reached the panel. Older frames are ignored,
+    // so the caller does not have to care which result it consumed first.
+    const auto note_frame_on_panel =
+        [&](const std::uint32_t request_id, const bool is_blank) {
+        // Wrap-safe: request ids restart at 1 after UINT32_MAX, so a
+        // plain `<=` would ignore every result from then on.
+        if (static_cast<std::int32_t>(request_id - panel_frame_request_id) <=
+            0) {
+            return;
+        }
+        panel_frame_request_id = request_id;
+        panel_shows_blank = is_blank;
+        if (!panel_shows_blank) {
+            // A real frame is on the panel, so any restore still owed is
+            // settled; leaving the flag armed would spend another full
+            // refresh putting an image on a panel that already has one.
+            pending_presence_force_immediate = false;
+            if (previous_presence == pf_sensors::PresenceState::away) {
+                // ...but the device is away, so this frame must not be
+                // what stays there. submit_presence_away_blank() treats an
+                // already-in-flight blank as "handled", which is wrong
+                // when a real frame was queued behind it: that frame lands
+                // last. Re-arm the blank instead of leaving the panel
+                // showing content while nobody is there. Reachable with
+                // the shortest configurable debounces (10 s away, 1 s
+                // return) against a ~31 s refresh.
+                pending_presence_away_blank = true;
+            }
+        }
+    };
+
     const auto submit_presence_away_blank =
         [&](const std::uint64_t now) -> bool {
         if (active_blank_request_id != 0U) {
@@ -1130,6 +1190,14 @@ extern "C" void app_main()
         const pf_display::SubmitStatus blank_submit =
             pf_display::display_task().try_submit_refresh(
                 blank_request_id, blank_frame);
+        if (blank_submit == pf_display::SubmitStatus::accepted) {
+            // Accepted means this frame is going to take the panel. The AP
+            // screen's claim has to drop now, not when the result is
+            // consumed a refresh later: a new AP session starting inside
+            // that window would see a stale claim, skip its refresh and
+            // bring the radio up over a blank panel.
+            ap_presenter.screen_cache.mark_superseded();
+        }
         if (blank_submit != pf_display::SubmitStatus::accepted) {
             xSemaphoreGive(ap_presenter.display_submission_mutex);
             ESP_LOGW(
@@ -1201,7 +1269,13 @@ extern "C" void app_main()
             // from an earlier `present` transition armed indefinitely.
             pending_presence_force_immediate = false;
             pending_presence_away_blank = false;
-            if (current_presence == pf_sensors::PresenceState::away &&
+            const pf_sensors::PresencePanelAction presence_action =
+                pf_sensors::presence_panel_action(
+                    previous_presence,
+                    current_presence,
+                    panel_shows_blank);
+            if (presence_action ==
+                    pf_sensors::PresencePanelAction::blank_for_away &&
                 display_started) {
                 if (ap_mode_active) {
                     pending_presence_away_blank = true;
@@ -1209,13 +1283,16 @@ extern "C" void app_main()
                     pending_presence_away_blank =
                         !submit_presence_away_blank(now_ms);
                 }
-            } else if (current_presence ==
-                       pf_sensors::PresenceState::present) {
-                // Returning from away or unknown: redraw immediately and
-                // never reuse a deadline computed while away. If a
-                // carousel decision is still in flight, force_immediate
-                // refuses to mutate scheduler state (by contract); defer
-                // and retry once that decision completes, below.
+            } else if (presence_action ==
+                       pf_sensors::PresencePanelAction::restore_after_away) {
+                // A return only needs a redraw if the away blank is what
+                // the panel is currently showing. The unknown -> present
+                // transition every boot performs is not a return: nothing
+                // was blanked, and forcing a refresh there costs ~31 s and
+                // leaves the panel showing a fresh carousel pick instead
+                // of the stored current image. away -> unknown -> present
+                // (sensor fault mid-debounce) still redraws, because the
+                // panel really is blank in that path.
                 if (ap_mode_active) {
                     // AP instructions own the panel until the AP grace
                     // window ends; presence must not blank or reschedule it.
@@ -1255,15 +1332,34 @@ extern "C" void app_main()
                     "presence_away_blank_request=%" PRIu32 " outcome=%u",
                     active_blank_request_id,
                     static_cast<unsigned>(blank_result.display_outcome));
+                const std::uint32_t completed_blank_id =
+                    active_blank_request_id;
                 active_blank_request_id = 0U;
-                if (blank_result.display_outcome !=
-                        pf_runtime::DisplayOutcome::refreshed_and_slept &&
-                    previous_presence == pf_sensors::PresenceState::away) {
-                    // Accepted into the queue but the refresh itself
-                    // failed (e.g. panel/transport error): the panel
-                    // never actually went blank, so retry rather than
-                    // silently giving up for the rest of this away
-                    // period.
+                if (blank_result.frame_on_panel) {
+                    // The panel is blank now. It may still have failed to
+                    // sleep afterwards (ADR-0019), which is a power
+                    // concern, not a reason to redraw the same blank.
+                    note_frame_on_panel(completed_blank_id, true);
+                    if (panel_shows_blank &&
+                        previous_presence ==
+                            pf_sensors::PresenceState::present) {
+                        // The user came back while this blank was still in
+                        // flight -- plausible, since the return debounce
+                        // (30 s) and a full refresh (~31 s) are the same
+                        // order. That transition already happened and saw
+                        // panel_shows_blank == false, so it did not
+                        // schedule a restore. Arm one now, or the panel
+                        // stays blank until the next carousel interval --
+                        // and with an empty library the scheduler parks
+                        // forever, so it would stay blank indefinitely.
+                        pending_presence_force_immediate = true;
+                    }
+                } else if (previous_presence ==
+                           pf_sensors::PresenceState::away) {
+                    // Accepted into the queue but the frame never reached
+                    // the panel (e.g. transport error, or a BUSY timeout
+                    // during the refresh itself): retry rather than
+                    // silently giving up for the rest of this away period.
                     pending_presence_away_blank = true;
                 }
             }
@@ -1275,9 +1371,15 @@ extern "C" void app_main()
             if (pf_runtime::coordinator().try_take_terminal_result(
                     active_carousel_request_id,
                     terminal_result)) {
-                const bool succeeded =
-                    terminal_result.display_outcome ==
-                    pf_runtime::DisplayOutcome::refreshed_and_slept;
+                // Everything below asks "is this frame what the panel
+                // is showing" -- whether the panel also slept afterwards
+                // does not change the answer, and treating a failed sleep
+                // as a failed refresh made the scheduler redraw a picture
+                // that was already correct (ADR-0019).
+                const bool succeeded = terminal_result.frame_on_panel;
+                if (succeeded) {
+                    note_frame_on_panel(active_carousel_request_id, false);
+                }
                 carousel.complete(
                     active_carousel_decision,
                     succeeded,
@@ -1555,6 +1657,10 @@ extern "C" void app_main()
                         request_id,
                         frame);
                 if (submit == pf_display::SubmitStatus::accepted) {
+                    // See submit_presence_away_blank: the AP screen's claim
+                    // on the panel ends when another frame is accepted, not
+                    // when that frame's result is consumed.
+                    ap_presenter.screen_cache.mark_superseded();
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
                     // Record what this frame actually says, taken from the
@@ -1655,6 +1761,10 @@ extern "C" void app_main()
                         request_id,
                         frame);
                 if (submit == pf_display::SubmitStatus::accepted) {
+                    // See submit_presence_away_blank: the AP screen's claim
+                    // on the panel ends when another frame is accepted, not
+                    // when that frame's result is consumed.
+                    ap_presenter.screen_cache.mark_superseded();
                     active_carousel_decision = decision;
                     active_carousel_request_id = request_id;
                     first_real_image_pending = false;

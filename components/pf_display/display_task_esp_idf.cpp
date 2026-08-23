@@ -19,6 +19,7 @@ pf_runtime::RuntimeResult failed_result(
         error,
         outcome,
         static_cast<std::uint8_t>(DriverStage::validate),
+        false,
     };
 }
 
@@ -154,6 +155,7 @@ void DisplayTask::process_command(
             pf_runtime::RuntimeError::invalid_state,
             pf_runtime::DisplayOutcome::invalid_lease,
             static_cast<std::uint8_t>(DriverStage::validate),
+            false,
         };
         runtime_->update_display_finished(
             result.request_id,

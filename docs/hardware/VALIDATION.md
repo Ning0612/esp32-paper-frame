@@ -13,7 +13,7 @@
 
 | 領域 | 目前仍待驗證 | 主要歷史證據／對照段落 |
 | --- | --- | --- |
-| Phase 7 sensors | 感測器**行為**已於 2026-08-23 全部閉環（DHT22 讀值與兩條拔除降級路徑、雙通道 ADC 校正、AND 合併語意、AWAY/PRESENT 轉換含正式 180／30 計時、白屏與返回重繪）。仍待驗證：`SensorSettings` v1→v2 的實機 NVS 遷移；只接一顆光敏電阻（另一通道實體未接線）時的降級行為 | 2026-08-23 Phase 7 感測器實機驗證 |
+| Phase 7 sensors | 感測器**行為**已於 2026-08-23 全部閉環（DHT22 讀值與兩條拔除降級路徑、雙通道 ADC 校正、AND 合併語意、AWAY/PRESENT 轉換含正式 180／30 計時、白屏與返回重繪）。仍待驗證：`SensorSettings` v1→v2 的實機 NVS 遷移；**啟用但實體未接線**的通道會讀到什麼（浮接 ADC，需實際拔線才能量）。只接一顆並**正確停用**另一通道的行為已於 2026-08-23 閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
 | Welcome／重繪生命週期 | presence 返回時的 welcome 重畫（需感測器實際觸發 AWAY→PRESENT 且圖庫為空）；DHCP 續約導致位址變更時的重畫；welcome 刷新失敗後的 30 秒短重試（需刻意讓面板刷新失敗）。開機取得位址後的重畫已於 2026-08-23 閉環 | [ADR-0015](../adr/0015-first-image-waits-for-ntp-and-weather.md)；2026-08-23 空圖庫 welcome 重畫 |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
@@ -2951,3 +2951,88 @@ internal_largest=31744 dma_free=106395 dma_largest=31744`，
 
 **裝置目前執行的是從 GitHub Release 下載的韌體，不是本機建置的 image**，
 且執行 slot 為 `ota_1`。
+
+
+## 2026-08-23 — 只接一顆光敏電阻（停用另一通道）
+
+`docs/hardware/VALIDATION.md` 頂端索引長期列著「只接一顆的降級行為」未驗證。
+本段閉環其中**受支援的那一半**：只接一顆並在 WebUI 停用另一通道。
+
+### 為什麼停用是必要步驟而不是最佳化
+
+`sensor_task_esp_idf.cpp` 取樣迴圈的第一個分支就是 enable 檢查：
+
+```cpp
+if (!channel_enabled[index]) {
+    channel.status = disabled;      // ADC 完全不會被讀
+} else if (adc_handle_ == nullptr || !light_channel_ready_[index]) {
+    ...
+```
+
+停用的通道**根本不會被取樣**，浮接與否都無所謂。反之，啟用但未接線時唯一的
+防線是飽和判定（`raw ≤ 10` 或 `≥ 4085`），而**未接線的 ADC 腳不保證落在這個
+區間**——ESP32-S3 的 ADC 輸入沒有內部上下拉，分壓電路不在時是高阻抗。搭配 AND
+合併規則，浮接值若飄在 threshold 之上，那顆會永遠看起來「有光」，**裝置將永遠
+不會進入離席白屏，且不會有任何錯誤訊息**。
+
+### 測試
+
+起始狀態（雙通道啟用，門檻均 1200）：ch1 `1416`（亮）、ch2 `803`（暗），
+`deciding_channel=1`，presence `present`——AND 規則下亮的那顆讓裝置保持清醒。
+
+| 步驟 | 設定 | 結果 |
+| --- | --- | --- |
+| 1. 停用 ch2 | `light2_enabled=false` | ch2 回報 `status=disabled`、**`raw=null`**（非偽造 0，符合 optional sensor contract）、`threshold` 仍回報 1200 供校正；ch1 獨力 online 1415，`deciding_channel=1`，presence 維持 `present` |
+| 2. 反向：只留暗的那顆 | `light1_enabled=false`、`light2_enabled=true`、縮時 `away=15s` | ch1 `disabled/null`、ch2 獨力 online `813`（< 1200）→ `deciding_channel=2`，presence 於縮時窗內由 `present` 轉為 **`away`** |
+| 3. 還原 | 雙通道啟用、`180/30` | presence 於返回防抖內回到 `present`，`deciding_channel=1` |
+
+步驟 2 是決定性的：**倖存的單一通道能獨力把 presence 帶往兩個方向**，而不只是
+被正確回報。`deciding_channel` 也正確指向那顆倖存的通道。
+
+### 仍未驗證
+
+**啟用但實體未接線**的通道實際會讀到什麼——需要實際拔掉一顆光敏電阻才能量測，
+本次未做。這是文件明確要求使用者避免的設定，但量到浮接讀值的分佈能判斷飽和
+判定是否有機會涵蓋它。仍列於頂端索引。
+
+
+## 2026-08-23 — 開機多餘全刷的修正驗證
+
+同日 release gate 段落記錄的「開機多花一次全刷」已修（ADR-0019 與 presence
+轉換表）。本段是修正後的實機對照。
+
+### 條件
+
+兩次量測都在同一台裝置、房間開燈、兩個光敏通道都高於門檻（因此 presence 最終
+為 `present`）——正是原本重現雙刷的條件。門檻 1200／1200，離席／返回 180／30。
+
+| | 光敏讀值 | `carousel_image_queued` 次數 |
+| --- | --- | --- |
+| 修正前 | — | **2**（兩次重開機都重現） |
+| 修正後（第一版） | 1743 / 1794 | **1** |
+| 修正後（審查第四輪後重燒） | 2135 / 2253 | **1** |
+
+### 修正前後的 log 對照
+
+```
+修正前                                        修正後
+carousel_image_queued id=17 request=1        carousel_image_queued id=1 request=1
+carousel_request=1 outcome=1                 carousel_request=1 outcome=1
+presence_return_deadline_reset_deferred        （無）
+carousel_image_queued id=19 request=2          （無）
+carousel_request=2 outcome=1
+```
+
+`presence_return_deadline_reset_deferred` 不再出現——`unknown → present` 不再被
+當成「從離席返回」。刷新完成後 `next_due_ms` 直接回到正常輪播間隔
+（`1843028`≈30.7 分鐘），沒有殘留的 pending 狀態。
+
+同時確認：`rollback_confirmed=ESP_OK` 仍正常；**`optional_sensors=not_configured`
+假 log 已不再出現**（該缺陷的實機確認）。
+
+### 未在實機驗證的部分
+
+審查第三至第四輪修掉的併發情境——terminal result 反序消費、AP cache 在 frame
+已排隊時的新鮮度、離席期間 real frame 落板後重排白屏——**都需要刻意製造的時序
+才會發生**，本次未在實機重現。這些路徑由 host test 與程式碼審查覆蓋，不是實機
+證據。

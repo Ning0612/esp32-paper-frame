@@ -276,7 +276,7 @@
                 <h2>環境與在場</h2>
               </div>
             </div>
-            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與兩顆光敏電阻都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。兩顆光敏電阻各自設定 threshold，兩顆都低於自己的 threshold 才判定為暗——換句話說，任一顆看到光就會喚醒。未啟用或讀值異常的那顆會被忽略，不影響另一顆。</p>
+            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與兩顆光敏電阻都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。兩顆光敏電阻各自設定 threshold，兩顆都低於自己的 threshold 才判定為暗——換句話說，任一顆看到光就會喚醒。未啟用或讀值異常的那顆會被忽略，不影響另一顆。<strong>只接一顆時務必把沒接的那顆取消勾選</strong>——未接線的 ADC 腳是高阻抗，讀到的是飄動的中間值，韌體無法與真實讀值區分；若它飄在 threshold 之上，那顆就會永遠看起來「有光」，裝置將永遠不會進入離席白屏。取消勾選後該腳完全不會被取樣。</p>
             <form id="environment-form" class="setup-grid" novalidate>
               <section class="panel credential-panel">
                 <div class="panel-heading">

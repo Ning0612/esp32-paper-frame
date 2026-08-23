@@ -1,12 +1,19 @@
 # PaperFrame 專案狀態
 
-- 最後整理：2026-08-23（目前發布版本：`v0.10.0`）
+- 最後整理：2026-08-23（目前發布版本：`v0.10.1`）
 - 本文件是目前進度的唯一摘要入口；詳細實機證據仍保留在
   [硬體驗證紀錄](hardware/VALIDATION.md)。
 - `已完成` 代表程式／host/build 已完成；只有明確標成 `已驗證` 才代表有實機
   證據。`待決定` 不等於 bug，也不應在決策前自行擴張 scope。
 
 ## 一分鐘結論
+
+**MVP 功能範圍已完成**（2026-08-23 由專案擁有者判定）：Phase 1–8 的功能、
+WebUI、OTA、感測器與外殼 CAD 都已交付，並在實機上使用。這是**功能範圍**
+的判定，不代表每條路徑都有實機證據——剩餘缺口見下方兩節，都是低優先項。
+
+**電源方案尚未設計**：目前直接接線供電，沒有評估過電池、UPS 或低功耗
+運行模式。這是 MVP 之後的第一個硬體待辦。
 
 Phase 1–8 的主要程式、host tests 與韌體 build 已完成。截至 2026-08-20，
 Phase 2／3／4／5／6／8 的主要實機證據已閉環——涵蓋 OTA 端到端與 rollback fault
@@ -37,16 +44,43 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 
 | 領域 | 尚未閉環的實機證據 |
 | --- | --- |
-| Phase 7 sensors | 剩 `SensorSettings` v1→v2 遷移的實機路徑，以及只接一顆光敏電阻（另一通道實體未接線）的降級行為；兩顆都接線時的感測器行為已於 2026-08-23 全部實機閉環 |
+| Phase 7 sensors | 剩 `SensorSettings` v1→v2 遷移的實機路徑，以及**啟用但實體未接線**的通道會讀到什麼（浮接 ADC）；兩顆都接線、以及只接一顆並正確停用另一顆的行為，均已於 2026-08-23 實機閉環 |
 | Welcome／重繪生命週期 | presence 返回時的 welcome 重畫、DHCP 續約後的位址重畫、welcome 刷新失敗後的 30 秒短重試（見 [ADR-0015](adr/0015-first-image-waits-for-ntp-and-weather.md)） |
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
-已知遺留缺陷（有記錄、尚未修）：開機時 presence 由 `unknown` 收斂到 `present` 會被當成「返回」而多觸發一次 31 秒全刷，裝置其實從未離席（2026-08-23 兩次重開機完整重現，見[硬體驗證紀錄](hardware/VALIDATION.md)同日 release gate 段落）。另一項：`DisplayOutcome` 把「畫面已刷上去」與「面板已
-成功 sleep」混為一談，導致 sleep 失敗時會重刷一張已經正確的畫面。既有行為，
-影響已由 welcome 重試的指數退避壓制；正確修法需拆開結果契約並取代 ADR-0003 的
-driver contract，詳見
-[ADR-0015 Update 2026-08-23](adr/0015-first-image-waits-for-ntp-and-weather.md)。
+**已知缺陷（2026-08-23 審查發現，未修）**：AP 畫面呈現完成到 AP radio 實際啟動
+之間存在空窗。`present_access_point_screen()` 成功後會釋放 `display_submission_mutex`
+並回傳 `ESP_OK`，NetworkService 才繼續啟動 radio；在這段期間 carousel 仍可能讀到
+尚未更新的 `ap_mode_active == false` snapshot，取得 gate 並把面板換成輪播畫面。
+結果是 radio 起來了但面板不是 SSID／密碼／QR。若 radio 啟動失敗，
+`presentation_confirmed_` 已為 true，後續重試可能跳過 presenter 而沿用被覆寫的面板。
+
+此缺陷**早於 2026-08-23 的顯示結果契約變更**（`main` 上的原始程式有相同結構，
+`ap_screen_owns_panel` 的判定本次未改動），同日的修正只縮小了其他窗口、未觸及這一個。
+正確修法是讓「AP 畫面擁有面板」成為一個 carousel 會原子性檢查的明確狀態，而不是從
+落後的 runtime snapshot 推論——那會動到 PROVISIONING.md 的畫面契約，應另立 ADR。
+
+**2026-08-23 發現並修復**：provisioning AP 畫面的 payload cache
+一旦設立就不再重設（`src/app_main.cpp` 的 `payload_valid` 只有設為 `true` 的
+路徑，全專案沒有任何地方把它設回 `false`）。同一次開機內 AP password 固定，
+所以第二次進入 AP（例如 STA 失敗 fallback）時 payload 相同會命中 cache，
+函式開頭直接 `return ESP_OK` 跳過刷新——**AP radio 會啟動，但電子紙可能還顯示
+著 carousel 圖片，使用者看不到 SSID、密碼與 QR code**，Recovery AP 因此可能
+無法使用。此缺陷早於今日的顯示結果契約變更，由 2026-08-23 的 codex 審查發現。
+修法：把那兩個欄位收攏成 `pf_network::AccessPointScreenCache`，`invalidate()`
+成為可被找到與測試的呼叫點，並在任何其他畫面上到面板時呼叫它。
+
+**2026-08-23 已修**（同日發現、同日修）：`DisplayOutcome` 把「畫面已刷上去」
+與「面板已成功 sleep」混為一談，sleep 失敗時會重刷一張已經正確的畫面；以及
+開機時 presence 由 `unknown` 收斂到 `present` 被當成「返回」而多觸發一次 31 秒
+全刷，裝置其實從未離席（兩次重開機完整重現，見[硬體驗證紀錄](hardware/VALIDATION.md)
+同日 release gate 段落）。前者是後者浪費一次刷新的成因之一。修法見
+[ADR-0019](adr/0019-separate-frame-displayed-from-panel-slept.md)：`RuntimeResult`
+新增 `frame_on_panel` 把兩個事實分開回報，離席／返回的面板動作改由可 host-test
+的 `pf_sensors::presence_panel_action()` 決定。修正後的開機序列**已實機確認只剩一次全刷**（見[硬體驗證紀錄](hardware/VALIDATION.md)
+同日「開機多餘全刷的修正驗證」段落）。審查過程中另修掉數個併發情境，那些需要
+刻意製造的時序，僅由 host test 與審查覆蓋，未在實機重現。
 
 2026-08-20 已閉環（證據見[硬體驗證紀錄](hardware/VALIDATION.md)同日段落）：
 OTA 端到端與 rollback confirmation、WebUI 隨韌體換版、reboot persistence、
@@ -66,8 +100,12 @@ OTA worker stack high-water、active OTA upload wrapper 的 slot 選擇、面板
 
 1. **Production security profile**：是否啟用 Secure Boot、Flash Encryption／
    NVS Encryption，以及對應的燒錄、key custody、recovery 與 release 流程。
-2. **MVP release gate**：是否要求所有上表硬體證據關閉後才發布第一個公開版。
-3. **MVP 以外的 P1 功能**：多 Wi-Fi profile、批次上傳、週排程、歷史圖表、
+2. **~~MVP release gate~~**（2026-08-23 已決定）：不要求所有硬體證據關閉才
+   發布。剩餘八條路徑都是低優先且觸發條件罕見，逐項列在上表與
+   [硬體驗證紀錄](hardware/VALIDATION.md)，發布不隱藏它們。
+3. **電源方案**：目前直接接線供電。是否要做電池／UPS、目標續航、以及對應的
+   低功耗運行模式（面板本身已在每次刷新後 sleep，主控未做 deep sleep）。
+4. **MVP 以外的 P1 功能**：多 Wi-Fi profile、批次上傳、週排程、歷史圖表、
    Discord 通知、自動清圖、MQTT、蜂鳴器、音效與 AI 功能是否要進入後續 roadmap。
 
 在這些決策完成前，不新增對應設定旗標、API 或預留式抽象層。
