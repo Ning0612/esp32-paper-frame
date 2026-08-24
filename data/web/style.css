@@ -55,7 +55,7 @@ button { color: inherit; }
 .color-rail i:nth-child(6) { background: var(--teal); }
 
 .app-page { width: min(1040px, calc(100% - 48px)); margin: 0 auto; padding: 34px 0 28px; }
-.topbar { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 4px solid var(--line); }
+.topbar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 4px solid var(--line); }
 .brand-lockup { display: flex; align-items: center; gap: 15px; min-width: 0; }
 .brand-mark { display: grid; place-items: center; flex: 0 0 auto; width: 54px; height: 54px; border: 3px solid var(--line); background: var(--teal); color: #fff; box-shadow: 4px 4px 0 var(--ink); font: 900 1.15rem/1 Consolas, monospace; }
 .eyebrow { margin: 0 0 8px; color: var(--muted); font: 800 .72rem/1.15 Consolas, "Noto Sans Mono", monospace; letter-spacing: .16em; }
