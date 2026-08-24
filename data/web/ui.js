@@ -3,6 +3,7 @@
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+  const t = (key, vars) => window.PaperFrameI18n.t(key, vars);
 
   const scanButton = $("#scan-button");
   const scanStatus = $("#scan-status");
@@ -100,6 +101,7 @@
   const dashboardStatus = $("#dashboard-status");
   const refreshDashboard = $("#refresh-dashboard");
   const themeToggle = $("#theme-toggle");
+  const langToggle = $("#lang-toggle");
   const imageLibraryRefresh = $("#image-library-refresh");
   const imageLibraryStatus = $("#image-library-status");
   const imageLibraryList = $("#image-library-list");
@@ -187,18 +189,25 @@
     try { window.localStorage.setItem("iot-ui-theme", next); } catch {}
   });
 
+  langToggle.addEventListener("click", () => {
+    const next = document.documentElement.dataset.lang === "en" ? "zh-Hant" : "en";
+    window.PaperFrameI18n.setLang(next);
+    try { window.localStorage.setItem(window.PaperFrameI18n.STORAGE_KEY, next); } catch {}
+    window.location.reload();
+  });
+
   function chooseNetwork(ssid) {
     selected = ssid;
-    selectedSsid.textContent = ssid || "尚未選擇";
+    selectedSsid.textContent = ssid || t("wifi.not_selected");
     $$(".network-option").forEach((option) => {
       option.setAttribute("aria-checked", option.dataset.ssid === selected ? "true" : "false");
     });
   }
 
   function signalLabel(rssi) {
-    if (rssi >= -50) return "強";
-    if (rssi >= -68) return "中";
-    return "弱";
+    if (rssi >= -50) return t("enum.signal.strong");
+    if (rssi >= -68) return t("enum.signal.medium");
+    return t("enum.signal.weak");
   }
 
   function renderNetworks(networks) {
@@ -228,7 +237,7 @@
     if (networks.length === 0) {
       const empty = document.createElement("p");
       empty.className = "status-line";
-      empty.textContent = "沒有找到可辨識的網路，可改用手動輸入。";
+      empty.textContent = t("wifi.scan.empty");
       networkList.append(empty);
     }
   }
@@ -236,7 +245,7 @@
   async function scan(refresh) {
     window.clearTimeout(polling);
     scanButton.disabled = true;
-    scanStatus.textContent = "正在掃描附近網路…";
+    scanStatus.textContent = t("wifi.scan.scanning");
     try {
       const response = await fetch(refresh ? "/api/v1/wifi/scan?refresh=1" : "/api/v1/wifi/scan", { cache: "no-store" });
       const payload = await response.json();
@@ -246,36 +255,36 @@
         return;
       }
       renderNetworks(payload.data.networks || []);
-      scanStatus.textContent = `找到 ${payload.data.networks.length} 個網路`;
+      scanStatus.textContent = t("wifi.scan.found", { count: payload.data.networks.length });
       scanButton.disabled = false;
     } catch {
-      scanStatus.textContent = "掃描失敗，請確認仍連著 PaperFrame AP 後重試。";
+      scanStatus.textContent = t("wifi.scan.failed");
       scanButton.disabled = false;
     }
   }
 
   function labelState(value) {
     const labels = {
-      ready: "正常", connected: "已連線", provisioning: "配網 AP",
-      starting_ap: "啟動 AP", connecting: "連線中", reachable: "可連線",
-      unreachable: "無法連線", deep_sleep: "休眠", refreshing: "刷新中",
-      queued: "等待刷新", failed: "失敗", unknown: "未知",
+      ready: t("enum.state.ready"), connected: t("enum.state.connected"), provisioning: t("enum.state.provisioning"),
+      starting_ap: t("enum.state.starting_ap"), connecting: t("enum.state.connecting"), reachable: t("enum.state.reachable"),
+      unreachable: t("enum.state.unreachable"), deep_sleep: t("enum.state.deep_sleep"), refreshing: t("enum.state.refreshing"),
+      queued: t("enum.state.queued"), failed: t("enum.state.failed"), unknown: t("common.unknown"),
     };
-    return labels[value] || value || "未知";
+    return labels[value] || value || t("common.unknown");
   }
 
   function formatBytes(value) {
-    if (value === null || value === undefined || Number(value) === 0) return "未知";
+    if (value === null || value === undefined || Number(value) === 0) return t("common.unknown");
     const bytes = Number(value);
-    if (!Number.isFinite(bytes)) return "未知";
+    if (!Number.isFinite(bytes)) return t("common.unknown");
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${Math.round(bytes / 1024)} KB`;
   }
 
   function formatUptime(value) {
-    if (value === null || value === undefined) return "未知";
+    if (value === null || value === undefined) return t("common.unknown");
     const seconds = Math.max(0, Math.floor(Number(value) / 1000));
-    if (!Number.isFinite(seconds)) return "未知";
+    if (!Number.isFinite(seconds)) return t("common.unknown");
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -283,9 +292,9 @@
   }
 
   function renderDevice(data) {
-    $("#device-model").textContent = data.model || "未知型號";
-    $("#device-firmware").textContent = `韌體 ${data.firmware || "未知"}`;
-    $("#device-api").textContent = `API ${data.api_version || "—"}`;
+    $("#device-model").textContent = data.model || t("dashboard.device.model_unknown");
+    $("#device-firmware").textContent = t("dashboard.device.firmware", { version: data.firmware || t("common.unknown") });
+    $("#device-api").textContent = t("dashboard.device.api", { version: data.api_version || "—" });
   }
 
   function renderRuntime(data) {
@@ -296,35 +305,41 @@
     const services = data.services || {};
     const carousel = data.carousel || {};
     $("#dashboard-wifi").textContent = labelState(network.wifi);
-    $("#dashboard-internet").textContent = `Internet：${labelState(network.internet)}`;
-    $("#dashboard-sntp").textContent = `SNTP：${labelState(network.sntp)}`;
+    $("#dashboard-internet").textContent = t("dashboard.internet_label", { state: labelState(network.internet) });
+    $("#dashboard-sntp").textContent = t("dashboard.sntp_label", { state: labelState(network.sntp) });
     $("#dashboard-uptime").textContent = formatUptime(data.uptime_ms);
     $("#dashboard-sequence").textContent = `snapshot ${data.sequence ?? "—"}`;
-    $("#dashboard-carousel").textContent = carousel.refresh_minutes == null ? "輪播：尚未提供" : `輪播：每 ${carousel.refresh_minutes} 分鐘`;
+    $("#dashboard-carousel").textContent = carousel.refresh_minutes == null
+      ? t("dashboard.carousel_not_available")
+      : t("dashboard.carousel_interval", { minutes: carousel.refresh_minutes });
     $("#display-state").textContent = labelState(display.state);
-    $("#display-queue").textContent = display.queued_count == null ? "未知" : `${display.queued_count} 件`;
-    $("#display-last").textContent = display.last_outcome ? labelState(display.last_outcome) : "尚未刷新";
+    $("#display-queue").textContent = display.queued_count == null ? t("common.unknown") : t("dashboard.queue_count", { count: display.queued_count });
+    $("#display-last").textContent = display.last_outcome ? labelState(display.last_outcome) : t("dashboard.display_not_refreshed");
     $("#flash-capacity").textContent = formatBytes(storage.flash_bytes);
     $("#psram-capacity").textContent = formatBytes(storage.psram_bytes);
-    $("#imagefs-capacity").textContent = storage.imagefs_total_bytes == null ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
+    $("#imagefs-capacity").textContent = storage.imagefs_total_bytes == null ? t("common.unknown") : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
     const serviceValues = Object.values(services).map(labelState);
-    $("#service-state").textContent = serviceValues.length ? serviceValues.join(" · ") : "未知";
-    const weatherLabels = { available: "可用", stale: "過期快取", unavailable: "尚未提供" };
-    $("#weather-state").textContent = weatherLabels[(data.weather || {}).state] || "未知";
+    $("#service-state").textContent = serviceValues.length ? serviceValues.join(" · ") : t("common.unknown");
+    const weatherLabels = {
+      available: t("enum.weather.available"),
+      stale: t("enum.weather.stale"),
+      unavailable: t("dashboard.weather_not_available"),
+    };
+    $("#weather-state").textContent = weatherLabels[(data.weather || {}).state] || t("common.unknown");
     $("#sensor-state").textContent = data.sensors && data.sensors.temperature_c != null
       ? `${data.sensors.temperature_c} °C`
       : labelSensorStatus((data.sensors || {}).environment_status);
     $("#light-sensor-state").textContent = labelSensorStatus((data.sensors || {}).light_status);
     $("#dashboard-current-image").textContent = carousel.current_image == null
-      ? "尚未輪播"
-      : `圖片 #${carousel.current_image}`;
+      ? t("dashboard.no_carousel_yet")
+      : t("dashboard.image_number", { number: carousel.current_image });
     $("#dashboard-next-refresh").textContent = carousel.next_refresh_ms == null
-      ? "未知"
-      : `${formatUptime(carousel.next_refresh_ms)} 後`;
+      ? t("common.unknown")
+      : t("dashboard.carousel_next_in", { duration: formatUptime(carousel.next_refresh_ms) });
   }
 
   async function loadDashboard() {
-    dashboardStatus.textContent = "正在讀取 runtime snapshot…";
+    dashboardStatus.textContent = t("dashboard.status.loading");
     try {
       const [deviceResponse, statusResponse] = await Promise.all([
         fetch("/api/v1/device", { cache: "no-store" }),
@@ -339,13 +354,13 @@
       }
       if (statusResponse.ok && statusPayload.data) {
         renderRuntime(statusPayload.data);
-        dashboardStatus.textContent = `已更新 snapshot ${statusPayload.data.sequence ?? "—"}`;
+        dashboardStatus.textContent = t("dashboard.status.updated", { sequence: statusPayload.data.sequence ?? "—" });
         return statusPayload.data;
       }
-      dashboardStatus.textContent = "runtime snapshot 尚未提供，未知欄位保持空值。";
+      dashboardStatus.textContent = t("dashboard.status.unavailable");
       return null;
     } catch {
-      dashboardStatus.textContent = "無法讀取裝置狀態；請確認仍連著 PaperFrame。";
+      dashboardStatus.textContent = t("dashboard.status.load_failed");
       return null;
     }
   }
@@ -536,7 +551,7 @@
     function enterOnlineMode() {
       if (state.online) return;
       state.online = true;
-      modeLabel.textContent = "線上地圖";
+      modeLabel.textContent = t("weather.map_mode.online");
       canvas.hidden = true;
       tilesLayer.hidden = false;
       pin.hidden = false;
@@ -549,7 +564,7 @@
     function enterOfflineMode() {
       if (state.online === false) return;
       state.online = false;
-      modeLabel.textContent = "離線模式（經緯度格線）";
+      modeLabel.textContent = t("weather.map_mode.offline_grid");
       tilesLayer.hidden = true;
       pin.hidden = true;
       zoomInButton.hidden = true;
@@ -675,7 +690,7 @@
   weatherLongitude.addEventListener("change", syncMapFromInputs);
 
   async function loadWeatherConfig() {
-    weatherStatus.textContent = "正在讀取天氣設定…";
+    weatherStatus.textContent = t("weather.status.loading");
     try {
       const response = await fetch("/api/v1/weather/config", { cache: "no-store" });
       const payload = await response.json();
@@ -694,13 +709,13 @@
       weatherUnits.value = weather.units || "metric";
       weatherNtpServer.value = weather.ntp_server || "pool.ntp.org";
       weatherApiKey.value = "";
-      $("#weather-config-state").textContent = weather.configured ? "已保存" : "使用預設值";
-      $("#weather-api-key-state").textContent = weather.api_key_set ? "已設定（遮罩）" : "尚未設定";
-      weatherStatus.textContent = "設定已載入；留白 API key 會保留原值。";
+      $("#weather-config-state").textContent = weather.configured ? t("weather.config_state.saved") : t("weather.config_state.default");
+      $("#weather-api-key-state").textContent = weather.api_key_set ? t("weather.api_key_state.set") : t("weather.api_key_state.unset");
+      weatherStatus.textContent = t("weather.status.loaded");
       weatherMap.setCoordinates(weatherLatitude.value, weatherLongitude.value);
     } catch (error) {
       weatherStatus.className = "save-status error";
-      weatherStatus.textContent = `天氣設定讀取失敗：${error.message || "請稍後重試"}`;
+      weatherStatus.textContent = t("weather.status.load_failed", { reason: error.message || t("common.retry_later") });
     }
   }
 
@@ -711,7 +726,7 @@
     const longitudeDegrees = weatherLongitude.value.trim();
     if (!latitudeDegrees || !longitudeDegrees || !weatherNtpServer.value.trim()) {
       weatherStatus.className = "save-status error";
-      weatherStatus.textContent = "請完整填寫經緯度與 NTP server。";
+      weatherStatus.textContent = t("weather.error.missing_coords");
       return;
     }
     const values = {
@@ -724,7 +739,7 @@
     };
     weatherSave.disabled = true;
     weatherStatus.className = "save-status";
-    weatherStatus.textContent = "正在保存天氣設定…";
+    weatherStatus.textContent = t("weather.status.saving");
     try {
       if (weatherApiKey.value.trim()) values.api_key = weatherApiKey.value.trim();
       const response = await fetch("/api/v1/weather/config", {
@@ -742,11 +757,11 @@
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "weather_save_failed");
       weatherStatus.className = "save-status success";
-      weatherStatus.textContent = "天氣設定已保存；HTTPS worker 接入後會依此設定更新。";
+      weatherStatus.textContent = t("weather.status.saved");
       await loadWeatherConfig();
     } catch (error) {
       weatherStatus.className = "save-status error";
-      weatherStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+      weatherStatus.textContent = t("common.save_failed", { reason: error.message || t("common.retry_later") });
     } finally {
       weatherSave.disabled = false;
     }
@@ -757,7 +772,7 @@
   // same convention as the carousel form on the image-library tab), so this
   // form only ever sends `timezone` and never touches carousel state.
   async function loadDeviceTimezone() {
-    timezoneStatus.textContent = "正在讀取時區設定…";
+    timezoneStatus.textContent = t("weather.timezone.status.loading");
     try {
       const response = await fetch("/api/v1/config", { cache: "no-store" });
       const payload = await response.json();
@@ -770,11 +785,11 @@
         throw new Error(payload.error || "timezone_config_failed");
       }
       deviceTimezone.value = time.timezone;
-      timezoneStatus.textContent = "設定已載入。";
+      timezoneStatus.textContent = t("common.settings_loaded");
       timezoneSave.disabled = false;
     } catch (error) {
       timezoneStatus.className = "save-status error";
-      timezoneStatus.textContent = `時區設定讀取失敗：${error.message || "請稍後重試"}`;
+      timezoneStatus.textContent = t("weather.timezone.status.load_failed", { reason: error.message || t("common.retry_later") });
     }
   }
 
@@ -788,7 +803,7 @@
     }
     timezoneSave.disabled = true;
     timezoneStatus.className = "save-status";
-    timezoneStatus.textContent = "正在保存時區設定…";
+    timezoneStatus.textContent = t("weather.timezone.status.saving");
     try {
       const response = await fetch("/api/v1/config", {
         method: "POST",
@@ -804,15 +819,15 @@
         return;
       }
       if (response.status === 409 && payload.error === "config_read_only") {
-        throw new Error("裝置設定目前為唯讀：開機時無法解讀已儲存的設定，為避免覆寫而暫停儲存。請查看裝置日誌。");
+        throw new Error(t("common.config_read_only"));
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "timezone_save_failed");
       timezoneStatus.className = "save-status success";
-      timezoneStatus.textContent = "時區設定已保存，狀態列會依此換算當地時間。";
+      timezoneStatus.textContent = t("weather.timezone.status.saved");
       await loadDeviceTimezone();
     } catch (error) {
       timezoneStatus.className = "save-status error";
-      timezoneStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+      timezoneStatus.textContent = t("common.save_failed", { reason: error.message || t("common.retry_later") });
     } finally {
       timezoneSave.disabled = false;
     }
@@ -820,15 +835,15 @@
 
   function labelSensorStatus(status) {
     const labels = {
-      disabled: "未啟用", probing: "偵測中", online: "正常",
-      stale: "資料過舊", not_detected: "未偵測到", error: "錯誤",
-      saturated: "訊號飽和", unknown: "未知", present: "在場", away: "離席",
+      disabled: t("enum.sensor.disabled"), probing: t("enum.sensor.probing"), online: t("enum.sensor.online"),
+      stale: t("enum.sensor.stale"), not_detected: t("enum.sensor.not_detected"), error: t("enum.sensor.error"),
+      saturated: t("enum.sensor.saturated"), unknown: t("common.unknown"), present: t("enum.sensor.present"), away: t("enum.sensor.away"),
     };
-    return labels[status] || status || "未知";
+    return labels[status] || status || t("common.unknown");
   }
 
   async function loadEnvironmentConfig() {
-    environmentStatus.textContent = "正在讀取感測器設定…";
+    environmentStatus.textContent = t("environment.status.loading");
     try {
       const response = await fetch("/api/v1/sensors/config", { cache: "no-store" });
       const payload = await response.json();
@@ -847,10 +862,10 @@
       light2Threshold.value = sensors.light2_threshold ?? 2000;
       awayDuration.value = sensors.away_duration_s ?? 180;
       returnDuration.value = sensors.return_duration_s ?? 30;
-      environmentStatus.textContent = "設定已載入。";
+      environmentStatus.textContent = t("common.settings_loaded");
     } catch (error) {
       environmentStatus.className = "save-status error";
-      environmentStatus.textContent = `感測器設定讀取失敗：${error.message || "請稍後重試"}`;
+      environmentStatus.textContent = t("environment.status.load_failed", { reason: error.message || t("common.retry_later") });
     }
     await loadSensorReadings();
     // Only the readings are polled, never the config: re-fetching the config
@@ -927,7 +942,7 @@
       // here would silently lie if a channel were ever moved to another GPIO.
       const formatStatus = (channel) => {
         const status = labelSensorStatus(channel.status);
-        return channel.gpio == null ? status : `${status}（GPIO${channel.gpio}）`;
+        return channel.gpio == null ? status : t("environment.status_with_gpio", { status, gpio: channel.gpio });
       };
       $("#light1-reading-status").textContent = formatStatus(channelOne);
       $("#light1-raw").textContent = formatChannel(channelOne);
@@ -935,7 +950,7 @@
       $("#light2-raw").textContent = formatChannel(channelTwo);
       $("#light-deciding-channel").textContent = light.deciding_channel == null
         ? "—"
-        : `光敏 ${light.deciding_channel}`;
+        : t("environment.light_channel_number", { number: light.deciding_channel });
       $("#presence-state").textContent = labelSensorStatus(payload.data.presence);
     } catch (error) {
       // Live readings are a best-effort overlay; config load already
@@ -957,7 +972,7 @@
     if (light2Enabled.checked) values.light2_enabled = "on";
     environmentSave.disabled = true;
     environmentStatus.className = "save-status";
-    environmentStatus.textContent = "正在保存感測器設定…";
+    environmentStatus.textContent = t("environment.status.saving");
     try {
       const response = await fetch("/api/v1/sensors/config", {
         method: "POST",
@@ -974,18 +989,18 @@
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "sensor_save_failed");
       environmentStatus.className = "save-status success";
-      environmentStatus.textContent = "感測器設定已保存。";
+      environmentStatus.textContent = t("environment.status.saved");
       await loadEnvironmentConfig();
     } catch (error) {
       environmentStatus.className = "save-status error";
-      environmentStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+      environmentStatus.textContent = t("common.save_failed", { reason: error.message || t("common.retry_later") });
     } finally {
       environmentSave.disabled = false;
     }
   });
 
   function formatImageSize(bytes) {
-    if (!Number.isFinite(bytes)) return "未知";
+    if (!Number.isFinite(bytes)) return t("common.unknown");
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
     return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
   }
@@ -996,7 +1011,7 @@
     if (images.length === 0) {
       const empty = document.createElement("p");
       empty.className = "image-library-empty";
-      empty.textContent = "裝置目前沒有可用的 PFR1 圖片。";
+      empty.textContent = t("image.library.empty");
       imageLibraryList.append(empty);
       return;
     }
@@ -1008,13 +1023,13 @@
       copy.className = "image-library-copy";
       const name = document.createElement("strong");
       name.className = "image-library-name";
-      name.textContent = image.name || "未命名圖片";
+      name.textContent = image.name || t("image.library.unnamed");
       const meta = document.createElement("small");
       meta.className = "image-library-meta";
       const dimensions = Number.isFinite(Number(image.width)) && Number.isFinite(Number(image.height))
         ? `${image.width} × ${image.height}`
-        : "尺寸未知";
-      const orientation = image.orientation === "portrait" ? "直向" : "橫向";
+        : t("image.library.dimensions_unknown");
+      const orientation = image.orientation === "portrait" ? t("image.orientation.portrait_short") : t("image.orientation.landscape_short");
       meta.textContent = `#${index + 1} · ${dimensions} · ${orientation} · ${formatImageSize(Number(image.file_bytes))}`;
       copy.append(name, meta);
 
@@ -1023,19 +1038,19 @@
       if (image.current) {
         const current = document.createElement("span");
         current.className = "image-library-state current";
-        current.textContent = "目前";
+        current.textContent = t("image.library.state.current");
         states.append(current);
       }
       if (!image.enabled) {
         const disabled = document.createElement("span");
         disabled.className = "image-library-state disabled";
-        disabled.textContent = "停用";
+        disabled.textContent = t("image.library.state.disabled");
         states.append(disabled);
       }
       if (image.corrupt) {
         const corrupt = document.createElement("span");
         corrupt.className = "image-library-state corrupt";
-        corrupt.textContent = "損壞";
+        corrupt.textContent = t("image.library.state.corrupt");
         states.append(corrupt);
       }
       if (states.childElementCount > 0) copy.append(states);
@@ -1045,14 +1060,14 @@
       if (image.corrupt || !image.name) {
         const unavailable = document.createElement("span");
         unavailable.className = "field-hint";
-        unavailable.textContent = image.corrupt ? "檔案無法下載" : "缺少檔名";
+        unavailable.textContent = image.corrupt ? t("image.library.download_unavailable") : t("image.library.name_missing");
         actions.append(unavailable);
       } else {
         const download = document.createElement("a");
         download.className = "plain-button";
         download.href = `/api/v1/images/${encodeURIComponent(image.name)}/download`;
         download.download = image.name;
-        download.textContent = "下載 PFR1";
+        download.textContent = t("image.download_pfr1");
         actions.append(download);
       }
       if (image.name && image.enabled && !image.corrupt && !image.current) {
@@ -1061,7 +1076,7 @@
         activate.type = "button";
         activate.dataset.imageAction = "activate";
         activate.dataset.imageName = image.name;
-        activate.textContent = "設為目前";
+        activate.textContent = t("image.library.activate");
         actions.append(activate);
       }
       if (image.name) {
@@ -1070,7 +1085,7 @@
         remove.type = "button";
         remove.dataset.imageAction = "remove";
         remove.dataset.imageName = image.name;
-        remove.textContent = "刪除";
+        remove.textContent = t("image.library.delete");
         actions.append(remove);
       }
       if (image.name) {
@@ -1098,7 +1113,7 @@
 
   async function mutateImageLibrary(path, method) {
     if (!csrfToken) return;
-    imageLibraryStatus.textContent = "正在更新裝置圖片庫…";
+    imageLibraryStatus.textContent = t("image.library.status.updating");
     try {
       const response = await fetch(path, {
         method,
@@ -1115,7 +1130,7 @@
       }
       await loadImageLibrary();
     } catch (error) {
-      imageLibraryStatus.textContent = `圖片庫更新失敗：${error.message || "請稍後重試"}`;
+      imageLibraryStatus.textContent = t("image.library.status.update_failed", { reason: error.message || t("common.retry_later") });
     }
   }
 
@@ -1125,7 +1140,7 @@
     if (index < 0 || target < 0 || target >= imageLibraryImages.length || !csrfToken) return;
     const next = imageLibraryImages.slice();
     [next[index], next[target]] = [next[target], next[index]];
-    imageLibraryStatus.textContent = "正在儲存輪播順序…";
+    imageLibraryStatus.textContent = t("image.library.status.reordering");
     try {
       const response = await fetch("/api/v1/images/order", {
         method: "PUT",
@@ -1143,14 +1158,14 @@
       if (!response.ok || !payload.ok) throw new Error(payload.error || "image_order_failed");
       await loadImageLibrary();
     } catch (error) {
-      imageLibraryStatus.textContent = `輪播順序更新失敗：${error.message || "請稍後重試"}`;
+      imageLibraryStatus.textContent = t("image.library.status.reorder_failed", { reason: error.message || t("common.retry_later") });
     }
   }
 
   async function loadImageLibrary() {
     const revision = ++imageLibraryRevision;
     imageLibraryRefresh.disabled = true;
-    imageLibraryStatus.textContent = "正在讀取裝置 catalog…";
+    imageLibraryStatus.textContent = t("image.library.status.loading");
     try {
       const response = await fetch("/api/v1/images", { cache: "no-store" });
       const payload = await response.json();
@@ -1164,11 +1179,11 @@
       }
       const images = payload.data.images;
       renderImageLibrary(images);
-      imageLibraryStatus.textContent = `已載入 ${images.length} 張裝置圖片`;
+      imageLibraryStatus.textContent = t("image.library.status.loaded", { count: images.length });
     } catch {
       if (revision !== imageLibraryRevision) return;
       imageLibraryList.replaceChildren();
-      imageLibraryStatus.textContent = "圖片庫讀取失敗，請確認仍連著 PaperFrame 後重試。";
+      imageLibraryStatus.textContent = t("image.library.status.load_failed");
     } finally {
       if (revision === imageLibraryRevision) imageLibraryRefresh.disabled = false;
     }
@@ -1176,7 +1191,7 @@
 
   async function loadImageCarouselConfig() {
     imageCarouselStatus.className = "save-status";
-    imageCarouselStatus.textContent = "正在讀取輪播設定…";
+    imageCarouselStatus.textContent = t("image.carousel.status.loading");
     try {
       const response = await fetch("/api/v1/config", { cache: "no-store" });
       const payload = await response.json();
@@ -1194,10 +1209,13 @@
       }
       imageCarouselRandom.checked = display.random;
       imageCarouselRefreshMinutes.value = String(refreshMinutes);
-      imageCarouselStatus.textContent = `${display.random ? "目前為隨機輪播" : "目前依圖片庫排序輪播"}，每 ${refreshMinutes} 分鐘。`;
+      imageCarouselStatus.textContent = t(
+        display.random ? "image.carousel.status.mode_random" : "image.carousel.status.mode_ordered",
+        { minutes: refreshMinutes },
+      );
     } catch (error) {
       imageCarouselStatus.className = "save-status error";
-      imageCarouselStatus.textContent = `輪播設定讀取失敗：${error.message || "請稍後重試"}`;
+      imageCarouselStatus.textContent = t("image.carousel.status.load_failed", { reason: error.message || t("common.retry_later") });
     }
   }
 
@@ -1213,12 +1231,12 @@
       refreshMinutes < minCarouselRefreshMinutes ||
       refreshMinutes > maxCarouselRefreshMinutes) {
       imageCarouselStatus.className = "save-status error";
-      imageCarouselStatus.textContent = `輪播間隔必須介於 ${minCarouselRefreshMinutes} 分鐘與 24 小時。`;
+      imageCarouselStatus.textContent = t("image.carousel.error.interval_range", { minMinutes: minCarouselRefreshMinutes });
       return;
     }
     imageCarouselSave.disabled = true;
     imageCarouselStatus.className = "save-status";
-    imageCarouselStatus.textContent = "正在保存輪播設定…";
+    imageCarouselStatus.textContent = t("image.carousel.status.saving");
     try {
       const response = await fetch("/api/v1/config", {
         method: "POST",
@@ -1238,15 +1256,18 @@
       }
       if (response.status === 409 && payload.error === "config_read_only") {
         // Firmware older than the stored settings: retrying cannot help.
-        throw new Error("裝置設定目前為唯讀：開機時無法解讀已儲存的設定，為避免覆寫而暫停儲存。請查看裝置日誌。");
+        throw new Error(t("common.config_read_only"));
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "carousel_save_failed");
       imageCarouselStatus.className = "save-status success";
-      imageCarouselStatus.textContent = `${imageCarouselRandom.checked ? "已開啟隨機輪播" : "已關閉隨機輪播"}，間隔 ${refreshMinutes} 分鐘。`;
+      imageCarouselStatus.textContent = t(
+        imageCarouselRandom.checked ? "image.carousel.status.saved_random" : "image.carousel.status.saved_ordered",
+        { minutes: refreshMinutes },
+      );
       await loadImageCarouselConfig();
     } catch (error) {
       imageCarouselStatus.className = "save-status error";
-      imageCarouselStatus.textContent = `保存失敗：${error.message || "請稍後重試"}`;
+      imageCarouselStatus.textContent = t("common.save_failed", { reason: error.message || t("common.retry_later") });
     } finally {
       imageCarouselSave.disabled = false;
     }
@@ -1284,8 +1305,11 @@
     imageCropZoomValue.textContent = `${zoomPercent}%`;
     imageCropZoomInput.setAttribute("aria-valuetext", `${zoomPercent}%`);
     previewProcessed.setAttribute("aria-disabled", enabled ? "false" : "true");
-    imageCropPositionLabel.textContent =
-      `目前裁切位置：x ${imageCropPosition.x.toFixed(2)}，y ${imageCropPosition.y.toFixed(2)}；縮放 ${zoomPercent}%`;
+    imageCropPositionLabel.textContent = t("image.crop_position_current", {
+      x: imageCropPosition.x.toFixed(2),
+      y: imageCropPosition.y.toFixed(2),
+      zoom: zoomPercent,
+    });
   }
 
   function cropProfile() {
@@ -1380,7 +1404,7 @@
     invalidateImageOutput();
     renderProcessedPreview();
     imageStatus.className = "save-status";
-    imageStatus.textContent = `裁切縮放 ${Math.round(imageCropZoom * 100)}%；放開後完成處理…`;
+    imageStatus.textContent = t("image.status.crop_zoom_dragging", { percent: Math.round(imageCropZoom * 100) });
   }
 
   function handleCropZoomChange() {
@@ -1391,7 +1415,7 @@
     if (!cropInteractionEnabled() || event.button !== 0 || event.isPrimary === false) return;
     event.preventDefault();
     imageStatus.className = "save-status";
-    imageStatus.textContent = "拖曳圖片調整裁切位置…";
+    imageStatus.textContent = t("image.status.crop_dragging");
     cropDragState = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -1433,7 +1457,7 @@
       downloadPfr1.disabled = false;
       uploadPfr1.disabled = false;
       imageStatus.className = "save-status success";
-      imageStatus.textContent = "已取消裁切調整，保留原本輸出。";
+      imageStatus.textContent = t("image.status.crop_cancelled");
     }
   }
 
@@ -1634,7 +1658,7 @@
     uploadPfr1.disabled = true;
     imagePfr1 = null;
     imageStatus.className = "save-status";
-    imageStatus.textContent = "正在套用已按下的變換與 fit…";
+    imageStatus.textContent = t("image.status.applying_transform");
     try {
       const profile = window.PaperFrameImage.ORIENTATION_PROFILES[imageOrientation.value];
       const processed = window.PaperFrameImage.processRaster(workingRaster, {
@@ -1656,7 +1680,7 @@
       );
       drawRaster(previewProcessed, processed);
       updateCropInteraction();
-      imageStatus.textContent = "正在由離線 worker 做六色量化…";
+      imageStatus.textContent = t("image.status.quantizing");
       const quantized = await quantizeWithWorker(processed, imageDither.value, requestId);
       if (requestId !== imageRevision) return;
       drawFramePreview(previewFrame, quantized);
@@ -1671,19 +1695,19 @@
       imageOutputDimensions.textContent = `${profile.width} × ${profile.height}`;
       imageOutputPayload.textContent = formatImageSize((profile.width * profile.height) / 2);
       imageOutputSize.textContent = formatImageSize(packed.length);
-      imageOutputOrientation.textContent = imageOrientation.value === "portrait" ? "直向" : "橫向";
+      imageOutputOrientation.textContent = imageOrientation.value === "portrait" ? t("image.orientation.portrait_short") : t("image.orientation.landscape_short");
       imageStatus.className = "save-status success";
-      imageStatus.textContent = "已完成本機處理；可下載或上傳 PFR1。";
+      imageStatus.textContent = t("image.status.done");
       downloadPfr1.disabled = false;
       uploadPfr1.disabled = false;
     } catch (error) {
       if (requestId !== imageRevision) return;
       imageStatus.className = "save-status error";
-      imageStatus.textContent = `圖片處理失敗：${error.message || "unknown"}`;
-      imageOutputDimensions.textContent = "未知";
-      imageOutputPayload.textContent = "未知";
-      imageOutputSize.textContent = "未知";
-      imageOutputOrientation.textContent = "未知";
+      imageStatus.textContent = t("image.status.process_failed", { reason: error.message || "unknown" });
+      imageOutputDimensions.textContent = t("common.unknown");
+      imageOutputPayload.textContent = t("common.unknown");
+      imageOutputSize.textContent = t("common.unknown");
+      imageOutputOrientation.textContent = t("common.unknown");
     } finally {
       if (requestId === imageRevision) imageProcessButton.disabled = !imageWorkingRaster;
     }
@@ -1704,10 +1728,10 @@
     downloadPfr1.disabled = true;
     uploadPfr1.disabled = true;
     imageStatus.className = "save-status";
-    imageStatus.textContent = "正在讀取本機圖片…";
+    imageStatus.textContent = t("image.status.reading_local");
     if (!file) {
       updateCropInteraction();
-      imageStatus.textContent = "請先選擇圖片。";
+      imageStatus.textContent = t("image.status.select_first");
       return;
     }
     try {
@@ -1722,7 +1746,7 @@
       imageFilename.value = imageFileName;
       const workingNote = decoded.sourceWidth !== decoded.raster.width ||
           decoded.sourceHeight !== decoded.raster.height
-        ? ` · 工作影像縮至 ${decoded.raster.width} × ${decoded.raster.height}`
+        ? ` · ${t("image.source_scaled_note", { width: decoded.raster.width, height: decoded.raster.height })}`
         : "";
       imageSourceInfo.textContent = `${file.name} · ${decoded.sourceWidth} × ${decoded.sourceHeight}${workingNote} · EXIF ${imageExifOrientation}`;
       imageProcessButton.disabled = false;
@@ -1740,17 +1764,17 @@
       imageStatus.className = "save-status error";
       const reason = error && typeof error.message === "string" ? error.message : "";
       if (reason === "source_file_too_large") {
-        imageStatus.textContent = "圖片檔案過大（上限 32 MB）。";
+        imageStatus.textContent = t("image.error.file_too_large");
       } else if (reason === "source_image_too_large") {
-        imageStatus.textContent = "圖片像素過大（上限 6400 萬像素）。";
+        imageStatus.textContent = t("image.error.image_too_large");
       } else if (reason === "image_decode_failed") {
-        imageStatus.textContent = "瀏覽器無法解碼這張圖片；請改用 PNG/JPEG/WebP。";
+        imageStatus.textContent = t("image.error.decode_failed");
       } else if (reason.startsWith("script_load_failed:")) {
-        imageStatus.textContent = "圖片處理模組下載失敗；請重新整理頁面後再試。";
+        imageStatus.textContent = t("image.error.module_download_failed");
       } else if (reason === "PaperFrameImage_unavailable") {
-        imageStatus.textContent = "圖片處理模組未載入完成；請稍候再試。";
+        imageStatus.textContent = t("image.error.module_not_ready");
       } else {
-        imageStatus.textContent = `無法讀取圖片：${reason || "unknown_error"}`;
+        imageStatus.textContent = t("image.error.read_failed", { reason: reason || "unknown_error" });
       }
     }
   }
@@ -1812,7 +1836,7 @@
     uploadPfr1.disabled = true;
     downloadPfr1.disabled = true;
     imageStatus.className = "save-status";
-    imageStatus.textContent = "正在上傳處理後的 PFR1…";
+    imageStatus.textContent = t("image.status.uploading");
     try {
       const response = await fetch("/api/v1/images", {
         method: "POST",
@@ -1831,11 +1855,11 @@
         throw new Error(payload.error || "upload_failed");
       }
       imageStatus.className = "save-status success";
-      imageStatus.textContent = `已上傳到裝置圖片庫（ID ${payload.data.id}）。`;
+      imageStatus.textContent = t("image.status.uploaded", { id: payload.data.id });
       await loadImageLibrary();
     } catch (error) {
       imageStatus.className = "save-status error";
-      imageStatus.textContent = `上傳失敗：${error.message || "請稍後重試"}`;
+      imageStatus.textContent = t("image.status.upload_failed", { reason: error.message || t("common.retry_later") });
     } finally {
       if (imagePfr1) {
         downloadPfr1.disabled = false;
@@ -1849,7 +1873,7 @@
     if (!events || events.length === 0) {
       const empty = document.createElement("p");
       empty.className = "image-library-empty";
-      empty.textContent = "尚無診斷事件。";
+      empty.textContent = t("system.events.empty");
       systemEventsList.append(empty);
       return;
     }
@@ -1860,7 +1884,7 @@
       copy.className = "image-library-copy";
       const name = document.createElement("strong");
       name.className = "image-library-name";
-      name.textContent = event.message || "事件";
+      name.textContent = event.message || t("system.events.default_message");
       const meta = document.createElement("small");
       meta.className = "image-library-meta";
       meta.textContent = `#${event.sequence_id} · ${event.category} / ${event.severity} · ${formatUptime(event.uptime_ms)}`;
@@ -1920,7 +1944,7 @@
       if (requestId !== systemOtaStatusRequestId) return;
 
       if (deviceResponse.ok && devicePayload.data) {
-        $("#system-firmware-version").textContent = devicePayload.data.firmware || "未知";
+        $("#system-firmware-version").textContent = devicePayload.data.firmware || t("common.unknown");
       }
 
       if (statusResponse.ok && statusPayload.data) {
@@ -1930,8 +1954,8 @@
         const diagnostics = data.diagnostics || {};
         const storage = data.storage || {};
         $("#system-display-state").textContent = labelState(display.state);
-        $("#system-display-outcome").textContent = display.last_outcome ? labelState(display.last_outcome) : "尚未刷新";
-        $("#system-reboot-reason").textContent = diagnostics.reboot_reason || "未知";
+        $("#system-display-outcome").textContent = display.last_outcome ? labelState(display.last_outcome) : t("dashboard.display_not_refreshed");
+        $("#system-reboot-reason").textContent = diagnostics.reboot_reason || t("common.unknown");
         $("#system-wifi-state").textContent = labelState(network.wifi);
         $("#system-internet-state").textContent = labelState(network.internet);
         $("#system-sntp-state").textContent = labelState(network.sntp);
@@ -1939,7 +1963,7 @@
         $("#system-flash-capacity").textContent = formatBytes(storage.flash_bytes);
         $("#system-psram-capacity").textContent = formatBytes(storage.psram_bytes);
         $("#system-imagefs-capacity").textContent = storage.imagefs_total_bytes == null
-          ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
+          ? t("common.unknown") : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
       }
 
       if (!otaResponse.ok || !otaPayload.data) {
@@ -1949,11 +1973,19 @@
       }
       if (otaResponse.ok && otaPayload.data) {
         const ota = otaPayload.data;
-        const checkLabels = { unknown: "未知", checking: "檢查中", up_to_date: "已是最新", update_available: "有新版本", check_failed: "檢查失敗" };
-        const updateLabels = { idle: "閒置", downloading: "下載中", writing: "寫入中", ready_pending_reboot: "已完成，待重啟", failed: "失敗" };
-        $("#system-ota-check-state").textContent = checkLabels[ota.check_state] || "未知";
-        $("#system-ota-latest-version").textContent = ota.latest_version || "未知";
-        $("#system-ota-update-state").textContent = updateLabels[ota.update_state] || "未知";
+        const checkLabels = {
+          unknown: t("common.unknown"), checking: t("enum.ota_check.checking"),
+          up_to_date: t("enum.ota_check.up_to_date"), update_available: t("enum.ota_check.update_available"),
+          check_failed: t("enum.ota_check.check_failed"),
+        };
+        const updateLabels = {
+          idle: t("enum.ota_update.idle"), downloading: t("enum.ota_update.downloading"),
+          writing: t("enum.ota_update.writing"), ready_pending_reboot: t("enum.ota_update.ready_pending_reboot"),
+          failed: t("enum.ota_update.failed"),
+        };
+        $("#system-ota-check-state").textContent = checkLabels[ota.check_state] || t("common.unknown");
+        $("#system-ota-latest-version").textContent = ota.latest_version || t("common.unknown");
+        $("#system-ota-update-state").textContent = updateLabels[ota.update_state] || t("common.unknown");
         const otaInProgress = ota.update_state === "downloading" || ota.update_state === "writing";
         // A missing or malformed percentage is unknown, not zero -- reporting
         // 0% mid-download would be inventing a value, which this project's
@@ -1996,7 +2028,7 @@
     } catch (error) {
       if (requestId !== systemOtaStatusRequestId) return;
       systemOtaStatus.className = "save-status error";
-      systemOtaStatus.textContent = "無法讀取系統狀態；請確認仍連著 PaperFrame。";
+      systemOtaStatus.textContent = t("system.status.load_failed");
     }
   }
 
@@ -2051,12 +2083,12 @@
     const newPasswordBytes = new TextEncoder().encode(newPassword).length;
     if (newPasswordBytes < 8 || newPasswordBytes > 128) {
       systemPasswordResetStatus.className = "save-status error";
-      systemPasswordResetStatus.textContent = "管理密碼長度必須是 8–128 bytes。";
+      systemPasswordResetStatus.textContent = t("system.password.error.length");
       return;
     }
     if (newPassword !== confirmPassword) {
       systemPasswordResetStatus.className = "save-status error";
-      systemPasswordResetStatus.textContent = "兩次輸入的密碼不一致。";
+      systemPasswordResetStatus.textContent = t("system.password.error.mismatch");
       systemConfirmPassword.focus();
       return;
     }
@@ -2066,7 +2098,7 @@
     }
     systemPasswordReset.disabled = true;
     systemPasswordResetStatus.className = "save-status";
-    systemPasswordResetStatus.textContent = "正在安全更新密碼…";
+    systemPasswordResetStatus.textContent = t("system.password.status.saving");
     try {
       const response = await fetch("/api/v1/auth/password", {
         method: "POST",
@@ -2093,7 +2125,7 @@
       if (response.status === 503) throw new Error("device_busy");
       if (!response.ok || !payload.ok) throw new Error(payload.error || "password_reset_failed");
       systemPasswordResetStatus.className = "save-status success";
-      systemPasswordResetStatus.textContent = "管理密碼已更新，請稍候使用新密碼重新登入。";
+      systemPasswordResetStatus.textContent = t("system.password.status.saved");
       systemNewPassword.value = "";
       systemConfirmPassword.value = "";
       csrfToken = "";
@@ -2101,11 +2133,11 @@
     } catch (error) {
       systemPasswordResetStatus.className = "save-status error";
       if (error && error.message === "busy") {
-        systemPasswordResetStatus.textContent = "已有另一個密碼操作進行中，請稍候再試。";
+        systemPasswordResetStatus.textContent = t("system.password.error.busy");
       } else if (error && error.message === "device_busy") {
-        systemPasswordResetStatus.textContent = "裝置忙碌中（可能正在刷新面板），請稍後再試。";
+        systemPasswordResetStatus.textContent = t("auth.error.device_busy");
       } else {
-        systemPasswordResetStatus.textContent = "密碼更新失敗，請確認設定後再試一次。";
+        systemPasswordResetStatus.textContent = t("system.password.error.failed");
       }
     } finally {
       systemPasswordReset.disabled = false;
@@ -2114,10 +2146,10 @@
 
   systemReboot.addEventListener("click", async () => {
     if (!csrfToken) return;
-    if (!window.confirm("確定要重新啟動裝置？連線會暫時中斷。")) return;
+    if (!window.confirm(t("system.reboot.confirm"))) return;
     systemReboot.disabled = true;
     systemRebootStatus.className = "save-status";
-    systemRebootStatus.textContent = "正在重新啟動…";
+    systemRebootStatus.textContent = t("system.reboot.status.rebooting");
     try {
       const response = await fetch("/api/v1/system/reboot", {
         method: "POST",
@@ -2130,10 +2162,10 @@
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "reboot_failed");
       systemRebootStatus.className = "save-status success";
-      systemRebootStatus.textContent = "已送出重新啟動要求，裝置即將斷線。";
+      systemRebootStatus.textContent = t("system.reboot.status.sent");
     } catch (error) {
       systemRebootStatus.className = "save-status error";
-      systemRebootStatus.textContent = `重新啟動失敗：${error.message || "請稍後重試"}`;
+      systemRebootStatus.textContent = t("system.reboot.status.failed", { reason: error.message || t("common.retry_later") });
       systemReboot.disabled = false;
     }
   });
@@ -2142,7 +2174,7 @@
     if (!csrfToken) return;
     systemOtaCheck.disabled = true;
     systemOtaStatus.className = "save-status";
-    systemOtaStatus.textContent = "正在檢查更新…";
+    systemOtaStatus.textContent = t("system.ota.status.checking");
     try {
       const response = await fetch("/api/v1/system/ota/check", {
         method: "POST",
@@ -2154,16 +2186,16 @@
         return;
       }
       if (response.status === 409) {
-        systemOtaStatus.textContent = "已有檢查或更新在進行中，請稍候。";
+        systemOtaStatus.textContent = t("system.ota.status.busy");
         return;
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "ota_check_failed");
       systemOtaStatus.className = "save-status success";
-      systemOtaStatus.textContent = "正在檢查更新…";
+      systemOtaStatus.textContent = t("system.ota.status.checking");
       startSystemOtaPoll();
     } catch (error) {
       systemOtaStatus.className = "save-status error";
-      systemOtaStatus.textContent = `檢查失敗：${error.message || "請稍後重試"}`;
+      systemOtaStatus.textContent = t("system.ota.status.check_failed", { reason: error.message || t("common.retry_later") });
     } finally {
       systemOtaCheck.disabled = false;
     }
@@ -2171,10 +2203,10 @@
 
   systemOtaUpdate.addEventListener("click", async () => {
     if (!csrfToken) return;
-    if (!window.confirm("確定要立即更新韌體？更新完成後裝置會自動重新啟動，過程中請勿斷電。")) return;
+    if (!window.confirm(t("system.ota.update_confirm"))) return;
     systemOtaUpdate.disabled = true;
     systemOtaStatus.className = "save-status";
-    systemOtaStatus.textContent = "正在下載並寫入新韌體…";
+    systemOtaStatus.textContent = t("system.ota.status.downloading");
     try {
       const response = await fetch("/api/v1/system/ota/update", {
         method: "POST",
@@ -2186,17 +2218,17 @@
         return;
       }
       if (response.status === 409) {
-        systemOtaStatus.textContent = "已有檢查或更新在進行中，請稍候。";
+        systemOtaStatus.textContent = t("system.ota.status.busy");
         systemOtaUpdate.disabled = false;
         return;
       }
       if (!response.ok || !payload.ok) throw new Error(payload.error || "ota_update_failed");
       systemOtaStatus.className = "save-status success";
-      systemOtaStatus.textContent = "更新已開始，完成後裝置會自動重新啟動；請勿中斷電源。";
+      systemOtaStatus.textContent = t("system.ota.status.started");
       startSystemOtaPoll();
     } catch (error) {
       systemOtaStatus.className = "save-status error";
-      systemOtaStatus.textContent = `更新失敗：${error.message || "請稍後重試"}`;
+      systemOtaStatus.textContent = t("system.ota.status.update_failed", { reason: error.message || t("common.retry_later") });
       systemOtaUpdate.disabled = false;
     }
   });
@@ -2266,7 +2298,7 @@
     if (action === "activate") {
       mutateImageLibrary(`/api/v1/images/${encodeURIComponent(name)}/activate`, "POST");
     } else if (action === "remove") {
-      if (window.confirm(`確定刪除「${name}」？`)) {
+      if (window.confirm(t("image.library.delete_confirm", { name }))) {
         mutateImageLibrary(`/api/v1/images/${encodeURIComponent(name)}`, "DELETE");
       }
     } else if (action === "move-up") {
@@ -2297,18 +2329,18 @@
     imageLibraryRevision += 1;
     imageLibraryImages = [];
     imageLibraryList.replaceChildren();
-    imageLibraryStatus.textContent = "請重新登入後查看裝置圖片庫。";
+    imageLibraryStatus.textContent = t("auth.image_library_locked");
     authGate.hidden = false;
     appShell.hidden = true;
     topNavigation.hidden = true;
     authenticatedActions.hidden = true;
     uploadPfr1.disabled = true;
-    authTitle.textContent = passwordConfigured ? "管理員登入" : "建立管理密碼";
-    authPasswordLabel.textContent = passwordConfigured ? "管理密碼" : "新管理密碼";
-    authCopy.textContent = passwordConfigured
-      ? "請先登入，才能存取 Dashboard、Wi‑Fi 與裝置管理功能。"
-      : "首次設定必須先建立管理密碼，接著才會開啟管理介面。";
-    authButton.textContent = passwordConfigured ? "登入" : "建立密碼並繼續";
+    authTitle.textContent = passwordConfigured ? t("auth.title.login") : t("auth.title.setup");
+    authPasswordLabel.textContent = passwordConfigured
+      ? t("auth.field.password.login")
+      : t("auth.field.password.setup");
+    authCopy.textContent = passwordConfigured ? t("auth.copy.login") : t("auth.copy.setup");
+    authButton.textContent = passwordConfigured ? t("auth.button.login") : t("auth.button.setup");
     authPassword.autocomplete = passwordConfigured ? "current-password" : "new-password";
     authPassword.focus();
   }
@@ -2321,7 +2353,7 @@
       if (payload.data.authenticated) showAuthenticated(payload.data.csrf_token);
       else showAuthForm(payload.data.password_configured);
     } catch {
-      authCopy.textContent = "無法讀取管理員狀態。請確認仍連著 PaperFrame 後重新整理。";
+      authCopy.textContent = t("auth.copy.load_failed");
       authForm.hidden = true;
     }
   }
@@ -2330,12 +2362,12 @@
     event.preventDefault();
     if (authPassword.value.length < 8) {
       authStatus.className = "save-status error";
-      authStatus.textContent = "管理密碼至少需要 8 個字元。";
+      authStatus.textContent = t("auth.error.short_password");
       return;
     }
     authButton.disabled = true;
     authStatus.className = "save-status";
-    authStatus.textContent = "正在驗證…";
+    authStatus.textContent = t("auth.status.verifying");
     try {
       const response = await fetch("/api/v1/auth/login", {
         method: "POST",
@@ -2353,13 +2385,13 @@
     } catch (error) {
       authStatus.className = "save-status error";
       if (error && error.message === "busy") {
-        authStatus.textContent = "已有另一個登入嘗試進行中，請稍候再試。";
+        authStatus.textContent = t("auth.error.busy");
       } else if (error && error.message === "invalid_credentials") {
-        authStatus.textContent = "密碼錯誤，請重新輸入。";
+        authStatus.textContent = t("auth.error.invalid_credentials");
       } else if (error && error.message === "device_busy") {
-        authStatus.textContent = "裝置忙碌中（可能正在刷新面板），請稍後再試。";
+        authStatus.textContent = t("auth.error.device_busy");
       } else {
-        authStatus.textContent = "登入失敗，請確認密碼後再試一次。";
+        authStatus.textContent = t("auth.error.login_failed");
       }
     } finally {
       authButton.disabled = false;
@@ -2378,13 +2410,13 @@
   passwordToggle.addEventListener("click", () => {
     const reveal = password.type === "password";
     password.type = reveal ? "text" : "password";
-    passwordToggle.textContent = reveal ? "隱藏" : "顯示";
+    passwordToggle.textContent = reveal ? t("auth.toggle.hide") : t("auth.toggle.show");
     passwordToggle.setAttribute("aria-pressed", reveal ? "true" : "false");
   });
   authPasswordToggle.addEventListener("click", () => {
     const reveal = authPassword.type === "password";
     authPassword.type = reveal ? "text" : "password";
-    authPasswordToggle.textContent = reveal ? "隱藏" : "顯示";
+    authPasswordToggle.textContent = reveal ? t("auth.toggle.hide") : t("auth.toggle.show");
     authPasswordToggle.setAttribute("aria-pressed", reveal ? "true" : "false");
   });
   scanButton.addEventListener("click", () => scan(true));
@@ -2409,11 +2441,11 @@
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const ssid = manualToggle.checked ? manualSsid.value.trim() : selected;
-    if (!ssid) { saveStatus.className = "save-status error"; saveStatus.textContent = "請先選擇或輸入 Wi‑Fi 名稱。"; return; }
-    if (password.value.length > 0 && password.value.length < 8) { saveStatus.className = "save-status error"; saveStatus.textContent = "加密網路的密碼至少需要 8 個字元。"; return; }
+    if (!ssid) { saveStatus.className = "save-status error"; saveStatus.textContent = t("wifi.error.no_ssid"); return; }
+    if (password.value.length > 0 && password.value.length < 8) { saveStatus.className = "save-status error"; saveStatus.textContent = t("wifi.error.short_password"); return; }
     saveButton.disabled = true;
     saveStatus.className = "save-status";
-    saveStatus.textContent = "正在安全保存設定…";
+    saveStatus.textContent = t("wifi.status.saving");
     try {
       const response = await fetch("/api/v1/wifi/config", {
         method: "POST",
@@ -2422,14 +2454,14 @@
       });
       const payload = await response.json();
       if (!response.ok || !payload.data || !payload.data.request_id) throw new Error(payload.error || "save_failed");
-      saveStatus.textContent = "設定已接收，正在確認寫入完成…";
+      saveStatus.textContent = t("wifi.status.confirming");
       await waitForCredentialCommit(payload.data.request_id);
       saveStatus.className = "save-status success";
-      saveStatus.textContent = "已保存。PaperFrame 即將重新啟動，請稍候再連回家中網路。";
+      saveStatus.textContent = t("wifi.status.saved");
     } catch {
       saveButton.disabled = false;
       saveStatus.className = "save-status error";
-      saveStatus.textContent = "保存失敗，請保持 AP 連線後再試一次。";
+      saveStatus.textContent = t("wifi.status.save_failed");
     }
   });
 

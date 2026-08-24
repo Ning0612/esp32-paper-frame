@@ -12,8 +12,16 @@ assert.ok(html.includes('<script src="/image_pfr1.js" defer></script>'));
 assert.ok(html.includes('data-view="image"'));
 assert.ok(html.includes('id="top-navigation"'));
 assert.equal(previewBlocks.length, 3);
-assert.ok(html.indexOf("<h3>原圖</h3>") < html.indexOf("<h3>處理後</h3>"));
-assert.ok(html.indexOf("<h3>處理後</h3>") < html.indexOf("<h3>面板畫面</h3>"));
+// Headings carry a data-i18n key now (WebUI language toggle); order still
+// pinned via the zh-Hant fallback text still present in the markup.
+assert.ok(
+  html.indexOf('<h3 data-i18n="image.preview.original">原圖</h3>') <
+    html.indexOf('<h3 data-i18n="image.preview.processed">處理後</h3>'),
+);
+assert.ok(
+  html.indexOf('<h3 data-i18n="image.preview.processed">處理後</h3>') <
+    html.indexOf('<h3 data-i18n="image.preview.frame">面板畫面</h3>'),
+);
 for (const id of [
   "image-source", "image-source-dropzone", "image-source-drop-hint", "image-orientation", "image-fit", "image-dither", "image-filename",
   "image-mirror-x", "image-mirror-y", "image-rotate", "preview-original",

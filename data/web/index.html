@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f3efdf">
-  <title>PaperFrame 管理介面</title>
+  <title data-i18n="app.title">PaperFrame 管理介面</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/i18n.js" defer></script>
   <script src="/image_pipeline.js" defer></script>
   <script src="/image_quantizer.js" defer></script>
   <script src="/image_pfr1.js" defer></script>
@@ -22,25 +23,27 @@
         <span class="brand-mark" aria-hidden="true">PF</span>
         <div>
           <p class="eyebrow">PAPERFRAME / LOCAL CONSOLE</p>
-          <h1>離線電子紙管理台</h1>
+          <h1 data-i18n="app.heading">離線電子紙管理台</h1>
         </div>
       </div>
       <div class="topbar-actions">
-        <nav id="top-navigation" class="top-navigation" aria-label="主要導覽" hidden>
+        <nav id="top-navigation" class="top-navigation" data-i18n-aria-label="nav.aria_label" aria-label="主要導覽" hidden>
           <button class="nav-link active" type="button" data-view="dashboard"
-                  aria-current="page">總覽 <span>01</span></button>
-          <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
-          <button class="nav-link" type="button" data-view="weather">天氣 <span>03</span></button>
-          <button class="nav-link" type="button" data-view="image">圖片 <span>04</span></button>
-          <button class="nav-link" type="button" data-view="environment">環境 <span>05</span></button>
-          <button class="nav-link" type="button" data-view="system">系統 <span>06</span></button>
+                  aria-current="page"><span data-i18n="nav.dashboard">總覽</span> <span>01</span></button>
+          <button class="nav-link" type="button" data-view="wifi"><span data-i18n="nav.wifi">Wi‑Fi</span> <span>02</span></button>
+          <button class="nav-link" type="button" data-view="weather"><span data-i18n="nav.weather">天氣</span> <span>03</span></button>
+          <button class="nav-link" type="button" data-view="image"><span data-i18n="nav.image">圖片</span> <span>04</span></button>
+          <button class="nav-link" type="button" data-view="environment"><span data-i18n="nav.environment">環境</span> <span>05</span></button>
+          <button class="nav-link" type="button" data-view="system"><span data-i18n="nav.system">系統</span> <span>06</span></button>
         </nav>
         <span class="offline-badge">LOCAL ONLY</span>
         <button id="theme-toggle" class="plain-button" type="button"
                 aria-pressed="false">DARK</button>
+        <button id="lang-toggle" class="plain-button" type="button"
+                aria-pressed="false">EN</button>
         <div id="authenticated-actions" class="user-actions" hidden>
           <span>ADMIN</span>
-          <button id="logout-button" class="plain-button" type="button">登出</button>
+          <button id="logout-button" class="plain-button" type="button" data-i18n="topbar.logout">登出</button>
         </div>
       </div>
     </header>
@@ -53,28 +56,28 @@
               <span class="panel-no auth-marker coral">AUTH</span>
               <div>
                 <p class="eyebrow">ACCESS CONTROL</p>
-                <h2 id="auth-title">管理員登入</h2>
+                <h2 id="auth-title" data-i18n="auth.title.login">管理員登入</h2>
               </div>
             </div>
             <span class="local-only">ADMIN</span>
           </div>
-          <p id="auth-copy" class="auth-copy">正在確認裝置的管理員狀態…</p>
+          <p id="auth-copy" class="auth-copy" data-i18n="auth.copy.checking">正在確認裝置的管理員狀態…</p>
           <form id="auth-form" class="auth-form" novalidate>
             <label class="field">
-              <span>管理帳號</span>
+              <span data-i18n="auth.field.account">管理帳號</span>
               <input value="admin" readonly autocomplete="username">
             </label>
             <label class="field">
-              <span id="auth-password-label">管理密碼</span>
+              <span id="auth-password-label" data-i18n="auth.field.password.login">管理密碼</span>
               <div class="password-row">
                 <input id="auth-password" type="password" minlength="8"
                        maxlength="128" autocomplete="current-password" required>
                 <button id="auth-password-toggle" type="button"
-                        aria-pressed="false">顯示</button>
+                        data-i18n="auth.toggle.show" aria-pressed="false">顯示</button>
               </div>
-              <small>至少 8 個字元；只保存加鹽後的強雜湊。</small>
+              <small data-i18n="auth.hint.password">至少 8 個字元；只保存加鹽後的強雜湊。</small>
             </label>
-            <button id="auth-button" class="primary-button" type="submit">登入</button>
+            <button id="auth-button" class="primary-button" type="submit" data-i18n="auth.button.login">登入</button>
             <p id="auth-status" class="save-status" role="status"
                aria-live="assertive"></p>
           </form>
@@ -85,65 +88,65 @@
             <div class="view-heading">
               <div>
                 <p class="eyebrow">01 / RUNTIME SNAPSHOT</p>
-                <h2>總覽</h2>
+                <h2 data-i18n="nav.dashboard">總覽</h2>
               </div>
-              <button id="refresh-dashboard" class="plain-button" type="button">重新整理</button>
+              <button id="refresh-dashboard" class="plain-button" type="button" data-i18n="common.refresh">重新整理</button>
             </div>
-            <p id="dashboard-status" class="status-line" role="status">正在讀取 runtime snapshot…</p>
+            <p id="dashboard-status" class="status-line" role="status" data-i18n="dashboard.status.loading">正在讀取 runtime snapshot…</p>
 
             <div class="metric-grid">
               <article class="metric-card teal-card">
                 <span class="card-kicker">DEVICE</span>
-                <strong id="device-model" class="metric-title">尚未取得</strong>
-                <span id="device-firmware" class="metric-detail">韌體未知</span>
+                <strong id="device-model" class="metric-title" data-i18n="dashboard.device.model_pending">尚未取得</strong>
+                <span id="device-firmware" class="metric-detail" data-i18n="dashboard.device.firmware_unknown">韌體未知</span>
                 <span id="device-api" class="mono-detail">API —</span>
               </article>
               <article class="metric-card mint-card">
                 <span class="card-kicker">NETWORK</span>
-                <strong id="dashboard-wifi" class="metric-title">未知</strong>
-                <span id="dashboard-internet" class="metric-detail">Internet：未知</span>
-                <span id="dashboard-sntp" class="mono-detail">SNTP：未知</span>
+                <strong id="dashboard-wifi" class="metric-title" data-i18n="common.unknown">未知</strong>
+                <span id="dashboard-internet" class="metric-detail" data-i18n="dashboard.internet_unknown">Internet：未知</span>
+                <span id="dashboard-sntp" class="mono-detail" data-i18n="dashboard.sntp_unknown">SNTP：未知</span>
               </article>
               <article class="metric-card yellow-card">
                 <span class="card-kicker">RUNTIME</span>
-                <strong id="dashboard-uptime" class="metric-title">未知</strong>
+                <strong id="dashboard-uptime" class="metric-title" data-i18n="common.unknown">未知</strong>
                 <span id="dashboard-sequence" class="metric-detail">snapshot —</span>
-                <span id="dashboard-carousel" class="mono-detail">輪播：未知</span>
+                <span id="dashboard-carousel" class="mono-detail" data-i18n="dashboard.carousel_unknown">輪播：未知</span>
               </article>
             </div>
 
             <div class="dashboard-grid">
               <article class="panel status-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no blue">A</span><h3>電子紙與輪播</h3></div>
+                  <div><span class="panel-no blue">A</span><h3 data-i18n="dashboard.card.display_title">電子紙與輪播</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>面板狀態</dt><dd id="display-state">未知</dd></div>
-                  <div><dt>佇列</dt><dd id="display-queue">未知</dd></div>
-                  <div><dt>最後刷新</dt><dd id="display-last">未知</dd></div>
-                  <div><dt>目前圖片</dt><dd id="dashboard-current-image">未知</dd></div>
-                  <div><dt>下次輪播</dt><dd id="dashboard-next-refresh">未知</dd></div>
+                  <div><dt data-i18n="common.dt.display_state">面板狀態</dt><dd id="display-state" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="common.dt.queue">佇列</dt><dd id="display-queue" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="common.dt.last_refresh">最後刷新</dt><dd id="display-last" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="dashboard.dt.current_image">目前圖片</dt><dd id="dashboard-current-image" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="dashboard.dt.next_refresh">下次輪播</dt><dd id="dashboard-next-refresh" data-i18n="common.unknown">未知</dd></div>
                 </dl>
               </article>
               <article class="panel status-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no mint">B</span><h3>容量與服務</h3></div>
+                  <div><span class="panel-no mint">B</span><h3 data-i18n="dashboard.card.capacity_title">容量與服務</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>Flash</dt><dd id="flash-capacity">未知</dd></div>
-                  <div><dt>PSRAM</dt><dd id="psram-capacity">未知</dd></div>
-                  <div><dt>imagefs</dt><dd id="imagefs-capacity">未知</dd></div>
-                  <div><dt>服務</dt><dd id="service-state">未知</dd></div>
+                  <div><dt>Flash</dt><dd id="flash-capacity" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>PSRAM</dt><dd id="psram-capacity" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>imagefs</dt><dd id="imagefs-capacity" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="common.dt.service">服務</dt><dd id="service-state" data-i18n="common.unknown">未知</dd></div>
                 </dl>
               </article>
               <article class="panel status-panel muted-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no coral">C</span><h3>後續模組</h3></div>
+                  <div><span class="panel-no coral">C</span><h3 data-i18n="dashboard.card.followup_title">後續模組</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>天氣快取</dt><dd id="weather-state">尚未提供</dd></div>
-                  <div><dt>溫溼度</dt><dd id="sensor-state">未安裝</dd></div>
-                  <div><dt>光敏電阻</dt><dd id="light-sensor-state">未知</dd></div>
+                  <div><dt data-i18n="dashboard.dt.weather_cache">天氣快取</dt><dd id="weather-state" data-i18n="dashboard.weather_not_available">尚未提供</dd></div>
+                  <div><dt data-i18n="common.dt.temp_humidity">溫溼度</dt><dd id="sensor-state" data-i18n="common.not_installed">未安裝</dd></div>
+                  <div><dt data-i18n="common.dt.light_sensor">光敏電阻</dt><dd id="light-sensor-state" data-i18n="common.unknown">未知</dd></div>
                 </dl>
               </article>
             </div>
@@ -153,44 +156,44 @@
             <div class="view-heading">
               <div>
                 <p class="eyebrow">02 / NETWORK CONFIGURATION</p>
-                <h2>Wi‑Fi 配網</h2>
+                <h2 data-i18n="wifi.heading">Wi‑Fi 配網</h2>
               </div>
             </div>
-            <p class="intro-copy">選擇網路後保存設定；裝置會以交易方式寫入並重新啟動。</p>
+            <p class="intro-copy" data-i18n="wifi.intro">選擇網路後保存設定；裝置會以交易方式寫入並重新啟動。</p>
             <form id="wifi-form" class="setup-grid" novalidate>
               <section class="panel network-panel">
                 <div class="panel-heading">
-                  <div><span class="panel-no blue">A</span><h3>附近網路</h3></div>
-                  <button id="scan-button" class="plain-button" type="button">重新掃描</button>
+                  <div><span class="panel-no blue">A</span><h3 data-i18n="wifi.card.nearby_title">附近網路</h3></div>
+                  <button id="scan-button" class="plain-button" type="button" data-i18n="wifi.scan.rescan">重新掃描</button>
                 </div>
-                <p id="scan-status" class="status-line" role="status" aria-live="polite">準備掃描附近網路</p>
-                <div id="network-list" class="network-list" role="radiogroup" aria-label="附近 Wi‑Fi"></div>
+                <p id="scan-status" class="status-line" role="status" aria-live="polite" data-i18n="wifi.scan.ready">準備掃描附近網路</p>
+                <div id="network-list" class="network-list" role="radiogroup" data-i18n-aria-label="wifi.aria.nearby" aria-label="附近 Wi‑Fi"></div>
                 <label class="manual-toggle">
                   <input id="manual-toggle" type="checkbox">
-                  <span>我的網路沒有出現在清單中</span>
+                  <span data-i18n="wifi.manual.toggle">我的網路沒有出現在清單中</span>
                 </label>
                 <label id="manual-field" class="field manual-field" hidden>
-                  <span>網路名稱（SSID）</span>
+                  <span data-i18n="wifi.manual.ssid_label">網路名稱（SSID）</span>
                   <input id="manual-ssid" maxlength="32" autocomplete="off">
                 </label>
               </section>
               <section class="panel credential-panel">
                 <div class="panel-heading">
-                  <div><span class="panel-no coral">B</span><h3>連線設定</h3></div>
+                  <div><span class="panel-no coral">B</span><h3 data-i18n="wifi.card.credential_title">連線設定</h3></div>
                 </div>
                 <div class="selected-network">
-                  <span>將連線至</span><strong id="selected-ssid">尚未選擇</strong>
+                  <span data-i18n="wifi.connect_to">將連線至</span><strong id="selected-ssid" data-i18n="wifi.not_selected">尚未選擇</strong>
                 </div>
                 <label class="field">
-                  <span>Wi‑Fi 密碼</span>
+                  <span data-i18n="wifi.password_label">Wi‑Fi 密碼</span>
                   <div class="password-row">
                     <input id="password" name="password" type="password" maxlength="63" autocomplete="new-password">
-                    <button id="password-toggle" type="button" aria-pressed="false">顯示</button>
+                    <button id="password-toggle" type="button" data-i18n="auth.toggle.show" aria-pressed="false">顯示</button>
                   </div>
-                  <small>加密網路需 8–63 字元；開放網路可留白。</small>
+                  <small data-i18n="wifi.password_hint">加密網路需 8–63 字元；開放網路可留白。</small>
                 </label>
-                <aside class="trust-note"><b>只留在裝置裡</b><p>密碼不會放進網址、畫面回應或系統紀錄。</p></aside>
-                <button id="save-button" class="primary-button" type="submit">儲存並重新啟動</button>
+                <aside class="trust-note"><b data-i18n="wifi.trust.title">只留在裝置裡</b><p data-i18n="wifi.trust.body">密碼不會放進網址、畫面回應或系統紀錄。</p></aside>
+                <button id="save-button" class="primary-button" type="submit" data-i18n="wifi.save_and_reboot">儲存並重新啟動</button>
                 <p id="save-status" class="save-status" role="status" aria-live="assertive"></p>
               </section>
             </form>
@@ -200,69 +203,69 @@
             <div class="view-heading">
               <div>
                 <p class="eyebrow">03 / WEATHER &amp; TIME</p>
-                <h2>天氣與時間</h2>
+                <h2 data-i18n="weather.heading">天氣與時間</h2>
               </div>
             </div>
-            <p class="intro-copy">設定只保存在 PaperFrame 的 NVS；API key 只會回報是否存在，不會出現在回應或畫面。</p>
+            <p class="intro-copy" data-i18n="weather.intro">設定只保存在 PaperFrame 的 NVS；API key 只會回報是否存在，不會出現在回應或畫面。</p>
             <div class="setup-grid">
-              <form id="weather-form" style="display: contents" novalidate>
+              <form id="weather-form" class="form-contents" novalidate>
                 <section class="panel credential-panel">
                   <div class="panel-heading">
                     <div><span class="panel-no coral">A</span><h3>OpenWeatherMap</h3></div>
-                    <span id="weather-config-state" class="local-only">尚未設定</span>
+                    <span id="weather-config-state" class="local-only" data-i18n="weather.config_state.unset">尚未設定</span>
                   </div>
                   <label class="field">
-                    <span>API key（留白代表保留現有值）</span>
+                    <span data-i18n="weather.api_key_label">API key（留白代表保留現有值）</span>
                     <input id="weather-api-key" type="password" maxlength="127" autocomplete="new-password">
                   </label>
                   <div class="image-option-grid">
-                    <label class="field"><span>緯度</span><input id="weather-latitude" type="number" step="0.000001" min="-90" max="90" required></label>
-                    <label class="field"><span>經度</span><input id="weather-longitude" type="number" step="0.000001" min="-180" max="180" required></label>
-                    <label class="field"><span>單位</span><select id="weather-units"><option value="metric">攝氏／Metric</option><option value="imperial">華氏／Imperial</option></select></label>
+                    <label class="field"><span data-i18n="weather.latitude">緯度</span><input id="weather-latitude" type="number" step="0.000001" min="-90" max="90" required></label>
+                    <label class="field"><span data-i18n="weather.longitude">經度</span><input id="weather-longitude" type="number" step="0.000001" min="-180" max="180" required></label>
+                    <label class="field"><span data-i18n="weather.units">單位</span><select id="weather-units"><option value="metric" data-i18n="weather.units.metric">攝氏／Metric</option><option value="imperial" data-i18n="weather.units.imperial">華氏／Imperial</option></select></label>
                     <label class="field"><span>NTP server</span><input id="weather-ntp-server" maxlength="63" required></label>
                   </div>
                   <div class="panel-heading compact weather-map-heading">
-                    <div><span class="panel-no blue">B</span><h3>拖曳地圖選點</h3></div>
-                    <span id="weather-map-mode" class="local-only">離線模式</span>
+                    <div><span class="panel-no blue">B</span><h3 data-i18n="weather.card.map_title">拖曳地圖選點</h3></div>
+                    <span id="weather-map-mode" class="local-only" data-i18n="weather.map_mode.offline">離線模式</span>
                   </div>
                   <div id="weather-map" class="weather-map">
                     <div id="weather-map-tiles" class="weather-map-tiles"></div>
                     <canvas id="weather-map-canvas" class="weather-map-canvas" hidden></canvas>
                     <div id="weather-map-pin" class="weather-map-pin" aria-hidden="true"></div>
                     <div class="weather-map-zoom">
-                      <button type="button" id="weather-map-zoom-in" class="plain-button" aria-label="放大">＋</button>
-                      <button type="button" id="weather-map-zoom-out" class="plain-button" aria-label="縮小">－</button>
+                      <button type="button" id="weather-map-zoom-in" class="plain-button" data-i18n-aria-label="weather.map.zoom_in" aria-label="放大">＋</button>
+                      <button type="button" id="weather-map-zoom-out" class="plain-button" data-i18n-aria-label="weather.map.zoom_out" aria-label="縮小">－</button>
                     </div>
                     <a id="weather-map-attribution" class="weather-map-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" hidden>© OpenStreetMap contributors</a>
                   </div>
-                  <p class="field-hint">連線時載入地圖圖磚，拖曳地圖移動中央圖釘；離線時改為經緯度格線，可直接點擊或拖曳圖釘。</p>
-                  <button id="weather-save" class="primary-button" type="submit">保存設定</button>
+                  <p class="field-hint" data-i18n="weather.map.hint">連線時載入地圖圖磚，拖曳地圖移動中央圖釘；離線時改為經緯度格線，可直接點擊或拖曳圖釘。</p>
+                  <button id="weather-save" class="primary-button" type="submit" data-i18n="common.save_settings">保存設定</button>
                   <p id="weather-status" class="save-status" role="status" aria-live="assertive"></p>
                 </section>
               </form>
               <div class="panel-column">
-                <form id="timezone-form" style="display: contents" novalidate>
+                <form id="timezone-form" class="form-contents" novalidate>
                   <section class="panel">
                     <div class="panel-heading">
-                      <div><span class="panel-no coral">C</span><h3>時區</h3></div>
+                      <div><span class="panel-no coral">C</span><h3 data-i18n="weather.card.timezone_title">時區</h3></div>
                     </div>
                     <label class="field">
-                      <span>UTC 偏移（例如 +8、-5.5、+5.75）</span>
+                      <span data-i18n="weather.timezone.label">UTC 偏移（例如 +8、-5.5、+5.75）</span>
                       <input id="device-timezone" type="text" maxlength="6" pattern="[+-]?\d{1,2}(\.\d{1,2})?" placeholder="+8" required>
                     </label>
-                    <p class="field-hint">SNTP 取得的時間一律是 UTC；狀態列顯示的日期與星期會加上這個偏移換算為當地時間。支援 15 分鐘為單位的偏移（如 +5.75、-5.5）。</p>
-                    <button id="timezone-save" class="primary-button" type="submit" disabled>保存設定</button>
+                    <p class="field-hint" data-i18n="weather.timezone.hint">SNTP 取得的時間一律是 UTC；狀態列顯示的日期與星期會加上這個偏移換算為當地時間。支援 15 分鐘為單位的偏移（如 +5.75、-5.5）。</p>
+                    <button id="timezone-save" class="primary-button" type="submit" disabled data-i18n="common.save_settings">保存設定</button>
                     <p id="timezone-status" class="save-status" role="status" aria-live="assertive"></p>
                   </section>
                 </form>
                 <section class="panel status-panel muted-panel">
                   <div class="panel-heading compact">
-                    <div><span class="panel-no mint">D</span><h3>安全狀態</h3></div>
+                    <div><span class="panel-no mint">D</span><h3 data-i18n="weather.card.security_title">安全狀態</h3></div>
                   </div>
                   <dl class="definition-list">
-                    <div><dt>API key</dt><dd id="weather-api-key-state">未知</dd></div>
-                    <div><dt>資料快取</dt><dd id="weather-cache-state">尚未接入 HTTPS worker</dd></div>
-                    <div><dt>時間同步</dt><dd id="weather-ntp-state">設定完成後接入 SNTP</dd></div>
+                    <div><dt>API key</dt><dd id="weather-api-key-state" data-i18n="common.unknown">未知</dd></div>
+                    <div><dt data-i18n="weather.dt.cache">資料快取</dt><dd id="weather-cache-state" data-i18n="weather.cache_not_wired">尚未接入 HTTPS worker</dd></div>
+                    <div><dt data-i18n="weather.dt.time_sync">時間同步</dt><dd id="weather-ntp-state" data-i18n="weather.ntp_pending">設定完成後接入 SNTP</dd></div>
                   </dl>
                 </section>
               </div>
@@ -273,42 +276,42 @@
             <div class="view-heading">
               <div>
                 <p class="eyebrow">05 / ENVIRONMENT &amp; PRESENCE</p>
-                <h2>環境與在場</h2>
+                <h2 data-i18n="environment.heading">環境與在場</h2>
               </div>
             </div>
-            <p class="intro-copy">溫溼度感測器（DHT22 / GPIO6）與兩顆光敏電阻都是選用元件；未安裝時裝置正常輪播，presence 顯示為 UNKNOWN。兩顆光敏電阻各自設定 threshold，兩顆都低於自己的 threshold 才判定為暗——換句話說，任一顆看到光就會喚醒。未啟用或讀值異常的那顆會被忽略，不影響另一顆。<strong>只接一顆時務必把沒接的那顆取消勾選</strong>——未接線的 ADC 腳是高阻抗，讀到的是飄動的中間值，韌體無法與真實讀值區分；若它飄在 threshold 之上，那顆就會永遠看起來「有光」，裝置將永遠不會進入離席白屏。取消勾選後該腳完全不會被取樣。</p>
+            <p class="intro-copy"><span data-i18n="environment.intro.part1">溫溼度感測器與兩顆光敏電阻都是選用元件，未安裝也能正常使用。</span><strong data-i18n="environment.intro.emphasis">只接一顆時務必取消勾選另一顆</strong><span data-i18n="environment.intro.part2">——未接線的通道可能被誤判為一直有光，裝置將永遠不會進入離席白屏。</span></p>
             <form id="environment-form" class="setup-grid" novalidate>
               <section class="panel credential-panel">
                 <div class="panel-heading">
-                  <div><span class="panel-no coral">A</span><h3>感測器設定</h3></div>
+                  <div><span class="panel-no coral">A</span><h3 data-i18n="environment.card.sensor_title">感測器設定</h3></div>
                 </div>
-                <label class="manual-toggle"><input id="environment-enabled" type="checkbox"><span>啟用溫溼度感測器（DHT22）</span></label>
-                <label class="manual-toggle"><input id="light1-enabled" type="checkbox"><span>啟用光敏電阻 1</span></label>
-                <label class="manual-toggle"><input id="light2-enabled" type="checkbox"><span>啟用光敏電阻 2</span></label>
+                <label class="manual-toggle"><input id="environment-enabled" type="checkbox"><span data-i18n="environment.enable_dht">啟用溫溼度感測器（DHT22）</span></label>
+                <label class="manual-toggle"><input id="light1-enabled" type="checkbox"><span data-i18n="environment.enable_light1">啟用光敏電阻 1</span></label>
+                <label class="manual-toggle"><input id="light2-enabled" type="checkbox"><span data-i18n="environment.enable_light2">啟用光敏電阻 2</span></label>
                 <div class="image-option-grid">
-                  <label class="field"><span>光敏 1 threshold（ADC 0–4095）</span><input id="light1-threshold" type="number" min="0" max="4095" required></label>
-                  <label class="field"><span>光敏 2 threshold（ADC 0–4095）</span><input id="light2-threshold" type="number" min="0" max="4095" required></label>
-                  <label class="field"><span>離席持續時間（秒）</span><input id="away-duration" type="number" min="10" max="3600" required></label>
-                  <label class="field"><span>返回持續時間（秒）</span><input id="return-duration" type="number" min="1" max="3600" required></label>
+                  <label class="field"><span data-i18n="environment.light1_threshold">光敏 1 threshold（ADC 0–4095）</span><input id="light1-threshold" type="number" min="0" max="4095" required></label>
+                  <label class="field"><span data-i18n="environment.light2_threshold">光敏 2 threshold（ADC 0–4095）</span><input id="light2-threshold" type="number" min="0" max="4095" required></label>
+                  <label class="field"><span data-i18n="environment.away_duration">離席持續時間（秒）</span><input id="away-duration" type="number" min="10" max="3600" required></label>
+                  <label class="field"><span data-i18n="environment.return_duration">返回持續時間（秒）</span><input id="return-duration" type="number" min="1" max="3600" required></label>
                 </div>
-                <button id="environment-save" class="primary-button" type="submit">保存設定</button>
+                <button id="environment-save" class="primary-button" type="submit" data-i18n="common.save_settings">保存設定</button>
                 <p id="environment-status" class="save-status" role="status" aria-live="assertive"></p>
               </section>
               <section class="panel status-panel muted-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no mint">B</span><h3>即時讀值</h3></div>
+                  <div><span class="panel-no mint">B</span><h3 data-i18n="environment.card.reading_title">即時讀值</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>溫溼度狀態</dt><dd id="environment-reading-status">未知</dd></div>
-                  <div><dt>溫度</dt><dd id="environment-temperature">—</dd></div>
-                  <div><dt>濕度</dt><dd id="environment-humidity">—</dd></div>
-                  <div><dt>今日溫度 min/avg/max</dt><dd id="environment-today-temperature">—</dd></div>
-                  <div><dt>光敏 1 狀態</dt><dd id="light1-reading-status">未知</dd></div>
-                  <div><dt>光敏 1 ADC / threshold</dt><dd id="light1-raw">—</dd></div>
-                  <div><dt>光敏 2 狀態</dt><dd id="light2-reading-status">未知</dd></div>
-                  <div><dt>光敏 2 ADC / threshold</dt><dd id="light2-raw">—</dd></div>
-                  <div><dt>判定來源</dt><dd id="light-deciding-channel">—</dd></div>
-                  <div><dt>在場狀態</dt><dd id="presence-state">未知</dd></div>
+                  <div><dt data-i18n="environment.dt.reading_status">溫溼度狀態</dt><dd id="environment-reading-status" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="environment.dt.temperature">溫度</dt><dd id="environment-temperature">—</dd></div>
+                  <div><dt data-i18n="environment.dt.humidity">濕度</dt><dd id="environment-humidity">—</dd></div>
+                  <div><dt data-i18n="environment.dt.today_temperature">今日溫度 min/avg/max</dt><dd id="environment-today-temperature">—</dd></div>
+                  <div><dt data-i18n="environment.dt.light1_status">光敏 1 狀態</dt><dd id="light1-reading-status" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="environment.dt.light1_raw">光敏 1 ADC / threshold</dt><dd id="light1-raw">—</dd></div>
+                  <div><dt data-i18n="environment.dt.light2_status">光敏 2 狀態</dt><dd id="light2-reading-status" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="environment.dt.light2_raw">光敏 2 ADC / threshold</dt><dd id="light2-raw">—</dd></div>
+                  <div><dt data-i18n="environment.dt.deciding_channel">判定來源</dt><dd id="light-deciding-channel">—</dd></div>
+                  <div><dt data-i18n="environment.dt.presence_state">在場狀態</dt><dd id="presence-state" data-i18n="common.unknown">未知</dd></div>
                 </dl>
               </section>
             </form>
@@ -318,94 +321,94 @@
             <div class="view-heading">
               <div>
                 <p class="eyebrow">06 / SYSTEM &amp; FIRMWARE</p>
-                <h2>系統</h2>
+                <h2 data-i18n="nav.system">系統</h2>
               </div>
-              <button id="system-refresh" class="plain-button" type="button">重新整理</button>
+              <button id="system-refresh" class="plain-button" type="button" data-i18n="common.refresh">重新整理</button>
             </div>
-            <p class="intro-copy">重新啟動需要管理員登入與 CSRF 驗證；OTA 更新只能由管理員手動觸發，裝置不會自動檢查或下載。</p>
+            <p class="intro-copy" data-i18n="system.intro">重新啟動需要管理員登入與 CSRF 驗證；OTA 更新只能由管理員手動觸發，裝置不會自動檢查或下載。</p>
 
             <div class="dashboard-grid">
               <section class="panel status-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no blue">A</span><h3>面板與刷新</h3></div>
+                  <div><span class="panel-no blue">A</span><h3 data-i18n="system.card.panel_title">面板與刷新</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>面板狀態</dt><dd id="system-display-state">未知</dd></div>
-                  <div><dt>最後刷新結果</dt><dd id="system-display-outcome">未知</dd></div>
-                  <div><dt>重開機原因</dt><dd id="system-reboot-reason">未知</dd></div>
+                  <div><dt data-i18n="common.dt.display_state">面板狀態</dt><dd id="system-display-state" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="system.dt.display_outcome">最後刷新結果</dt><dd id="system-display-outcome" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="system.dt.reboot_reason">重開機原因</dt><dd id="system-reboot-reason" data-i18n="common.unknown">未知</dd></div>
                 </dl>
               </section>
               <section class="panel status-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no mint">B</span><h3>網路</h3></div>
+                  <div><span class="panel-no mint">B</span><h3 data-i18n="system.card.network_title">網路</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>Wi‑Fi</dt><dd id="system-wifi-state">未知</dd></div>
-                  <div><dt>Internet</dt><dd id="system-internet-state">未知</dd></div>
-                  <div><dt>SNTP</dt><dd id="system-sntp-state">未知</dd></div>
+                  <div><dt>Wi‑Fi</dt><dd id="system-wifi-state" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>Internet</dt><dd id="system-internet-state" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>SNTP</dt><dd id="system-sntp-state" data-i18n="common.unknown">未知</dd></div>
                 </dl>
               </section>
               <section class="panel status-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no coral">C</span><h3>容量與版本</h3></div>
+                  <div><span class="panel-no coral">C</span><h3 data-i18n="system.card.capacity_title">容量與版本</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>韌體版本</dt><dd id="system-firmware-version">未知</dd></div>
-                  <div><dt>Uptime</dt><dd id="system-uptime">未知</dd></div>
-                  <div><dt>Flash</dt><dd id="system-flash-capacity">未知</dd></div>
-                  <div><dt>PSRAM</dt><dd id="system-psram-capacity">未知</dd></div>
-                  <div><dt>imagefs</dt><dd id="system-imagefs-capacity">未知</dd></div>
+                  <div><dt data-i18n="system.dt.firmware_version">韌體版本</dt><dd id="system-firmware-version" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>Uptime</dt><dd id="system-uptime" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>Flash</dt><dd id="system-flash-capacity" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>PSRAM</dt><dd id="system-psram-capacity" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>imagefs</dt><dd id="system-imagefs-capacity" data-i18n="common.unknown">未知</dd></div>
                 </dl>
               </section>
               <section class="panel status-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no blue">D</span><h3>OTA 韌體更新</h3></div>
+                  <div><span class="panel-no blue">D</span><h3 data-i18n="system.card.ota_title">OTA 韌體更新</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>檢查狀態</dt><dd id="system-ota-check-state">未知</dd></div>
-                  <div><dt>最新版本</dt><dd id="system-ota-latest-version">未知</dd></div>
-                  <div><dt>更新狀態</dt><dd id="system-ota-update-state">未知</dd></div>
-                  <div><dt>進度</dt><dd class="progress-cell">
-                    <div id="system-ota-progress-bar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="OTA 更新進度" hidden>
+                  <div><dt data-i18n="system.dt.check_state">檢查狀態</dt><dd id="system-ota-check-state" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="system.dt.latest_version">最新版本</dt><dd id="system-ota-latest-version" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="system.dt.update_state">更新狀態</dt><dd id="system-ota-update-state" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="system.dt.progress">進度</dt><dd class="progress-cell">
+                    <div id="system-ota-progress-bar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-i18n-aria-label="system.ota.progress_aria" aria-label="OTA 更新進度" hidden>
                       <div id="system-ota-progress-fill" class="progress-fill"></div>
                     </div>
                     <span id="system-ota-progress">—</span>
                   </dd></div>
-                  <div><dt>訊息</dt><dd id="system-ota-error">—</dd></div>
+                  <div><dt data-i18n="system.dt.message">訊息</dt><dd id="system-ota-error">—</dd></div>
                 </dl>
-                <div class="system-action-group" role="group" aria-label="OTA 操作">
-                  <button id="system-ota-check" class="plain-button transform-button" type="button">檢查更新</button>
-                  <button id="system-ota-update" class="primary-button transform-button" type="button" disabled>立即更新</button>
+                <div class="system-action-group" role="group" data-i18n-aria-label="system.ota.actions_aria" aria-label="OTA 操作">
+                  <button id="system-ota-check" class="plain-button transform-button" type="button" data-i18n="system.ota.check">檢查更新</button>
+                  <button id="system-ota-update" class="primary-button transform-button" type="button" disabled data-i18n="system.ota.update_now">立即更新</button>
                 </div>
                 <p id="system-ota-status" class="save-status" role="status" aria-live="assertive"></p>
               </section>
               <section class="panel status-panel muted-panel password-reset-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no coral">E</span><h3>重設管理密碼</h3></div>
+                  <div><span class="panel-no coral">E</span><h3 data-i18n="system.card.password_title">重設管理密碼</h3></div>
                 </div>
-                <p class="field-hint">密碼長度為 8–128 bytes；保存後目前 session 會失效，請使用新密碼重新登入。</p>
+                <p class="field-hint" data-i18n="system.password.hint">密碼長度為 8–128 bytes；保存後目前 session 會失效，請使用新密碼重新登入。</p>
                 <form id="system-password-reset-form" novalidate>
                   <label class="field">
-                    <span>新密碼</span>
+                    <span data-i18n="system.password.new">新密碼</span>
                     <input id="system-new-password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
                   </label>
                   <label class="field">
-                    <span>再次確認新密碼</span>
+                    <span data-i18n="system.password.confirm">再次確認新密碼</span>
                     <input id="system-confirm-password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
                   </label>
-                  <button id="system-password-reset" class="primary-button" type="submit">更新管理密碼</button>
+                  <button id="system-password-reset" class="primary-button" type="submit" data-i18n="system.password.submit">更新管理密碼</button>
                   <p id="system-password-reset-status" class="save-status" role="status" aria-live="assertive"></p>
                 </form>
               </section>
               <section class="panel status-panel muted-panel">
                 <div class="panel-heading compact">
-                  <div><span class="panel-no mint">F</span><h3>系統控制與最近事件</h3></div>
+                  <div><span class="panel-no mint">F</span><h3 data-i18n="system.card.control_title">系統控制與最近事件</h3></div>
                 </div>
                 <div class="system-action-group">
-                  <button id="system-reboot" class="plain-button" type="button">重新啟動裝置</button>
+                  <button id="system-reboot" class="plain-button" type="button" data-i18n="system.reboot">重新啟動裝置</button>
                 </div>
                 <p id="system-reboot-status" class="save-status" role="status" aria-live="assertive"></p>
-                <div id="system-events-list" class="image-library-list" aria-live="polite" aria-label="最近的診斷事件"></div>
+                <div id="system-events-list" class="image-library-list" aria-live="polite" data-i18n-aria-label="system.events_aria" aria-label="最近的診斷事件"></div>
               </section>
             </div>
           </div>
@@ -414,125 +417,125 @@
             <div class="view-heading">
               <div>
                 <p class="eyebrow">04 / IMAGE PREPARATION</p>
-                <h2>圖片處理</h2>
+                <h2 data-i18n="image.heading">圖片處理</h2>
               </div>
             </div>
-            <p class="intro-copy">圖片會在瀏覽器本機完成方向、裁切、六色量化與 PFR1 打包；原圖不會送到外部服務。</p>
+            <p class="intro-copy" data-i18n="image.intro">圖片會在瀏覽器本機完成方向、裁切、六色量化與 PFR1 打包；原圖不會送到外部服務。</p>
 
             <div class="image-workbench">
               <section class="panel image-controls">
                 <div class="panel-heading">
-                  <div><span class="panel-no blue">A</span><h3>轉換設定</h3></div>
+                  <div><span class="panel-no blue">A</span><h3 data-i18n="image.card.controls_title">轉換設定</h3></div>
                   <span class="local-only">BROWSER ONLY</span>
                 </div>
                 <label class="field">
-                  <span>來源圖片</span>
+                  <span data-i18n="image.source_label">來源圖片</span>
                   <input id="image-source" type="file" accept="image/*">
-                  <small id="image-source-info">尚未選擇檔案。</small>
+                  <small id="image-source-info" data-i18n="image.source_none">尚未選擇檔案。</small>
                 </label>
-                <div id="image-source-dropzone" class="image-source-dropzone" role="button" tabindex="0" aria-describedby="image-source-drop-hint" aria-label="拖曳圖片檔案到這裡">
-                  <strong>拖曳圖片到這裡</strong>
-                  <span id="image-source-drop-hint">也可使用上方按鈕選擇檔案</span>
+                <div id="image-source-dropzone" class="image-source-dropzone" role="button" tabindex="0" aria-describedby="image-source-drop-hint" data-i18n-aria-label="image.dropzone_aria" aria-label="拖曳圖片檔案到這裡">
+                  <strong data-i18n="image.dropzone_title">拖曳圖片到這裡</strong>
+                  <span id="image-source-drop-hint" data-i18n="image.dropzone_hint">也可使用上方按鈕選擇檔案</span>
                 </div>
                 <div class="image-option-grid">
-                  <label class="field"><span>面板方向</span>
+                  <label class="field"><span data-i18n="image.orientation_label">面板方向</span>
                     <select id="image-orientation">
-                      <option value="landscape">橫向 800 × 440</option>
-                      <option value="portrait">直向 480 × 760</option>
+                      <option value="landscape" data-i18n="image.orientation.landscape">橫向 800 × 440</option>
+                      <option value="portrait" data-i18n="image.orientation.portrait">直向 480 × 760</option>
                     </select>
                   </label>
-                  <label class="field"><span>Fit / Crop</span>
+                  <label class="field"><span data-i18n="image.fit_label">Fit / Crop</span>
                     <select id="image-fit">
-                      <option value="contain">Contain／留白</option>
-                      <option value="cover">Cover／覆蓋裁切</option>
-                      <option value="fill">Fill／填滿</option>
-                      <option value="crop">Crop／比例裁切</option>
+                      <option value="contain" data-i18n="image.fit.contain">Contain／留白</option>
+                      <option value="cover" data-i18n="image.fit.cover">Cover／覆蓋裁切</option>
+                      <option value="fill" data-i18n="image.fit.fill">Fill／填滿</option>
+                      <option value="crop" data-i18n="image.fit.crop">Crop／比例裁切</option>
                     </select>
                   </label>
-                  <label class="field"><span>六色量化</span>
+                  <label class="field"><span data-i18n="image.dither_label">六色量化</span>
                     <select id="image-dither">
                       <option value="floyd-steinberg" selected>Floyd–Steinberg</option>
                       <option value="atkinson">Atkinson</option>
                     </select>
                   </label>
-                  <label class="field"><span>PFR1 檔名</span>
+                  <label class="field"><span data-i18n="image.filename_label">PFR1 檔名</span>
                     <input id="image-filename" maxlength="96" value="paperframe.pfr1" autocomplete="off">
                   </label>
                 </div>
-                <div class="image-transform-buttons" role="group" aria-label="圖片變換">
+                <div class="image-transform-buttons" role="group" data-i18n-aria-label="image.transform_aria" aria-label="圖片變換">
                   <button id="image-mirror-x" class="plain-button transform-button" type="button" disabled
-                          title="將目前工作影像左右翻轉一次">水平鏡像</button>
+                          data-i18n="image.mirror_x" data-i18n-title="image.mirror_x_title" title="將目前工作影像左右翻轉一次">水平鏡像</button>
                   <button id="image-mirror-y" class="plain-button transform-button" type="button" disabled
-                          title="將目前工作影像上下翻轉一次">垂直鏡像</button>
+                          data-i18n="image.mirror_y" data-i18n-title="image.mirror_y_title" title="將目前工作影像上下翻轉一次">垂直鏡像</button>
                   <button id="image-rotate" class="plain-button transform-button" type="button" disabled
-                          title="將目前工作影像順時針旋轉 90 度">順時針旋轉 90°</button>
+                          data-i18n="image.rotate" data-i18n-title="image.rotate_title" title="將目前工作影像順時針旋轉 90 度">順時針旋轉 90°</button>
                 </div>
-                <p class="field-hint">每按一次就立即套用一次；可連續按下累積變換。</p>
+                <p class="field-hint" data-i18n="image.transform_hint">每按一次就立即套用一次；可連續按下累積變換。</p>
                 <div id="image-crop-controls" class="image-crop-controls" hidden>
                   <label class="field" for="image-crop-zoom">
-                    <span>裁切縮放 <output id="image-crop-zoom-value" for="image-crop-zoom">100%</output></span>
-                    <input id="image-crop-zoom" type="range" min="1" max="3" step="0.01" value="1" disabled aria-label="裁切縮放">
+                    <span><span data-i18n="image.crop_zoom_label">裁切縮放</span> <output id="image-crop-zoom-value" for="image-crop-zoom">100%</output></span>
+                    <input id="image-crop-zoom" type="range" min="1" max="3" step="0.01" value="1" disabled data-i18n-aria-label="image.crop_zoom_label_plain" aria-label="裁切縮放">
                   </label>
-                  <p id="image-crop-zoom-hint" class="field-hint">100% 保留最大的裁切範圍；放大後可在預覽中拖曳選擇目標。</p>
+                  <p id="image-crop-zoom-hint" class="field-hint" data-i18n="image.crop_zoom_hint">100% 保留最大的裁切範圍；放大後可在預覽中拖曳選擇目標。</p>
                 </div>
-                <button id="image-process" class="primary-button" type="button" disabled>重新處理圖片</button>
-                <p id="image-status" class="save-status" role="status" aria-live="polite">請先選擇圖片。</p>
+                <button id="image-process" class="primary-button" type="button" disabled data-i18n="image.process">重新處理圖片</button>
+                <p id="image-status" class="save-status" role="status" aria-live="polite" data-i18n="image.status.select_first">請先選擇圖片。</p>
               </section>
 
               <section class="panel image-output">
                 <div class="panel-heading">
-                  <div><span class="panel-no mint">B</span><h3>PFR1 輸出</h3></div>
+                  <div><span class="panel-no mint">B</span><h3 data-i18n="image.card.output_title">PFR1 輸出</h3></div>
                 </div>
                 <dl class="definition-list">
-                  <div><dt>輸出尺寸</dt><dd id="image-output-dimensions">未知</dd></div>
-                  <div><dt>payload</dt><dd id="image-output-payload">未知</dd></div>
-                  <div><dt>完整檔案</dt><dd id="image-output-size">未知</dd></div>
-                  <div><dt>方向</dt><dd id="image-output-orientation">未知</dd></div>
+                  <div><dt data-i18n="image.dt.output_dimensions">輸出尺寸</dt><dd id="image-output-dimensions" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt>payload</dt><dd id="image-output-payload" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="image.dt.full_file">完整檔案</dt><dd id="image-output-size" data-i18n="common.unknown">未知</dd></div>
+                  <div><dt data-i18n="image.dt.orientation">方向</dt><dd id="image-output-orientation" data-i18n="common.unknown">未知</dd></div>
                 </dl>
                 <div class="image-output-actions">
-                  <button id="download-pfr1" class="plain-button" type="button" disabled>下載 PFR1</button>
-                  <button id="upload-pfr1" class="primary-button" type="button" disabled>上傳到裝置</button>
+                  <button id="download-pfr1" class="plain-button" type="button" disabled data-i18n="image.download_pfr1">下載 PFR1</button>
+                  <button id="upload-pfr1" class="primary-button" type="button" disabled data-i18n="image.upload_to_device">上傳到裝置</button>
                 </div>
-              <p class="trust-note"><b>只上傳處理後檔案</b><br>PFR1 會以登入後的 CSRF 保護請求寫入裝置 imagefs；下方圖片庫可啟用、刪除與調整輪播順序。</p>
+              <p class="trust-note"><b data-i18n="image.trust.title">只上傳處理後檔案</b><br><span data-i18n="image.trust.body">PFR1 會以登入後的 CSRF 保護請求寫入裝置 imagefs；下方圖片庫可啟用、刪除與調整輪播順序。</span></p>
               </section>
             </div>
 
-            <section class="preview-grid" aria-label="圖片預覽">
-              <article class="panel preview-card"><div class="preview-heading"><h3>原圖</h3><span>EXIF normalized</span></div><canvas id="preview-original" aria-label="原圖預覽"></canvas></article>
-              <article id="image-processed-card" class="panel preview-card crop-interactive"><div class="preview-heading"><h3>處理後</h3><span>fit / crop</span></div><canvas id="preview-processed" aria-describedby="image-crop-hint image-crop-position image-crop-zoom-hint" aria-label="處理後預覽；Crop 或 Cover 模式可拖曳圖片調整位置"></canvas><p id="image-crop-hint" class="field-hint" hidden>Crop／Cover 模式：拖曳圖片調整裁切位置。</p><p id="image-crop-position" class="field-hint">目前裁切位置：中央（x 0.50，y 0.50）</p></article>
-              <article class="panel preview-card"><div class="preview-heading"><h3>面板畫面</h3><span>status bar</span></div><canvas id="preview-frame" aria-label="含狀態列的面板預覽"></canvas></article>
+            <section class="preview-grid" data-i18n-aria-label="image.preview_grid_aria" aria-label="圖片預覽">
+              <article class="panel preview-card"><div class="preview-heading"><h3 data-i18n="image.preview.original">原圖</h3><span>EXIF normalized</span></div><canvas id="preview-original" data-i18n-aria-label="image.preview.original_aria" aria-label="原圖預覽"></canvas></article>
+              <article id="image-processed-card" class="panel preview-card crop-interactive"><div class="preview-heading"><h3 data-i18n="image.preview.processed">處理後</h3><span>fit / crop</span></div><canvas id="preview-processed" aria-describedby="image-crop-hint image-crop-position image-crop-zoom-hint" data-i18n-aria-label="image.preview.processed_aria" aria-label="處理後預覽；Crop 或 Cover 模式可拖曳圖片調整位置"></canvas><p id="image-crop-hint" class="field-hint" hidden data-i18n="image.crop_hint">Crop／Cover 模式：拖曳圖片調整裁切位置。</p><p id="image-crop-position" class="field-hint" data-i18n="image.crop_position_center">目前裁切位置：中央（x 0.50，y 0.50）</p></article>
+              <article class="panel preview-card"><div class="preview-heading"><h3 data-i18n="image.preview.frame">面板畫面</h3><span>status bar</span></div><canvas id="preview-frame" data-i18n-aria-label="image.preview.frame_aria" aria-label="含狀態列的面板預覽"></canvas></article>
             </section>
 
             <section class="panel image-carousel-settings" aria-labelledby="image-carousel-settings-title">
               <div class="panel-heading">
-                <div><span class="panel-no yellow">C</span><h3 id="image-carousel-settings-title">輪播設定</h3></div>
+                <div><span class="panel-no yellow">C</span><h3 id="image-carousel-settings-title" data-i18n="image.card.carousel_title">輪播設定</h3></div>
               </div>
               <form id="image-carousel-form" novalidate>
-                <label class="manual-toggle"><input id="image-carousel-random" type="checkbox"><span>Random／隨機輪播</span></label>
+                <label class="manual-toggle"><input id="image-carousel-random" type="checkbox"><span data-i18n="image.carousel.random">Random／隨機輪播</span></label>
                 <div class="image-option-grid">
-                  <label class="field"><span>輪播間隔（分鐘）</span><input id="image-carousel-refresh-minutes" type="number" min="10" max="1440" step="1" inputmode="numeric" required></label>
+                  <label class="field"><span data-i18n="image.carousel.interval_label">輪播間隔（分鐘）</span><input id="image-carousel-refresh-minutes" type="number" min="10" max="1440" step="1" inputmode="numeric" required></label>
                 </div>
-                <p class="field-hint">可設定 10 分鐘至 24 小時（1440 分鐘）；設定會保存於裝置，重開機後仍保留。</p>
-                <button id="image-carousel-save" class="primary-button" type="submit">儲存輪播設定</button>
-                <p id="image-carousel-status" class="save-status" role="status" aria-live="polite">正在等待設定資料…</p>
+                <p class="field-hint" data-i18n="image.carousel.interval_hint">可設定 10 分鐘至 24 小時（1440 分鐘）；設定會保存於裝置，重開機後仍保留。</p>
+                <button id="image-carousel-save" class="primary-button" type="submit" data-i18n="image.carousel.save">儲存輪播設定</button>
+                <p id="image-carousel-status" class="save-status" role="status" aria-live="polite" data-i18n="image.carousel.status_waiting">正在等待設定資料…</p>
               </form>
             </section>
 
             <section id="image-library" class="panel image-library" aria-labelledby="image-library-title">
               <div class="panel-heading">
-                <div><span class="panel-no coral">D</span><h3 id="image-library-title">裝置圖片庫</h3></div>
-                <button id="image-library-refresh" class="plain-button" type="button">重新整理</button>
+                <div><span class="panel-no coral">D</span><h3 id="image-library-title" data-i18n="image.card.library_title">裝置圖片庫</h3></div>
+                <button id="image-library-refresh" class="plain-button" type="button" data-i18n="common.refresh">重新整理</button>
               </div>
-              <p id="image-library-status" class="status-line" role="status" aria-live="polite">正在等待圖片庫資料…</p>
+              <p id="image-library-status" class="status-line" role="status" aria-live="polite" data-i18n="image.library.status_waiting">正在等待圖片庫資料…</p>
               <div id="image-library-list" class="image-library-list" aria-live="polite"></div>
-              <p class="field-hint">可查看 catalog、下載已儲存的 PFR1，並直接上傳、啟用、刪除與排序裝置圖片。</p>
+              <p class="field-hint" data-i18n="image.library.hint">可查看 catalog、下載已儲存的 PFR1，並直接上傳、啟用、刪除與排序裝置圖片。</p>
             </section>
           </div>
         </section>
       </section>
     </div>
 
-    <footer><a href="https://github.com/Ning0612/esp32-paper-frame" target="_blank" rel="noopener noreferrer">Ning0612/esp32-paper-frame repo source</a><span>PaperFrame Management Console</span><span>所有資產皆離線內建</span><span>僅限可信任 LAN 或裝置 AP</span></footer>
+    <footer><a href="https://github.com/Ning0612/esp32-paper-frame" target="_blank" rel="noopener noreferrer">Ning0612/esp32-paper-frame repo source</a><span>PaperFrame Management Console</span><span data-i18n="footer.offline">所有資產皆離線內建</span><span data-i18n="footer.lan_only">僅限可信任 LAN 或裝置 AP</span></footer>
   </main>
 </body>
 </html>

@@ -68,26 +68,32 @@ const pageNumbers = [...html.matchAll(/<p class="eyebrow">(\d{2}) \/ /g)]
 assert.deepEqual(pageNumbers, ["01", "02", "03", "04", "05", "06"]);
 assert.ok(html.includes("05 / ENVIRONMENT &amp; PRESENCE"));
 assert.ok(html.includes("06 / SYSTEM &amp; FIRMWARE"));
-const navigationPages = [...navigation.matchAll(/data-view="([^"]+)"[^>]*>([^<]+) <span>(\d{2})<\/span><\/button>/g)]
-  .map(([, view, label, number]) => [view, label.trim(), number]);
+// The nav label sits in its own <span data-i18n> now (index.html:30-36) --
+// data-i18n directly on the <button> would wipe the trailing badge <span>
+// via .textContent =, so it wraps the label instead. Assert both the i18n
+// key and the zh-Hant fallback text (still the element's literal content).
+const navigationPages = [...navigation.matchAll(/data-view="([^"]+)"[^>]*><span data-i18n="([^"]+)">([^<]+)<\/span> <span>(\d{2})<\/span><\/button>/g)]
+  .map(([, view, key, label, number]) => [view, key, label.trim(), number]);
 assert.deepEqual(navigationPages, [
-  ["dashboard", "總覽", "01"],
-  ["wifi", "Wi‑Fi", "02"],
-  ["weather", "天氣", "03"],
-  ["image", "圖片", "04"],
-  ["environment", "環境", "05"],
-  ["system", "系統", "06"],
+  ["dashboard", "nav.dashboard", "總覽", "01"],
+  ["wifi", "nav.wifi", "Wi‑Fi", "02"],
+  ["weather", "nav.weather", "天氣", "03"],
+  ["image", "nav.image", "圖片", "04"],
+  ["environment", "nav.environment", "環境", "05"],
+  ["system", "nav.system", "系統", "06"],
 ]);
+// Every panel <h3> now also carries a data-i18n key (WebUI language toggle);
+// assert both the key and the zh-Hant fallback text still present in markup.
 for (const [label, headingMarkup] of [
-  ["A", "<h3>電子紙與輪播</h3>"], ["B", "<h3>容量與服務</h3>"], ["C", "<h3>後續模組</h3>"],
-  ["A", "<h3>附近網路</h3>"], ["B", "<h3>連線設定</h3>"],
-  ["A", "<h3>OpenWeatherMap</h3>"], ["B", "<h3>拖曳地圖選點</h3>"], ["C", "<h3>時區</h3>"], ["D", "<h3>安全狀態</h3>"],
-  ["A", "<h3>感測器設定</h3>"], ["B", "<h3>即時讀值</h3>"],
-  ["A", "<h3>面板與刷新</h3>"], ["B", "<h3>網路</h3>"], ["C", "<h3>容量與版本</h3>"],
-  ["D", "<h3>OTA 韌體更新</h3>"], ["E", "<h3>重設管理密碼</h3>"], ["F", "<h3>系統控制與最近事件</h3>"],
-  ["A", "<h3>轉換設定</h3>"], ["B", "<h3>PFR1 輸出</h3>"],
-  ["C", "<h3 id=\"image-carousel-settings-title\">輪播設定</h3>"],
-  ["D", "<h3 id=\"image-library-title\">裝置圖片庫</h3>"],
+  ["A", '<h3 data-i18n="dashboard.card.display_title">電子紙與輪播</h3>'], ["B", '<h3 data-i18n="dashboard.card.capacity_title">容量與服務</h3>'], ["C", '<h3 data-i18n="dashboard.card.followup_title">後續模組</h3>'],
+  ["A", '<h3 data-i18n="wifi.card.nearby_title">附近網路</h3>'], ["B", '<h3 data-i18n="wifi.card.credential_title">連線設定</h3>'],
+  ["A", "<h3>OpenWeatherMap</h3>"], ["B", '<h3 data-i18n="weather.card.map_title">拖曳地圖選點</h3>'], ["C", '<h3 data-i18n="weather.card.timezone_title">時區</h3>'], ["D", '<h3 data-i18n="weather.card.security_title">安全狀態</h3>'],
+  ["A", '<h3 data-i18n="environment.card.sensor_title">感測器設定</h3>'], ["B", '<h3 data-i18n="environment.card.reading_title">即時讀值</h3>'],
+  ["A", '<h3 data-i18n="system.card.panel_title">面板與刷新</h3>'], ["B", '<h3 data-i18n="system.card.network_title">網路</h3>'], ["C", '<h3 data-i18n="system.card.capacity_title">容量與版本</h3>'],
+  ["D", '<h3 data-i18n="system.card.ota_title">OTA 韌體更新</h3>'], ["E", '<h3 data-i18n="system.card.password_title">重設管理密碼</h3>'], ["F", '<h3 data-i18n="system.card.control_title">系統控制與最近事件</h3>'],
+  ["A", '<h3 data-i18n="image.card.controls_title">轉換設定</h3>'], ["B", '<h3 data-i18n="image.card.output_title">PFR1 輸出</h3>'],
+  ["C", '<h3 id="image-carousel-settings-title" data-i18n="image.card.carousel_title">輪播設定</h3>'],
+  ["D", '<h3 id="image-library-title" data-i18n="image.card.library_title">裝置圖片庫</h3>'],
 ]) {
   assert.ok(html.includes(`>${label}</span>${headingMarkup}`), `missing panel label ${label} for ${headingMarkup}`);
 }
