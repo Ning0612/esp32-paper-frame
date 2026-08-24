@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f3efdf">
-  <title>PaperFrame 管理介面</title>
+  <title data-i18n="app.title">PaperFrame 管理介面</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/i18n.js" defer></script>
   <script src="/image_pipeline.js" defer></script>
   <script src="/image_quantizer.js" defer></script>
   <script src="/image_pfr1.js" defer></script>
@@ -22,25 +23,27 @@
         <span class="brand-mark" aria-hidden="true">PF</span>
         <div>
           <p class="eyebrow">PAPERFRAME / LOCAL CONSOLE</p>
-          <h1>離線電子紙管理台</h1>
+          <h1 data-i18n="app.heading">離線電子紙管理台</h1>
         </div>
       </div>
       <div class="topbar-actions">
-        <nav id="top-navigation" class="top-navigation" aria-label="主要導覽" hidden>
+        <nav id="top-navigation" class="top-navigation" data-i18n-aria-label="nav.aria_label" aria-label="主要導覽" hidden>
           <button class="nav-link active" type="button" data-view="dashboard"
-                  aria-current="page">總覽 <span>01</span></button>
-          <button class="nav-link" type="button" data-view="wifi">Wi‑Fi <span>02</span></button>
-          <button class="nav-link" type="button" data-view="weather">天氣 <span>03</span></button>
-          <button class="nav-link" type="button" data-view="image">圖片 <span>04</span></button>
-          <button class="nav-link" type="button" data-view="environment">環境 <span>05</span></button>
-          <button class="nav-link" type="button" data-view="system">系統 <span>06</span></button>
+                  aria-current="page"><span data-i18n="nav.dashboard">總覽</span> <span>01</span></button>
+          <button class="nav-link" type="button" data-view="wifi"><span data-i18n="nav.wifi">Wi‑Fi</span> <span>02</span></button>
+          <button class="nav-link" type="button" data-view="weather"><span data-i18n="nav.weather">天氣</span> <span>03</span></button>
+          <button class="nav-link" type="button" data-view="image"><span data-i18n="nav.image">圖片</span> <span>04</span></button>
+          <button class="nav-link" type="button" data-view="environment"><span data-i18n="nav.environment">環境</span> <span>05</span></button>
+          <button class="nav-link" type="button" data-view="system"><span data-i18n="nav.system">系統</span> <span>06</span></button>
         </nav>
         <span class="offline-badge">LOCAL ONLY</span>
         <button id="theme-toggle" class="plain-button" type="button"
                 aria-pressed="false">DARK</button>
+        <button id="lang-toggle" class="plain-button" type="button"
+                aria-pressed="false">EN</button>
         <div id="authenticated-actions" class="user-actions" hidden>
           <span>ADMIN</span>
-          <button id="logout-button" class="plain-button" type="button">登出</button>
+          <button id="logout-button" class="plain-button" type="button" data-i18n="topbar.logout">登出</button>
         </div>
       </div>
     </header>
@@ -53,28 +56,28 @@
               <span class="panel-no auth-marker coral">AUTH</span>
               <div>
                 <p class="eyebrow">ACCESS CONTROL</p>
-                <h2 id="auth-title">管理員登入</h2>
+                <h2 id="auth-title" data-i18n="auth.title.login">管理員登入</h2>
               </div>
             </div>
             <span class="local-only">ADMIN</span>
           </div>
-          <p id="auth-copy" class="auth-copy">正在確認裝置的管理員狀態…</p>
+          <p id="auth-copy" class="auth-copy" data-i18n="auth.copy.checking">正在確認裝置的管理員狀態…</p>
           <form id="auth-form" class="auth-form" novalidate>
             <label class="field">
-              <span>管理帳號</span>
+              <span data-i18n="auth.field.account">管理帳號</span>
               <input value="admin" readonly autocomplete="username">
             </label>
             <label class="field">
-              <span id="auth-password-label">管理密碼</span>
+              <span id="auth-password-label" data-i18n="auth.field.password.login">管理密碼</span>
               <div class="password-row">
                 <input id="auth-password" type="password" minlength="8"
                        maxlength="128" autocomplete="current-password" required>
                 <button id="auth-password-toggle" type="button"
-                        aria-pressed="false">顯示</button>
+                        data-i18n="auth.toggle.show" aria-pressed="false">顯示</button>
               </div>
-              <small>至少 8 個字元；只保存加鹽後的強雜湊。</small>
+              <small data-i18n="auth.hint.password">至少 8 個字元；只保存加鹽後的強雜湊。</small>
             </label>
-            <button id="auth-button" class="primary-button" type="submit">登入</button>
+            <button id="auth-button" class="primary-button" type="submit" data-i18n="auth.button.login">登入</button>
             <p id="auth-status" class="save-status" role="status"
                aria-live="assertive"></p>
           </form>

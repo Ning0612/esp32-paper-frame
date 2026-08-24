@@ -3,6 +3,7 @@
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+  const t = (key, vars) => window.PaperFrameI18n.t(key, vars);
 
   const scanButton = $("#scan-button");
   const scanStatus = $("#scan-status");
@@ -100,6 +101,7 @@
   const dashboardStatus = $("#dashboard-status");
   const refreshDashboard = $("#refresh-dashboard");
   const themeToggle = $("#theme-toggle");
+  const langToggle = $("#lang-toggle");
   const imageLibraryRefresh = $("#image-library-refresh");
   const imageLibraryStatus = $("#image-library-status");
   const imageLibraryList = $("#image-library-list");
@@ -185,6 +187,13 @@
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     setTheme(next);
     try { window.localStorage.setItem("iot-ui-theme", next); } catch {}
+  });
+
+  langToggle.addEventListener("click", () => {
+    const next = document.documentElement.dataset.lang === "en" ? "zh-Hant" : "en";
+    window.PaperFrameI18n.setLang(next);
+    try { window.localStorage.setItem(window.PaperFrameI18n.STORAGE_KEY, next); } catch {}
+    window.location.reload();
   });
 
   function chooseNetwork(ssid) {
@@ -2297,18 +2306,18 @@
     imageLibraryRevision += 1;
     imageLibraryImages = [];
     imageLibraryList.replaceChildren();
-    imageLibraryStatus.textContent = "請重新登入後查看裝置圖片庫。";
+    imageLibraryStatus.textContent = t("auth.image_library_locked");
     authGate.hidden = false;
     appShell.hidden = true;
     topNavigation.hidden = true;
     authenticatedActions.hidden = true;
     uploadPfr1.disabled = true;
-    authTitle.textContent = passwordConfigured ? "管理員登入" : "建立管理密碼";
-    authPasswordLabel.textContent = passwordConfigured ? "管理密碼" : "新管理密碼";
-    authCopy.textContent = passwordConfigured
-      ? "請先登入，才能存取 Dashboard、Wi‑Fi 與裝置管理功能。"
-      : "首次設定必須先建立管理密碼，接著才會開啟管理介面。";
-    authButton.textContent = passwordConfigured ? "登入" : "建立密碼並繼續";
+    authTitle.textContent = passwordConfigured ? t("auth.title.login") : t("auth.title.setup");
+    authPasswordLabel.textContent = passwordConfigured
+      ? t("auth.field.password.login")
+      : t("auth.field.password.setup");
+    authCopy.textContent = passwordConfigured ? t("auth.copy.login") : t("auth.copy.setup");
+    authButton.textContent = passwordConfigured ? t("auth.button.login") : t("auth.button.setup");
     authPassword.autocomplete = passwordConfigured ? "current-password" : "new-password";
     authPassword.focus();
   }
@@ -2321,7 +2330,7 @@
       if (payload.data.authenticated) showAuthenticated(payload.data.csrf_token);
       else showAuthForm(payload.data.password_configured);
     } catch {
-      authCopy.textContent = "無法讀取管理員狀態。請確認仍連著 PaperFrame 後重新整理。";
+      authCopy.textContent = t("auth.copy.load_failed");
       authForm.hidden = true;
     }
   }
@@ -2330,12 +2339,12 @@
     event.preventDefault();
     if (authPassword.value.length < 8) {
       authStatus.className = "save-status error";
-      authStatus.textContent = "管理密碼至少需要 8 個字元。";
+      authStatus.textContent = t("auth.error.short_password");
       return;
     }
     authButton.disabled = true;
     authStatus.className = "save-status";
-    authStatus.textContent = "正在驗證…";
+    authStatus.textContent = t("auth.status.verifying");
     try {
       const response = await fetch("/api/v1/auth/login", {
         method: "POST",
@@ -2353,13 +2362,13 @@
     } catch (error) {
       authStatus.className = "save-status error";
       if (error && error.message === "busy") {
-        authStatus.textContent = "已有另一個登入嘗試進行中，請稍候再試。";
+        authStatus.textContent = t("auth.error.busy");
       } else if (error && error.message === "invalid_credentials") {
-        authStatus.textContent = "密碼錯誤，請重新輸入。";
+        authStatus.textContent = t("auth.error.invalid_credentials");
       } else if (error && error.message === "device_busy") {
-        authStatus.textContent = "裝置忙碌中（可能正在刷新面板），請稍後再試。";
+        authStatus.textContent = t("auth.error.device_busy");
       } else {
-        authStatus.textContent = "登入失敗，請確認密碼後再試一次。";
+        authStatus.textContent = t("auth.error.login_failed");
       }
     } finally {
       authButton.disabled = false;
@@ -2384,7 +2393,7 @@
   authPasswordToggle.addEventListener("click", () => {
     const reveal = authPassword.type === "password";
     authPassword.type = reveal ? "text" : "password";
-    authPasswordToggle.textContent = reveal ? "隱藏" : "顯示";
+    authPasswordToggle.textContent = reveal ? t("auth.toggle.hide") : t("auth.toggle.show");
     authPasswordToggle.setAttribute("aria-pressed", reveal ? "true" : "false");
   });
   scanButton.addEventListener("click", () => scan(true));

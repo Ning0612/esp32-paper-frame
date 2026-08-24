@@ -73,6 +73,11 @@ constexpr StaticAsset kScriptAsset{
     &web_assets::kUiJsGzSize,
     "application/javascript; charset=utf-8",
 };
+constexpr StaticAsset kI18nAsset{
+    web_assets::kI18nJsGz,
+    &web_assets::kI18nJsGzSize,
+    "application/javascript; charset=utf-8",
+};
 constexpr StaticAsset kImagePipelineAsset{
     web_assets::kImagePipelineJsGz,
     &web_assets::kImagePipelineJsGzSize,
@@ -3561,6 +3566,12 @@ const httpd_uri_t kScriptRoute{
     .handler = static_asset_handler,
     .user_ctx = const_cast<StaticAsset*>(&kScriptAsset),
 };
+const httpd_uri_t kI18nRoute{
+    .uri = "/i18n.js",
+    .method = HTTP_GET,
+    .handler = static_asset_handler,
+    .user_ctx = const_cast<StaticAsset*>(&kI18nAsset),
+};
 const httpd_uri_t kImagePipelineRoute{
     .uri = "/image_pipeline.js",
     .method = HTTP_GET,
@@ -3722,6 +3733,7 @@ esp_err_t start_health_server(
         &kIndexRoute,
         &kStyleRoute,
         &kScriptRoute,
+        &kI18nRoute,
         &kImagePipelineRoute,
         &kImageQuantizerRoute,
         &kImagePfr1Route,
