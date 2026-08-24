@@ -205,9 +205,9 @@
   }
 
   function signalLabel(rssi) {
-    if (rssi >= -50) return "強";
-    if (rssi >= -68) return "中";
-    return "弱";
+    if (rssi >= -50) return t("enum.signal.strong");
+    if (rssi >= -68) return t("enum.signal.medium");
+    return t("enum.signal.weak");
   }
 
   function renderNetworks(networks) {
@@ -265,26 +265,26 @@
 
   function labelState(value) {
     const labels = {
-      ready: "正常", connected: "已連線", provisioning: "配網 AP",
-      starting_ap: "啟動 AP", connecting: "連線中", reachable: "可連線",
-      unreachable: "無法連線", deep_sleep: "休眠", refreshing: "刷新中",
-      queued: "等待刷新", failed: "失敗", unknown: "未知",
+      ready: t("enum.state.ready"), connected: t("enum.state.connected"), provisioning: t("enum.state.provisioning"),
+      starting_ap: t("enum.state.starting_ap"), connecting: t("enum.state.connecting"), reachable: t("enum.state.reachable"),
+      unreachable: t("enum.state.unreachable"), deep_sleep: t("enum.state.deep_sleep"), refreshing: t("enum.state.refreshing"),
+      queued: t("enum.state.queued"), failed: t("enum.state.failed"), unknown: t("common.unknown"),
     };
-    return labels[value] || value || "未知";
+    return labels[value] || value || t("common.unknown");
   }
 
   function formatBytes(value) {
-    if (value === null || value === undefined || Number(value) === 0) return "未知";
+    if (value === null || value === undefined || Number(value) === 0) return t("common.unknown");
     const bytes = Number(value);
-    if (!Number.isFinite(bytes)) return "未知";
+    if (!Number.isFinite(bytes)) return t("common.unknown");
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${Math.round(bytes / 1024)} KB`;
   }
 
   function formatUptime(value) {
-    if (value === null || value === undefined) return "未知";
+    if (value === null || value === undefined) return t("common.unknown");
     const seconds = Math.max(0, Math.floor(Number(value) / 1000));
-    if (!Number.isFinite(seconds)) return "未知";
+    if (!Number.isFinite(seconds)) return t("common.unknown");
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -292,7 +292,7 @@
   }
 
   function renderDevice(data) {
-    $("#device-model").textContent = data.model || "未知型號";
+    $("#device-model").textContent = data.model || t("dashboard.device.model_unknown");
     $("#device-firmware").textContent = `韌體 ${data.firmware || "未知"}`;
     $("#device-api").textContent = `API ${data.api_version || "—"}`;
   }
@@ -318,8 +318,12 @@
     $("#imagefs-capacity").textContent = storage.imagefs_total_bytes == null ? "未知" : `${formatBytes(storage.imagefs_used_bytes)} / ${formatBytes(storage.imagefs_total_bytes)}`;
     const serviceValues = Object.values(services).map(labelState);
     $("#service-state").textContent = serviceValues.length ? serviceValues.join(" · ") : "未知";
-    const weatherLabels = { available: "可用", stale: "過期快取", unavailable: "尚未提供" };
-    $("#weather-state").textContent = weatherLabels[(data.weather || {}).state] || "未知";
+    const weatherLabels = {
+      available: t("enum.weather.available"),
+      stale: t("enum.weather.stale"),
+      unavailable: t("dashboard.weather_not_available"),
+    };
+    $("#weather-state").textContent = weatherLabels[(data.weather || {}).state] || t("common.unknown");
     $("#sensor-state").textContent = data.sensors && data.sensors.temperature_c != null
       ? `${data.sensors.temperature_c} °C`
       : labelSensorStatus((data.sensors || {}).environment_status);
@@ -829,11 +833,11 @@
 
   function labelSensorStatus(status) {
     const labels = {
-      disabled: "未啟用", probing: "偵測中", online: "正常",
-      stale: "資料過舊", not_detected: "未偵測到", error: "錯誤",
-      saturated: "訊號飽和", unknown: "未知", present: "在場", away: "離席",
+      disabled: t("enum.sensor.disabled"), probing: t("enum.sensor.probing"), online: t("enum.sensor.online"),
+      stale: t("enum.sensor.stale"), not_detected: t("enum.sensor.not_detected"), error: t("enum.sensor.error"),
+      saturated: t("enum.sensor.saturated"), unknown: t("common.unknown"), present: t("enum.sensor.present"), away: t("enum.sensor.away"),
     };
-    return labels[status] || status || "未知";
+    return labels[status] || status || t("common.unknown");
   }
 
   async function loadEnvironmentConfig() {
@@ -1958,11 +1962,19 @@
       }
       if (otaResponse.ok && otaPayload.data) {
         const ota = otaPayload.data;
-        const checkLabels = { unknown: "未知", checking: "檢查中", up_to_date: "已是最新", update_available: "有新版本", check_failed: "檢查失敗" };
-        const updateLabels = { idle: "閒置", downloading: "下載中", writing: "寫入中", ready_pending_reboot: "已完成，待重啟", failed: "失敗" };
-        $("#system-ota-check-state").textContent = checkLabels[ota.check_state] || "未知";
-        $("#system-ota-latest-version").textContent = ota.latest_version || "未知";
-        $("#system-ota-update-state").textContent = updateLabels[ota.update_state] || "未知";
+        const checkLabels = {
+          unknown: t("common.unknown"), checking: t("enum.ota_check.checking"),
+          up_to_date: t("enum.ota_check.up_to_date"), update_available: t("enum.ota_check.update_available"),
+          check_failed: t("enum.ota_check.check_failed"),
+        };
+        const updateLabels = {
+          idle: t("enum.ota_update.idle"), downloading: t("enum.ota_update.downloading"),
+          writing: t("enum.ota_update.writing"), ready_pending_reboot: t("enum.ota_update.ready_pending_reboot"),
+          failed: t("enum.ota_update.failed"),
+        };
+        $("#system-ota-check-state").textContent = checkLabels[ota.check_state] || t("common.unknown");
+        $("#system-ota-latest-version").textContent = ota.latest_version || t("common.unknown");
+        $("#system-ota-update-state").textContent = updateLabels[ota.update_state] || t("common.unknown");
         const otaInProgress = ota.update_state === "downloading" || ota.update_state === "writing";
         // A missing or malformed percentage is unknown, not zero -- reporting
         // 0% mid-download would be inventing a value, which this project's
