@@ -3195,3 +3195,77 @@ threshold（兩顆皆設為 2000，取代先前的 1200／1200）。
 本次實機測試涵蓋的是「真實資料流入畫面後有沒有跑版或漏翻」，兩者互補、
 不重疊。窄視窗（手機寬度）下的 topbar 排版未在實機測試，codex-cowork
 審查認為與既有 mobile media query 不衝突，但未實機驗證。
+
+## 2026-08-25 — v0.11.0 真實 OTA 端到端驗證（check → update → reboot）
+
+### 背景
+
+i18n 功能開發期間的多次本機燒錄（`pio run --target upload`）都發生在
+`kFirmwareVersion` 仍是 `v0.10.1` 的時候；功能完成後才在 release-docs 流程
+把常數 bump 到 `v0.11.0` 並 tag／push，觸發 GitHub Actions 發布正式 release。
+裝置本身**沒有**額外重新燒錄，因此形成一個天然的「裝置版本字串落後於剛發布
+release」起點，可直接用來測真實 OTA 端到端（而非像 2026-08-20 那次刻意降版
+建立起點）。細節見 memory `release-version-bump-vs-flash-timing`。
+
+### 第一、二次嘗試：WebUI 觸發，皆回報 `https_error`
+
+透過 WebUI「檢查更新」正確偵測到 `v0.11.0`（`checkState=有新版本`），但連續
+兩次點擊「立即更新」都在 `esp_https_ota_begin()` 階段直接失敗
+（`updateState=失敗`、`error=https_error`，未進入下載進度）。以
+`curl -sIL` 從另一台機器獨立驗證下載 URL 本身完全正常（兩層轉址到
+`release-assets.githubusercontent.com`，`200 OK`，`Content-Length` 正確）。
+
+第二次失敗後查 `GET /api/v1/health`，`uptime_ms` 僅約 17 秒，遠低於預期的
+連續運作時間，且 WebUI 被登出回登入頁——代表裝置在這兩次嘗試之間**發生過
+一次未預期的重開機**，但當時的背景 serial 擷取兩次都取到 0 bytes（擷取腳本
+以 `nohup ... &` 背景執行時未能可靠寫出，見下方「工具面問題」），沒能記錄到
+那次重開機當下的完整 log，因此**未查明這兩次 `https_error` 的根本原因**。
+
+### 第三次嘗試：改走直接 API 呼叫，端到端成功
+
+改用 `curl` 直接呼叫 `/api/v1/auth/login` 取得 session／CSRF token，再
+`POST /api/v1/system/ota/update`，同步（非背景）啟動 serial 擷取：
+
+| 階段 | 觀察 |
+| --- | --- |
+| 觸發 | `POST /api/v1/system/ota/update` → `202`，`state=downloading` |
+| 寫入進度 | `writing` 22% → 49% → 76% → `ready_pending_reboot` 100%（輪詢間隔 3 秒） |
+| 過程穩定性 | `uptime_ms` 全程連續遞增（未重開機），未觀察到 heap 相關失敗徵兆 |
+| 套用 | `POST /api/v1/system/reboot` → `rebooting=true` |
+
+重開機後**同步**（非背景）擷取到完整開機 log：
+
+```
+I (694) app_init: App version:      v0.11.0
+...
+I (990) paperframe: reboot_reason=software_reset
+...
+I (1070) paperframe: rollback_confirmed=ESP_OK
+```
+
+`GET /api/v1/device` 確認 `firmware=v0.11.0`；`imagefs` 掛載後
+`used=1789952`（與更新前相同），圖片與設定未受影響；Wi‑Fi 依原有設定自動
+重新連線並取得原 IP。
+
+### 結論
+
+- OTA `check → update → write → reboot → boot 驗證` 這條端到端路徑在真實
+  裝置、真實 GitHub Release 產物（非本機建置）上完整跑通一次，`rollback_
+  confirmed=ESP_OK` 確認新分割區已自我驗證通過，未觸發 anti-rollback。
+- 第一、二次 WebUI 觸發的 `https_error` **未查明根本原因**，只能確認：
+  (a) 下載 URL 本身有效；(b) 緊接著的第三次嘗試在完全相同的裝置、相同
+  release 產物上穩定成功；(c) 失敗發生的同一段時間內裝置有過一次非計畫
+  重開機。三者合起來較像一次性的暫態問題（例如失敗嘗試遺留的 heap／TLS
+  資源未完全釋放，或重開機前後的暫態），而非本次驗證後仍常駐的阻斷性
+  缺陷，但**這只是推測，未經 log 證實**——留作已知風險，下次遇到
+  `https_error` 應優先保留當下的 serial log 再重試。
+
+### 工具面問題（供之後除錯用）
+
+用 Bash 工具以 `nohup python serial_capture.py N > out.log 2>&1 &` 背景執行
+的 serial 擷取，在本環境下連續 3 次都取到 0 bytes（無錯誤訊息），但改成
+**同步（前景）** 執行完全相同的擷取邏輯就能正常取得資料。原因未查
+（懷疑與 Windows 下背景子行程的 stdout 重導向有關，同類問題先前也出現在
+`pkill` 對背景行程失效上），已記入 `known-fixes.md`；下次需要「觸發動作＋
+同時擷取 serial」時，直接採用「同步 curl 觸發（背景一行）＋前景 python 讀取」
+的組合，不要用背景 python 擷取。
