@@ -75,7 +75,7 @@ h3 { font-size: 1.25rem; }
 .sidebar { min-width: 0; border-right: 2px solid var(--line); padding-right: 20px; }
 .nav-label, .card-kicker { margin: 0 0 12px; color: var(--muted); font: 800 .7rem/1.2 Consolas, monospace; letter-spacing: .1em; }
 .primary-nav { display: grid; gap: 7px; }
-.nav-link { display: flex; align-items: center; justify-content: space-between; text-align: left; width: 100%; }
+.nav-link { display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; width: 100%; }
 .top-navigation .nav-link { width: auto; min-width: 88px; text-align: center; }
 .nav-link span { color: var(--muted); font: 800 .7rem/1 Consolas, monospace; }
 .nav-link.active { background: var(--teal); color: white; box-shadow: 4px 4px 0 var(--ink); }
@@ -133,6 +133,10 @@ h3 { font-size: 1.25rem; }
 
 .setup-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr); gap: 22px; align-items: start; }
 .credential-panel { position: sticky; top: 20px; }
+/* Lets a <form> wrapper participate directly in its parent's grid/flex
+   layout instead of becoming its own box -- was an inline style, which
+   the CSP's style-src 'self' silently blocks (no unsafe-inline/nonce). */
+.form-contents { display: contents; }
 .panel-column { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
 .image-workbench { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 22px; align-items: start; }
 .image-output { position: sticky; top: 20px; }
