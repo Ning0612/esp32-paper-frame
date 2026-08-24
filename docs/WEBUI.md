@@ -163,6 +163,36 @@ node --check data\web\image_pfr1.js
 - LIGHT／DARK 切換使用共用 localStorage key `iot-ui-theme`。
 - 主內容最大寬度 1040px；窄螢幕改為上方導覽及單欄卡片。
 
+## 語言切換
+
+- WebUI 支援繁體中文（`zh-Hant`，預設）與英文（`en`），純前端切換，後端 API
+  不涉入——`GET /api/v1/sensors` 等端點回傳的一律是語意化 enum 字串（如
+  `"online"`／`"saturated"`），從來不是人話文字，翻譯全部發生在瀏覽器端。
+- 字典與套用邏輯集中在 `data/web/i18n.js`（獨立的內嵌 asset，比照 `ui.js`／
+  `style.css` 走 `StaticAsset`＋route 的三步驟接線），暴露
+  `window.PaperFrameI18n = { t, setLang, getLang, applyI18n, STORAGE_KEY }`。
+  `<script src="/i18n.js" defer>` 必須排在 `<script src="/ui.js" defer>`
+  之前，讓字典在 `ui.js` 的 IIFE 開始執行前就緒。
+- 語言切換使用共用 pattern 的 localStorage key `iot-ui-lang`（比照
+  `iot-ui-theme`），`<html>` 的 `data-lang` 屬性驅動任何未來的 CSS hook，
+  `lang` 屬性同步更新供無障礙工具讀取。
+- **切換即整頁 `location.reload()`**，不做原地重新渲染——`ui.js` 本來就在
+  密碼重設成功、登出這類影響更小的狀態變化上用 reload，語言切換沿用同一
+  慣例最省事也最不容易漏改。`applyI18n()` 只在開機時（或明確傳入某個
+  `root` 時）安全，之後若 `ui.js` 已經把即時資料寫進某個 `[data-i18n]`
+  元素，重跑 `applyI18n()` 會把它洗回字典裡的 fallback 文字——這正是靠
+  reload 而非原地重繪來規避的情境。
+- 靜態 HTML 用 `data-i18n`／`data-i18n-aria-label`／`data-i18n-placeholder`／
+  `data-i18n-title` 屬性標記，屬性擁有的元素內容本身留繁體中文原文，
+  當作沒有 JS 時的 fallback。動態字串在 `ui.js` 裡改用 `t("key", vars)`
+  查表，key 一律是 static string literal（即使用三元運算子選 key，兩個
+  分支也都要是字面值），這是 `test/web/test_i18n_contract.mjs` 能用
+  regex 靜態掃出所有呼叫點、比對字典是否有缺漏的前提。
+- 新增或修改可翻譯文字時，`zh-Hant`／`en` 兩張表必須同步更新；
+  `node test/web/test_i18n_contract.mjs` 驗證兩表 key 完全對稱、
+  `index.html` 的 `data-i18n*` 參照與 `ui.js` 的 `t()` 呼叫全部能在
+  字典裡找到對應項。
+
 ## 最低 accessibility 驗收
 
 - 所有表單欄位、錯誤訊息與狀態更新都有可見的 label 或等價語意。
