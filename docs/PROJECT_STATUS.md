@@ -1,6 +1,6 @@
 # PaperFrame 專案狀態
 
-- 最後整理：2026-08-23（目前發布版本：`v0.10.1`）
+- 最後整理：2026-08-25（目前發布版本：`v0.11.0`）
 - 本文件是目前進度的唯一摘要入口；詳細實機證據仍保留在
   [硬體驗證紀錄](hardware/VALIDATION.md)。
 - `已完成` 代表程式／host/build 已完成；只有明確標成 `已驗證` 才代表有實機
@@ -29,7 +29,7 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 | --- | --- | --- |
 | Phase 1 runtime／storage／health foundation | 程式、host／embedded test、build、boot／mount 已完成或驗證 | [歷史 Implementation Plan](archive/IMPLEMENTATION_PLAN.md) |
 | Phase 2 display／renderer／DisplayTask | renderer、owner contract、carousel core、welcome lifecycle 已完成；六色 pattern 有實機證據 | [Display ADR](adr/0003-fix-phase2-display-integration.md) |
-| Phase 3 provisioning／auth／WebUI | AP／STA、portal、sync auth／CSRF、管理 shell 與 Dashboard 已完成程式、host/build、STA smoke | [Auth](AUTHENTICATION.md)、[WebUI](WEBUI.md) |
+| Phase 3 provisioning／auth／WebUI | AP／STA、portal、sync auth／CSRF、管理 shell 與 Dashboard 已完成程式、host/build、STA smoke；2026-08-25 新增繁體中文／英文語言切換，已完成程式並實機驗證（6 個 view × 兩種語言） | [Auth](AUTHENTICATION.md)、[WebUI](WEBUI.md) |
 | Phase 4 PFR1 | format、validator、browser pipeline、quantizer、packer 與 host tests 已完成 | [PFR1](formats/PFR1.md) |
 | Phase 5 storage／catalog／carousel | partition、transaction、catalog、image API 與 runtime 接線已完成 | [Storage](STORAGE.md) |
 | Phase 6 weather | parser、cache、設定與 worker 程式已完成；實機證據另列於下表 | [Weather](WEATHER.md) |
@@ -60,6 +60,20 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 `ap_screen_owns_panel` 的判定本次未改動），同日的修正只縮小了其他窗口、未觸及這一個。
 正確修法是讓「AP 畫面擁有面板」成為一個 carousel 會原子性檢查的明確狀態，而不是從
 落後的 runtime snapshot 推論——那會動到 PROVISIONING.md 的畫面契約，應另立 ADR。
+
+**2026-08-25 新增並實機驗證**：WebUI 新增繁體中文／英文語言切換
+（`data/web/i18n.js`，切換即整頁 reload，字典與套用機制細節見
+[WebUI](WEBUI.md)）。實機測試（登入後對 6 個 view × 兩種語言逐一操作）
+額外發現並修掉三個既有排版缺陷，都不是語言切換造成的：
+(1) `weather-form`／`timezone-form` 的 `style="display: contents"`
+被裝置實際送出的 CSP（`style-src 'self'`，無 unsafe-inline）擋掉，改用
+`.form-contents` class；(2) 登入後 nav bar 出現時 `.topbar-actions` 擠壓
+`.brand-lockup`，標題文字換行到只剩最長單字寬度——中文標題早就有這個問題
+（登入後會斷成 2–3 行），只是字短不顯眼，英文標題斷行才被使用者發現，修法是
+幫 `.topbar` 加 `flex-wrap: wrap` 讓標題與 nav 整體掉成兩行而非文字內部斷行；
+(3) 頂端 nav 按鈕的 `justify-content: space-between` 在無多餘空間可分配時
+（英文標籤較長）會讓文字貼齊徽章數字，加 `gap: 6px` 保底。以上三項與語言
+字典本身均已在實機用 playwright 截圖與 DOM 量測驗證。
 
 **2026-08-23 發現並修復**：provisioning AP 畫面的 payload cache
 一旦設立就不再重設（`src/app_main.cpp` 的 `payload_valid` 只有設為 `true` 的

@@ -3110,3 +3110,88 @@ threshold（兩顆皆設為 2000，取代先前的 1200／1200）。
 週期**（2026-08-23 已用舊硬體、舊 threshold 驗證過 debounce 時序機制本身，
 機制未變，本次不重複驗證）。全暗情境下 presence 是否確實在 `away_duration_s`
 後轉為 `away`、白屏是否正確觸發，留待下次自然的離席場景或刻意計時驗證確認。
+
+## 2026-08-25 — WebUI 繁體中文／英文語言切換實機驗證
+
+### 背景
+
+新增 `data/web/i18n.js`（字典＋`t()`／`applyI18n()`，比照既有 DARK/LIGHT
+主題切換的 localStorage＋`data-*` 屬性模式），把 6 個 view 的靜態文字與
+`ui.js` 動態字串全部改為可翻譯。開發階段用不送 CSP header 的本機
+`python -m http.server` 測試，合併回 `main` 後才用 playwright 連上實機
+（`http://192.168.x.x/`）逐一操作。
+
+### 實機測試涵蓋範圍
+
+登入後對 Dashboard／Wi-Fi／Weather／Environment／System／Image 六個 view，
+在 `zh-Hant` 與 `en` 兩種語言下各操作一輪，包含：讀取真實 runtime snapshot
+（面板、網路、容量、服務狀態）、環境頁即時感測器讀值（含
+`environment.status_with_gpio`／`environment.light_channel_number` 這類
+插值 key）、圖片庫 20 張真實圖片（含中文與超長檔名）的列表渲染、Weather
+頁地圖選點的線上／離線模式切換。全程監看瀏覽器 console。
+
+### 發現並修復的三個既有缺陷
+
+實機測試（而非本機無 CSP 的測試伺服器）額外曝露三個排版缺陷，**均與語言
+切換的翻譯邏輯無關**，是既有 CSS 在「登入後 nav bar 出現」或「英文字比中文
+長」這兩種情境下才會觸發：
+
+1. **CSP 擋掉 inline style**：`weather-form`／`timezone-form` 用
+   `style="display: contents"`，裝置實際送出的
+   `Content-Security-Policy: style-src 'self'`（無 `unsafe-inline`／nonce）
+   會靜默擋掉這個 inline style，瀏覽器 console 出現
+   `Applying inline style violates the following Content Security Policy
+   directive 'style-src 'self''`。此問題在 `main` 分支本次改動之前就存在
+   （`git show main:data/web/index.html` 可查到相同寫法），只是本機測試
+   伺服器不送 CSP header 才一直沒被抓到。修法：移到 `style.css` 的
+   `.form-contents { display: contents; }` class，不放寬 CSP。
+2. **標題登入後斷行**：`.topbar` 是 flex row 且沒有 `flex-wrap`，只有
+   `.brand-lockup`（logo＋標題）設了 `min-width: 0` 允許無限縮小，
+   `.topbar-actions`（nav＋按鈕群）沒有這個 override，預設保護自己的
+   min-content 寬度不縮小。登入後完整 nav bar 出現時，全部擠壓落在
+   `.brand-lockup` 上，逼標題文字換行到只剩最長單字寬度。實測：
+   - 中文「離線電子紙管理台」：登入前單行（`lockupRect.width=511px`），
+     登入後被擠到只剩 224px 寬、斷成 2–3 行（`h1.height` 從單行的
+     43px 漲到 110px）。
+   - 英文「Offline E-Paper Console」：登入後同樣被擠壓
+     （`lockupRect.width` 從 511px 降到 352px），斷成「Offline」／
+     「E-Paper Console」兩行（`h1.height=86px`，使用者直接回報「標題跑行」）。
+
+   修法選型過程：先試 `h1 { white-space: nowrap }` + `.topbar-actions
+   { min-width: 0 }`，用 playwright 對實機 DOM 直接 `element.style`
+   動態測試，結果標題與 nav 文字視覺重疊（`h1.right=631px` >
+   `nav.left=562px`），放棄。改用 `.topbar { flex-wrap: wrap }`：空間不夠
+   時整個標題列與整個 nav 列各自掉成一行，而不是任一行內部斷字。同樣先用
+   `element.style.flexWrap='wrap'` 在實機即時驗證過中英文兩種語言、登入前後
+   四種組合皆單行無重疊、無水平捲軸，才寫回 `style.css`，重新燒錄後再次
+   用 playwright 對真實韌體（非 DOM 注入）確認：中文 `h1.height=55px`、
+   英文 `h1.height=43px`，兩者都是單行。
+3. **Nav 按鈕文字貼齊徽章數字**：`.nav-link` 用
+   `justify-content: space-between` 讓標籤文字與徽章數字（01–06）分居按鈕
+   兩端，但按鈕本身只有 `min-width: 88px` 的下限，英文標籤較長時
+   （Overview、Environment）填滿 min-width 後沒有多餘空間可分配，
+   `space-between` 退化成間距 0。實測修前 `Overview 01`／`Environment 05`
+   兩顆按鈕的 label-badge 間距為 0px，其餘四顆（Wi‑Fi／Weather／Image／
+   System，標籤較短）仍有 4.5–16.9px。修法：`.nav-link` 加 `gap: 6px`
+   當作間距下限，`space-between` 仍可在空間充裕時把間距撐得更大。修後六顆
+   按鈕全部至少 6px。
+
+### 驗證方式
+
+三項修法都先用 playwright 在**已連線的真實裝置**上以
+`document.querySelector(...).style.xxx = ...` 直接改 DOM／CSSOM 屬性
+即時測試（因為裝置的 CSP 會擋掉注入 `<style>` 標籤與 `style=""` 屬性字串，
+沒辦法用傳統的「插一段 CSS 測試」），確認畫面正確、`getBoundingClientRect()`
+量測數字合理、無水平捲軸後，才寫回 `data/web/style.css` 並重新
+`pio run --target upload`，再對燒錄後的真實韌體重跑一次 playwright 確認
+（不只信任 DOM 注入的結果）。每次燒錄後用
+`until curl ... ; do sleep 3; done` 等裝置回應，實測開機到 HTTP 可連約
+1–1.5 分鐘（含全刷新與 NTP／天氣等待）。
+
+### 已知不涵蓋
+
+翻譯字典本身（zh-Hant/en 351 個 key）與 `data-i18n`/`t()` 呼叫點的對應
+關係由 `test/web/test_i18n_contract.mjs` 靜態驗證，不在本次實機測試範圍；
+本次實機測試涵蓋的是「真實資料流入畫面後有沒有跑版或漏翻」，兩者互補、
+不重疊。窄視窗（手機寬度）下的 topbar 排版未在實機測試，codex-cowork
+審查認為與既有 mobile media query 不衝突，但未實機驗證。

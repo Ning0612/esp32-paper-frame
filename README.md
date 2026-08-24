@@ -1,9 +1,11 @@
 # PaperFrame
 
+[English](README.en.md) | [繁體中文](README.md)
+
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-6.1.19-orange?logo=platformio)](https://platformio.org)
 [![Board](https://img.shields.io/badge/Board-ESP32--S3--N16R8-red?logo=espressif)](https://www.espressif.com/en/products/socs/esp32-s3)
 [![Framework](https://img.shields.io/badge/Framework-ESP--IDF-blue?logo=espressif)](https://docs.espressif.com/projects/esp-idf/en/latest/)
-[![Version](https://img.shields.io/badge/Version-0.10.1-yellow)](https://github.com/Ning0612/esp32-paper-frame/releases)
+[![Version](https://img.shields.io/badge/Version-0.11.0-yellow)](https://github.com/Ning0612/esp32-paper-frame/releases)
 [![CI](https://github.com/Ning0612/esp32-paper-frame/actions/workflows/ci.yml/badge.svg)](https://github.com/Ning0612/esp32-paper-frame/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
@@ -39,6 +41,7 @@ WebUI 全部資產（HTML／CSS／JS）都 gzip 後編進 app 韌體，不從任
 天氣頁的地圖選點**：連得上網時會向 `tile.openstreetmap.org` 取圖磚（因此該頁
 會把你選的位置附近座標揭露給該服務），連不上時同一個控制項自動改成純離線的
 經緯度格線，其餘所有頁面完全不需要外部網路。以下截圖取自執行 v0.10.0 的實機。
+管理介面上方導覽列現在也提供繁體中文／英文切換。
 
 | 總覽 | 環境與在場 |
 | --- | --- |
@@ -92,8 +95,8 @@ gate 已關閉**——[release checklist](docs/RELEASE_CHECKLIST.md) 的手動 o
   避免在 MCU 上做重量級影像處理（已驗證：browser 出圖、上傳與下載）
 - **交易式 imagefs 儲存**：圖片分區與韌體分區分離，OTA 更新不會清除既有圖片
   （已驗證，含五種斷電路徑的故障注入）
-- **管理 WebUI**：Dashboard、圖片管理、Wi-Fi、天氣、環境與 System 診斷頁
-  （已驗證：瀏覽器實機操作）
+- **管理 WebUI**：Dashboard、圖片管理、Wi-Fi、天氣、環境與 System 診斷頁，
+  支援**繁體中文／英文語言切換**（已驗證：瀏覽器實機操作）
 - **配網與認證**：AP portal 配網，blank-NVS 與 STA 重試耗盡時自動 fallback AP；
   PBKDF2 10,000 iterations、session 與 CSRF 保護（已驗證：存取邊界與認證邊界）
 - **OTA 更新與 rollback**：以 GitHub Releases 為來源，A/B 分區與 rollback
