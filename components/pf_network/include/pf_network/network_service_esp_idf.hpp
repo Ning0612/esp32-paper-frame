@@ -121,7 +121,6 @@ private:
     void* presenter_context_ = nullptr;
     ScanSnapshot scan_snapshot_{};
     bool scan_request_pending_ = false;
-    bool presentation_confirmed_ = false;
 };
 
 NetworkService& network_service();

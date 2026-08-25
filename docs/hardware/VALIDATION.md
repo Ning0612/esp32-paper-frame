@@ -3269,3 +3269,50 @@ I (1070) paperframe: rollback_confirmed=ESP_OK
 `pkill` 對背景行程失效上），已記入 `known-fixes.md`；下次需要「觸發動作＋
 同時擷取 serial」時，直接採用「同步 curl 觸發（背景一行）＋前景 python 讀取」
 的組合，不要用背景 python 擷取。
+
+## 2026-08-25 — AP 畫面 race condition 修復：host test 全通過，實機驗證 AP fallback 路徑正常
+
+`docs/PROJECT_STATUS.md` 記載的已知缺陷（AP 畫面呈現到 radio 實際啟動之間的
+空窗，carousel 可能讀到落後的 `ap_screen_owns_panel` verdict 覆蓋面板）已修復，
+細節與修法見該文件同日段落。這裡記錄驗證方式與其侷限：
+
+- **驗證方式**：`RuntimeCoordinator` 新增單調遞增的 `ap_session_id`；決策邏輯
+  抽成 `pf_network::classify_ap_mode_window()` 與
+  `submission_gate_denies_for_ap_session()` 兩個純函式，`test/test_ap_screen/`
+  以 host test 覆蓋（含直接重現 codex 第三輪質疑情境、確認目前程式碼下不可能
+  出現該 verdict 的 `test_became_ready_transition_still_denies_within_same_tick`）。
+  `pio test -e native`（全數通過）與 `bash scripts/verify-like-ci.sh`（含
+  embedded test 的 `-Werror` 編譯與韌體 build）全綠。
+- **實機驗證（同日，燒錄 `v0.11.0-1-g2c79d86-dirty` 到使用者日常用的裝置）**：
+  透過 WebUI 故意存入錯誤 Wi-Fi 密碼並重開機，觸發真實的 STA 連線失敗 →
+  重試耗盡 → provisioning AP fallback（密碼錯誤時 auth 立即被拒，不需等滿
+  15 秒逾時，實測約 7 秒內耗盡 3 次重試）。同步（前景）serial 擷取到完整序列：
+
+  ```
+  network_credentials_configured=true（重開機後讀到剛存的錯誤密碼）
+  wifi:mode sta → 連線失敗、重試耗盡
+  ap_mode_display_waiting_for_ready   -- resync 分支：偵測到新 AP session
+  provisioning_screen_ready request=1 -- 畫面確認 refreshed_and_slept
+  wifi:mode sta + softAP              -- radio 在畫面確認之後才啟動
+  provisioning_ap_ready ssid=PaperFrame-Setup-0609 ip=192.168.4.1
+  ap_mode_display_window_started      -- became_ready 分支：grace window 計時器啟動
+  ```
+
+  radio 啟動嚴格晚於 `provisioning_screen_ready`，符合 PROVISIONING.md 契約；
+  新增的 `ap_session_id` 相關 log 依序正確觸發，無 crash、無
+  `carousel_*_submission_gate_busy` 或其他異常警告。使用者目視確認面板
+  當下顯示的是 SSID／密碼畫面（`PaperFrame-Setup-0609`），不是被覆寫的
+  輪播圖片——這正是原始缺陷會失敗的地方。
+- **未涵蓋的部分**：這次實機驗證確認的是「AP 進入路徑本身沒有被重構改壞、
+  且畫面先於 radio 啟動」，不是原始 race 本身（那是跨 `NetworkService` task
+  與 `app_main` 主迴圈的 RTOS 排程時序問題，原始缺陷是由 2026-08-23 的
+  程式碼審查發現而非實機重現）。刻意製造「NetworkService 完成整段 AP
+  session 期間，app_main 主迴圈剛好卡在舊 snapshot」這種交錯仍需要插入
+  人工延遲才能可靠觸發，屬於低優先、低機率的硬體驗證缺口，與現有的八條
+  低優先路徑同一性質，暫不列入 release blocker。
+- **已知取捨（不修）**：`ap_session_id` 為 `uint32_t`，理論上回繞（約需
+  42 億次進入 `starting_ap`）會讓新 session 與尚未同步的本地 sentinel `0`
+  混淆。裝置的 provisioning AP 需人工觸發（首次開機或 STA 重試耗盡），
+  實體生命週期內不可能觸及；比照 `components/pf_runtime/include/pf_runtime/
+  diagnostics_event.hpp` 第 117-120 行對 `sequence_id` wraparound 的既有
+  「Known limitation (accepted, not fixed)」先例，採同樣處理。

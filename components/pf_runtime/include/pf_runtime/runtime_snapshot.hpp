@@ -140,6 +140,17 @@ struct RuntimeSnapshot {
     ServiceState config;
     ServiceState imagefs;
     WifiState wifi;
+    // Bumped by RuntimeCoordinator::update_network() every time wifi
+    // transitions into `starting_ap` from something other than
+    // `starting_ap` -- including re-entering it from `provisioning`
+    // without ever leaving AP mode. Lets a reader with its own cached
+    // AP-session bookkeeping (grace-window start time, whether this
+    // session has reached `provisioning` yet) detect that its cache
+    // predates the current session, even if it never separately observed
+    // an intermediate tick where wifi was `starting_ap`. See
+    // src/app_main.cpp's ap_mode_session_id and
+    // pf_network::classify_ap_mode_window().
+    std::uint32_t ap_session_id = 0U;
     InternetState internet;
     TimeSyncState time_sync;
     DisplayState display;

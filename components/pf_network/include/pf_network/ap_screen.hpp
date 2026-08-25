@@ -32,6 +32,93 @@ inline bool should_hold_access_point_screen(
            now_ms - ap_mode_started_ms < kApModeImageTimeoutMs;
 }
 
+// app_main's main loop keeps a local mirror of "which AP session am I
+// synced to" (ap_mode_active/ap_mode_ready/ap_mode_started_ms plus a
+// session id copied from RuntimeSnapshot::ap_session_id). Two independent
+// races made a plain "did wifi go true/false" transition check on that
+// mirror unsafe (found by codex-cowork review, 2026-08-25):
+//
+// 1. The mirror is only refreshed once per loop tick, at the top. A
+//    verdict computed from it later in the same tick (or carried into the
+//    next) can be stale by the time it is actually used against the
+//    submission mutex.
+// 2. NetworkService can complete an entire `starting_ap -> provisioning`
+//    cycle -- or even `provisioning -> starting_ap -> provisioning`
+//    (prepare_ap() running again without ever leaving AP mode) -- between
+//    two ticks that both observe `provisioning`, so a transition-based
+//    diff never sees the intermediate state that would have triggered a
+//    reset.
+//
+// classify_ap_mode_window() sidesteps both: `current_ap_session_id` is
+// RuntimeCoordinator's monotonic counter (bumped on every fresh entry into
+// `starting_ap`, including re-entries), so comparing it against the last
+// session id the mirror was synced to detects a new/changed session
+// regardless of how many intermediate ticks were missed.
+enum class ApModeWindowAction : std::uint8_t {
+    // Nothing to update -- current session, no readiness change, or
+    // simply not in AP mode.
+    unchanged,
+    // Fresh entry into AP mode, or a same-mode restart (session id
+    // changed while still ap_mode): resync ap_mode_active/ap_mode_ready/
+    // ap_mode_started_ms/ap_mode_session_id from scratch.
+    resync,
+    // Same session, wifi just reached `provisioning` for the first time:
+    // start the grace-window timer now.
+    became_ready,
+    // Left AP mode entirely: clear the mirror.
+    ended,
+};
+
+inline ApModeWindowAction classify_ap_mode_window(
+    const bool was_ap_mode_active,
+    const bool was_ap_mode_ready,
+    const std::uint32_t was_ap_session_id,
+    const bool is_ap_mode,
+    const bool is_ap_ready,
+    const std::uint32_t current_ap_session_id)
+{
+    if (is_ap_mode && current_ap_session_id != was_ap_session_id) {
+        return ApModeWindowAction::resync;
+    }
+    if (is_ap_mode && is_ap_ready && !was_ap_mode_ready) {
+        return ApModeWindowAction::became_ready;
+    }
+    if (!is_ap_mode && was_ap_mode_active) {
+        return ApModeWindowAction::ended;
+    }
+    return ApModeWindowAction::unchanged;
+}
+
+// The gate check behind try_lock_carousel_submission_gate() in
+// src/app_main.cpp. `verdict_ap_session_id` is the session id the caller's
+// (possibly stale) `ap_screen_owns_panel` verdict was computed against;
+// `fresh_ap_session_id` is read fresh, inside the submission mutex, at
+// gate time.
+//
+// The session-id mismatch check is deliberately scoped to
+// `fresh_wifi_in_ap_mode` rather than applied unconditionally.
+// RuntimeSnapshot::ap_session_id is never reset when AP mode ends -- it
+// only counts entries into `starting_ap` -- while the caller resets its
+// local mirror to 0 on exit (see ApModeWindowAction::ended). Comparing the
+// two unconditionally would deny every submission for the rest of the
+// device's uptime after the first AP session ever ends, since a
+// permanently-0 local id could never again equal the snapshot's
+// permanently-nonzero one (found by codex-cowork review, round 2,
+// 2026-08-25). Once AP mode has genuinely ended, `ap_screen_owns_panel`
+// itself already answers "false" correctly on its own -- the session id
+// only needs to matter while AP mode might still legitimately own the
+// panel.
+inline bool submission_gate_denies_for_ap_session(
+    const bool ap_screen_owns_panel,
+    const bool fresh_wifi_in_ap_mode,
+    const std::uint32_t fresh_ap_session_id,
+    const std::uint32_t verdict_ap_session_id)
+{
+    return ap_screen_owns_panel ||
+           (fresh_wifi_in_ap_mode &&
+            fresh_ap_session_id != verdict_ap_session_id);
+}
+
 struct AccessPointScreenPayload {
     char ssid[kApScreenSsidCapacity]{};
     char password[kApScreenPasswordCapacity]{};

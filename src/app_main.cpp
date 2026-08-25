@@ -116,7 +116,8 @@ struct AccessPointPresenterContext {
 // for as long as the device ran (240 of them in the run that found this).
 bool try_lock_carousel_submission_gate(
     AccessPointPresenterContext& presenter,
-    const bool ap_screen_owns_panel)
+    const bool ap_screen_owns_panel,
+    const std::uint32_t ap_screen_owns_panel_session_id)
 {
     if (presenter.display_submission_mutex == nullptr ||
         xSemaphoreTake(presenter.display_submission_mutex, 0) != pdTRUE) {
@@ -124,10 +125,19 @@ bool try_lock_carousel_submission_gate(
     }
 
     // A snapshot that cannot be read means the carousel cannot tell whether
-    // the panel is free, so it must not take it.
+    // the panel is free, so it must not take it. Otherwise, see
+    // pf_network::submission_gate_denies_for_ap_session() for why this
+    // rechecks the AP session id (not just `ap_screen_owns_panel`) and why
+    // that check is scoped to "wifi is currently in AP mode at all"
+    // (found by codex-cowork review, 2026-08-25).
     pf_runtime::RuntimeSnapshot snapshot{};
     if (!pf_runtime::coordinator().read_snapshot(snapshot) ||
-        ap_screen_owns_panel) {
+        pf_network::submission_gate_denies_for_ap_session(
+            ap_screen_owns_panel,
+            snapshot.wifi == pf_runtime::WifiState::starting_ap ||
+                snapshot.wifi == pf_runtime::WifiState::provisioning,
+            snapshot.ap_session_id,
+            ap_screen_owns_panel_session_id)) {
         xSemaphoreGive(presenter.display_submission_mutex);
         return false;
     }
@@ -979,6 +989,11 @@ extern "C" void app_main()
     bool ap_mode_active = false;
     bool ap_mode_ready = false;
     std::uint64_t ap_mode_started_ms = 0U;
+    // Last RuntimeSnapshot::ap_session_id this mirror was resynced to; see
+    // pf_network::classify_ap_mode_window(). 0 never matches a real
+    // session (RuntimeCoordinator's counter starts bumping from 1), so the
+    // very first AP entry always classifies as a resync.
+    std::uint32_t ap_mode_session_id = 0U;
     bool ap_screen_hold_active = false;
     // Last observed "there is something the carousel could show". The
     // authoritative value is recomputed from the catalog further down the
@@ -1173,7 +1188,9 @@ extern "C" void app_main()
             return true;
         }
         if (!try_lock_carousel_submission_gate(
-                ap_presenter, ap_screen_owns_panel(now))) {
+                ap_presenter,
+                ap_screen_owns_panel(now),
+                ap_mode_session_id)) {
             return false;
         }
         pf_display::FrameWriteLease blank_frame =
@@ -1236,25 +1253,53 @@ extern "C" void app_main()
             const bool ap_ready =
                 presence_snapshot.wifi ==
                 pf_runtime::WifiState::provisioning;
-            if (ap_mode && !ap_mode_active) {
-                ap_mode_active = true;
-                ap_mode_ready = ap_ready;
-                ap_mode_started_ms = ap_ready ? now_ms : 0U;
-                if (ap_ready) {
+            switch (pf_network::classify_ap_mode_window(
+                ap_mode_active,
+                ap_mode_ready,
+                ap_mode_session_id,
+                ap_mode,
+                ap_ready,
+                presence_snapshot.ap_session_id)) {
+                case pf_network::ApModeWindowAction::resync:
+                    // Fresh entry into AP mode, or a same-mode restart
+                    // (RuntimeCoordinator's ap_session_id moved on without
+                    // this loop ever observing the intermediate
+                    // starting_ap tick, e.g. a full provisioning ->
+                    // starting_ap -> provisioning cycle between two main
+                    // loop iterations). Resync everything from this
+                    // session's current state rather than patching
+                    // individual fields, so no missed tick can leave
+                    // ap_mode_ready/ap_mode_started_ms pointing at a
+                    // superseded session.
+                    ap_mode_active = true;
+                    ap_mode_ready = ap_ready;
+                    ap_mode_started_ms = ap_ready ? now_ms : 0U;
+                    ap_mode_session_id = presence_snapshot.ap_session_id;
+                    // ESP_LOGI's format argument must be a string literal
+                    // (esp_log.h string-pastes it at compile time), so this
+                    // cannot be a ternary the way the assignments above are.
+                    if (ap_ready) {
+                        ESP_LOGI(kTag, "ap_mode_display_window_started");
+                    } else {
+                        ESP_LOGI(
+                            kTag, "ap_mode_display_waiting_for_ready");
+                    }
+                    break;
+                case pf_network::ApModeWindowAction::became_ready:
+                    ap_mode_ready = true;
+                    ap_mode_started_ms = now_ms;
                     ESP_LOGI(kTag, "ap_mode_display_window_started");
-                } else {
-                    ESP_LOGI(kTag, "ap_mode_display_waiting_for_ready");
-                }
-            } else if (ap_mode && ap_ready && !ap_mode_ready) {
-                ap_mode_ready = true;
-                ap_mode_started_ms = now_ms;
-                ESP_LOGI(kTag, "ap_mode_display_window_started");
-            } else if (!ap_mode && ap_mode_active) {
-                ap_mode_active = false;
-                ap_mode_ready = false;
-                ap_mode_started_ms = 0U;
-                ap_screen_hold_active = false;
-                ESP_LOGI(kTag, "ap_mode_display_window_ended");
+                    break;
+                case pf_network::ApModeWindowAction::ended:
+                    ap_mode_active = false;
+                    ap_mode_ready = false;
+                    ap_mode_started_ms = 0U;
+                    ap_mode_session_id = 0U;
+                    ap_screen_hold_active = false;
+                    ESP_LOGI(kTag, "ap_mode_display_window_ended");
+                    break;
+                case pf_network::ApModeWindowAction::unchanged:
+                    break;
             }
         }
         if (presence_snapshot_read &&
@@ -1625,7 +1670,9 @@ extern "C" void app_main()
             decision.kind ==
                 pf_carousel::DecisionKind::display_welcome) {
             if (!try_lock_carousel_submission_gate(
-                    ap_presenter, ap_screen_owns_panel(now_ms))) {
+                    ap_presenter,
+                    ap_screen_owns_panel(now_ms),
+                    ap_mode_session_id)) {
                 carousel.abandon(decision, now_ms + kCarouselRetryMs);
                 ESP_LOGW(
                     kTag,
@@ -1731,7 +1778,9 @@ extern "C" void app_main()
             display_started &&
             decision.kind == pf_carousel::DecisionKind::display_image) {
             if (!try_lock_carousel_submission_gate(
-                    ap_presenter, ap_screen_owns_panel(now_ms))) {
+                    ap_presenter,
+                    ap_screen_owns_panel(now_ms),
+                    ap_mode_session_id)) {
                 carousel.abandon(decision, now_ms + kCarouselRetryMs);
                 ESP_LOGW(
                     kTag,

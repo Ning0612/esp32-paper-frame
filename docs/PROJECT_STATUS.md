@@ -49,17 +49,44 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 | AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
-**已知缺陷（2026-08-23 審查發現，未修）**：AP 畫面呈現完成到 AP radio 實際啟動
-之間存在空窗。`present_access_point_screen()` 成功後會釋放 `display_submission_mutex`
-並回傳 `ESP_OK`，NetworkService 才繼續啟動 radio；在這段期間 carousel 仍可能讀到
-尚未更新的 `ap_mode_active == false` snapshot，取得 gate 並把面板換成輪播畫面。
-結果是 radio 起來了但面板不是 SSID／密碼／QR。若 radio 啟動失敗，
-`presentation_confirmed_` 已為 true，後續重試可能跳過 presenter 而沿用被覆寫的面板。
+**2026-08-25 已修**：AP 畫面呈現完成到 AP radio 實際啟動之間的空窗——
+`present_access_point_screen()` 成功後釋放 `display_submission_mutex` 並回傳
+`ESP_OK`，NetworkService 才繼續啟動 radio；這段期間 carousel 可能讀到落後的
+`ap_screen_owns_panel` verdict 取得 gate 並把面板換成輪播畫面（若 radio 啟動失敗，
+`presentation_confirmed_` 已為 true，後續重試還會跳過 presenter 沿用被覆寫的面板）。
 
-此缺陷**早於 2026-08-23 的顯示結果契約變更**（`main` 上的原始程式有相同結構，
-`ap_screen_owns_panel` 的判定本次未改動），同日的修正只縮小了其他窗口、未觸及這一個。
-正確修法是讓「AP 畫面擁有面板」成為一個 carousel 會原子性檢查的明確狀態，而不是從
-落後的 runtime snapshot 推論——那會動到 PROVISIONING.md 的畫面契約，應另立 ADR。
+修法不是逐一列舉交錯順序，而是讓 `RuntimeCoordinator` 發佈一個單調遞增的
+`ap_session_id`（每次真正進入新的 `starting_ap` 都 +1，含同一 AP mode 內從
+`provisioning` 退回 `starting_ap` 的重入）；`app_main` 主迴圈與
+`try_lock_carousel_submission_gate()` 都改成比對這個 session id，不等即代表
+「有變化，不管中間細節，一律安全地拒絕／重新同步」。`presentation_confirmed_`
+本身也已移除——`start_access_point()` 現在無條件呼叫 presenter，改由
+`AccessPointScreenCache::shows()`（已正確處理 `mark_superseded()`）決定要不要
+真正重繪。決策邏輯抽成 `pf_network::classify_ap_mode_window()` 與
+`submission_gate_denies_for_ap_session()` 兩個純函式（`ap_screen.hpp`），有
+host test 覆蓋。經 codex-cowork 三輪審查（2026-08-25，`gpt-5.6-terra`×high）：
+第一輪與第二輪各抓到一個 High 並已修正（第二輪的 High 是修第一輪時自己引入的
+迴歸——離開 AP mode 後本地 session id 歸零，但共享 snapshot 的 id 不會歸零，
+導致 carousel 被永久拒絕；修法是把 session id 比對限定在「fresh snapshot 顯示
+仍在 AP mode」時才生效）；第三輪回報的 High（同一 session 內
+`starting_ap→provisioning` 的 ready 轉換可能被漏擋）經逐行追蹤程式碼與新增的
+`test_became_ready_transition_still_denies_within_same_tick` host test 驗證
+**無法在目前程式碼重現**——`became_ready` 分支把 `ap_mode_ready` 與
+`ap_mode_started_ms` 原子綁在同一個 tick 設定，該 tick 內任何後續 gate 呼叫都會
+用到剛更新的值，不會出現 codex 描述的「verdict 已是 false」狀態；判斷為 codex
+只看 diff hunk、未看到未變動的 `ap_screen_owns_panel` lambda 全貌所致的誤判，
+已記錄不採用理由並以可執行測試佐證（單批審查輪數上限已達 3 輪）。
+一個 Low（`ap_session_id` 是 `uint32_t`，回繞需約 42 億次進入 `starting_ap`）
+未修，比照 `diagnostics_event.hpp` 既有的 `sequence_id` wraparound
+「Known limitation (accepted, not fixed)」先例。
+`pio test -e native`（含新增測試）與 `bash scripts/verify-like-ci.sh` 全綠；
+**同日以實機驗證 AP fallback 路徑**（WebUI 故意存入錯誤 Wi-Fi 密碼並重開機，
+觸發 STA 重試耗盡 → provisioning AP，serial log 確認 radio 嚴格晚於
+`provisioning_screen_ready` 才啟動，使用者目視確認面板正確顯示
+SSID／密碼，未被輪播畫面覆寫）；原始 race 本身（跨 task 排程時序）仍未在
+實機刻意重現，細節見[硬體驗證紀錄](hardware/VALIDATION.md)。PROVISIONING.md
+的既有契約文字不變（修的是實作與 snapshot 之間的同步，不是放寬或更動契約
+本身）。
 
 **2026-08-25 新增並實機驗證**：WebUI 新增繁體中文／英文語言切換
 （`data/web/i18n.js`，切換即整頁 reload，字典與套用機制細節見

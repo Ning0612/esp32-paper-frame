@@ -490,7 +490,6 @@ esp_err_t NetworkService::apply(const NetworkAction action)
 
 esp_err_t NetworkService::start_station()
 {
-    presentation_confirmed_ = false;
     const esp_err_t stop_result = esp_wifi_stop();
     if (!ignorable_stop_error(stop_result)) {
         return stop_result;
@@ -562,7 +561,17 @@ esp_err_t NetworkService::start_access_point()
         return ESP_ERR_NO_MEM;
     }
 
-    if (presenter_ != nullptr && !presentation_confirmed_) {
+    // Unconditional on every entry (including retries after a failed
+    // esp_wifi_start() below): the only thing allowed to skip the actual
+    // refresh is screen_cache.shows(payload) inside present_access_point_
+    // screen() itself, which correctly accounts for the panel having been
+    // superseded by another frame in between. A local "did we already
+    // present this session" flag here would be a second, independent
+    // answer to the same question that cannot see that supersession, and
+    // previously let a retry skip presenter_() entirely and start the
+    // radio over a panel the carousel had already overwritten (fixed
+    // 2026-08-25, see docs/PROJECT_STATUS.md).
+    if (presenter_ != nullptr) {
         const esp_err_t present_result =
             presenter_(
                 presenter_context_,
@@ -574,7 +583,6 @@ esp_err_t NetworkService::start_access_point()
                 esp_err_to_name(present_result));
             return present_result;
         }
-        presentation_confirmed_ = true;
     }
     wifi_config_t configuration{};
     if (!copy_text(

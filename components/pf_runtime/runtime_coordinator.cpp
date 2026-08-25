@@ -367,6 +367,10 @@ void RuntimeCoordinator::update_network(
     portENTER_CRITICAL(&snapshot_lock_);
     const WifiState previous_wifi = snapshot_.wifi;
     snapshot_.wifi = wifi;
+    if (wifi == WifiState::starting_ap &&
+        previous_wifi != WifiState::starting_ap) {
+        ++snapshot_.ap_session_id;
+    }
     snapshot_.internet = internet;
     std::memcpy(
         snapshot_.ip_address,
