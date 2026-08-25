@@ -20,8 +20,10 @@ Phase 2／3／4／5／6／8 的主要實機證據已閉環——涵蓋 OTA 端�
 injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出圖管線、天氣四種
 失敗分類、forced-BUSY 隔離與面板 sleep 電流。Phase 7 感測器已於 2026-08-23 接線
 並完成主要實機驗證（DHT22 讀值、雙光敏通道校正、AWAY/PRESENT 轉換、白屏與
-返回重繪）。**剩餘的硬體驗證是八條低優先路徑**，分佈在四個領域。其餘
-待辦是公開 release security profile 與 MVP 以外功能的產品決策。
+返回重繪）。**剩餘的硬體驗證是七條低優先路徑**，分佈在四個領域（原第八條
+「低 DMA heap guard」已於 2026-08-25 確認唯一路徑已移除，改記為無現存路徑
+可測，見[硬體驗證紀錄](hardware/VALIDATION.md)）。其餘待辦是公開 release
+security profile 與 MVP 以外功能的產品決策。
 
 ## 已完成或已決定
 
@@ -46,7 +48,7 @@ injection、五種斷電路徑、AP provisioning 與存取邊界、browser 出�
 | --- | --- |
 | Phase 7 sensors | 剩 `SensorSettings` v1→v2 遷移的實機路徑，以及**啟用但實體未接線**的通道會讀到什麼（浮接 ADC）；兩顆都接線、以及只接一顆並正確停用另一顆的行為，均已於 2026-08-23 實機閉環 |
 | Welcome／重繪生命週期 | presence 返回時的 welcome 重畫、DHCP 續約後的位址重畫、welcome 刷新失敗後的 30 秒短重試（見 [ADR-0015](adr/0015-first-image-waits-for-ntp-and-weather.md)） |
-| AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先） |
+| AP grace policy | presence 例外（需感測器） |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險） |
 
 **2026-08-25 已修**：AP 畫面呈現完成到 AP radio 實際啟動之間的空窗——
@@ -142,7 +144,7 @@ OTA worker stack high-water、active OTA upload wrapper 的 slot 選擇、面板
 1. **Production security profile**：是否啟用 Secure Boot、Flash Encryption／
    NVS Encryption，以及對應的燒錄、key custody、recovery 與 release 流程。
 2. **~~MVP release gate~~**（2026-08-23 已決定）：不要求所有硬體證據關閉才
-   發布。剩餘八條路徑都是低優先且觸發條件罕見，逐項列在上表與
+   發布。剩餘七條路徑都是低優先且觸發條件罕見，逐項列在上表與
    [硬體驗證紀錄](hardware/VALIDATION.md)，發布不隱藏它們。
 3. **電源方案**：目前直接接線供電。是否要做電池／UPS、目標續航、以及對應的
    低功耗運行模式（面板本身已在每次刷新後 sleep，主控未做 deep sleep）。

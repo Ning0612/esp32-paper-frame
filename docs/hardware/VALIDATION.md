@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | Phase 7 sensors | 感測器**行為**已於 2026-08-23 全部閉環（DHT22 讀值與兩條拔除降級路徑、雙通道 ADC 校正、AND 合併語意、AWAY/PRESENT 轉換含正式 180／30 計時、白屏與返回重繪）。仍待驗證：`SensorSettings` v1→v2 的實機 NVS 遷移；**啟用但實體未接線**的通道會讀到什麼（浮接 ADC，需實際拔線才能量）。只接一顆並**正確停用**另一通道的行為已於 2026-08-23 閉環 | 2026-08-23 Phase 7 感測器實機驗證 |
 | Welcome／重繪生命週期 | presence 返回時的 welcome 重畫（需感測器實際觸發 AWAY→PRESENT 且圖庫為空）；DHCP 續約導致位址變更時的重畫；welcome 刷新失敗後的 30 秒短重試（需刻意讓面板刷新失敗）。開機取得位址後的重畫已於 2026-08-23 閉環 | [ADR-0015](../adr/0015-first-image-waits-for-ntp-and-weather.md)；2026-08-23 空圖庫 welcome 重畫 |
-| AP grace policy | presence 例外（需感測器）、低 DMA heap guard（低優先；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
+| AP grace policy | presence 例外（需感測器；5 分鐘切換、SSID 可讀性與 AP/Wi-Fi 併發刷新均已於 2026-08-20 處理） | 2026-08-20 AP 併發刷新；2026-08-20 破壞性測試 |
 | 設定降級邊界 | NVS 滿導致 `pf_config` 開啟失敗（低風險；`409 config_read_only` 已閉環，`nvs_flash_init()` 失敗經實測為不可觸發的防禦性分支） | 2026-08-20 破壞性測試；2026-08-20 設定降級邊界修正 |
 
 已自本索引移除的項目：`active OTA upload wrapper`（2026-08-20 以 `ota_0`／`ota_1`
@@ -26,6 +26,19 @@
 （2026-08-20 完成 SNTP 失敗側，該領域全數閉環）、`Phase 2 display`
 （2026-08-20 完成 forced-BUSY 與 sleep 電流量測）。
 `mDNS` 從未實作，不列為待驗證項——詳見 2026-08-20 段落。
+
+`低 DMA heap guard`（原列於 AP grace policy）已於 2026-08-25 從待驗證表格
+移除：唯一曾經踩到這個 heap 壓力情境的路徑是「STA 已連線時手動強制進入配網
+AP」（`POST /api/v1/system/recovery-ap` → `NetworkEvent::enter_recovery_ap`，
+2026-08-01 用來重現／修這個 guard 的正是這條路徑），但該手動端點已經移除
+（見 `docs/WEBUI.md`、`docs/archive/IMPLEMENTATION_PLAN.md` 581-583 行；
+移除時間點未查到單一對應 commit，以這兩份文件記載為準）。現存的兩個
+`start_ap` 進入點（開機空 NVS、STA 重試耗盡）都發生在 STA 連線**之前**，
+不會產生同等的 heap 壓力——guard 的程式碼分支本身仍會在每次 `start_ap`
+執行，只是低 heap 判斷式在現存路徑下不會為真，因此準確地說是「無現存路徑
+可重現該 heap 壓力情境」，不是「分支不可達」；不再列為「待驗證」而是
+「無現存路徑可測」。guard 本身的程式碼與 2026-08-01 的既有驗證證據保留
+不動。
 
 ## 2026-07-29 — 初始 USB 盤點
 
