@@ -3112,7 +3112,9 @@ threshold（兩顆皆設為 2000，取代先前的 1200／1200）。
   的 10 kΩ 對照組（GPIO5=23、GPIO7 `saturated`（≤10））相比margin 大幅改善。
 - **高端飽和判定行為正常，不需調整**：直射手電筒這種極端亮度下 GPIO5 觸發
   高端飽和（`kSaturationHighRaw = 4085`），但 GPIO7 仍 `online`（3348），
-  雙通道 OR 語意讓 `light.status` 仍正確回報 `online`。這是保護機制設計上
+  「非 `online` 通道被忽略」規則讓 `light.status` 仍正確回報 `online`
+  （此規則在 AND／OR 兩種合併方向下行為相同，此處與同名稱謂已改動的方向
+  無關）。這是保護機制設計上
   該有的行為，不是本次要修的問題。
 - threshold=2000 落在全暗讀值（~780）與室內光讀值（~3200 以上）中間，
   兩側都有充足 margin。
@@ -3329,3 +3331,69 @@ I (1070) paperframe: rollback_confirmed=ESP_OK
   實體生命週期內不可能觸及；比照 `components/pf_runtime/include/pf_runtime/
   diagnostics_event.hpp` 第 117-120 行對 `sequence_id` wraparound 的既有
   「Known limitation (accepted, not fixed)」先例，採同樣處理。
+
+## 2026-08-27 — 診斷「presence 偶爾卡在持續刷新、不轉白畫面」：R_fix 換 100 kΩ
+
+### 背景
+
+使用者回報：關燈後 WebUI 顯示 channel 1 raw=75、channel 2 raw=144（threshold
+皆為 2000，判定來源 channel 2），兩者都遠低於門檻，理論上應觸發離席白屏，
+但裝置有時仍持續輪播。透過 `GET /api/v1/sensors` 連續輪詢（登入後帶
+`pf_session` cookie）觀察約 7 分鐘，抓到根因：
+
+```
+[20:34:00] light.status=saturated（channel1、channel2 同時 saturated） presence=unknown
+[20:34:20] light.status=online（channel1 仍 saturated，channel2 online raw=15） presence=unknown
+...
+[20:37:39] presence=away（自 20:34:20 起連續 online/暗滿 180 秒 away_duration_s 後轉入）
+```
+
+channel 1（GPIO5）在整段觀察期間幾乎持續回報 `saturated`（raw 直接是
+`null`，代表 ≤10 或 ≥4085），channel 2（GPIO7）合法讀值只有 15–27，離
+`kSaturationLowRaw=10` 也只剩個位數到十幾 counts 的餘裕。`combine_light_channels()`
+（`components/pf_sensors/include/pf_sensors/light_sensor.hpp`）只要還有一個
+channel `online` 就會忽略另一個非 `online` 的 channel，所以單一顆偶爾飽和
+不會壞事——這也是為什麼上面這次仍然在 180 秒後正常轉入 `away`。但
+`update_presence()`（`components/pf_sensors/include/pf_sensors/presence.hpp`）
+只要遇到**兩顆同一個取樣 tick（`kLoopIntervalTicks`＝2 秒一次）同時非
+`online`**，就會把 presence 立刻打回 `unknown`、已經走了一部分的 180 秒
+`away_duration_s` 倒數全部歸零（20:34:00 那筆就是一次這樣的重置）。channel 1
+常態貼著飽和下限、channel 2 margin 也很薄，代表這種雙飽和巧合的機率並不低——
+環境更暗一點、或 ADC 雜訊剛好把 channel 2 也踩進 ≤10，就會撞上重置，使用者
+觀察到的「有時候還是持續刷新」正是這個機制的外顯症狀。
+
+當時的 `R_fix`＝47 kΩ（兩通道皆同值，2026-08-24 校正時全暗實測曾是
+777–781，見上方「2026-08-24 — R_fix 換 47 kΩ 解決全暗飽和」段落）。同一個
+數值、同一批硬體，這次全暗實測卻已經跌到 channel 1 常態飽和——與 2026-08-24
+的量測結果差了兩個數量級，推測與 LDR 批次或環境全暗程度差異有關，原因未
+進一步查證；但這代表**「文件記錄的歷史校正值」不能直接信任為目前硬體的
+真實餘裕，只能以實機當下重新量測為準**。
+
+### 修復與驗證（換 100 kΩ）
+
+使用者將兩通道 `R_fix` 由 47 kΩ 換成 **100 kΩ**，threshold 維持 2000／2000
+不變。以 `GET /api/v1/sensors` 分段驗證：
+
+- **全暗（換電阻後即時，未收斂）**：channel1=875、channel2=1540——LDR 關燈後
+  暗電阻爬升需要時間（「dark recovery」），未達穩態。
+- **全暗（靜置約 2 分鐘後）**：channel1≈91、channel2≈105，穩定不再明顯變動。
+- **室內光**：channel1=4040、channel2=3827（channel1 離高端飽和門檻 4085
+  只剩約 45 counts，偏緊但未飽和）。
+- **手遮**：channel1=3540、channel2=2736。
+- **直射光（手機手電筒）**：channel1、channel2**同時**飽和（≥4085）——47 kΩ
+  時只有 channel1 會飽和，這是換大 `R_fix` 換來全暗端餘裕的直接代價，細節與
+  取捨理由見 `docs/hardware/HARDWARE.md`「`R_fix` 選擇計算方法」小節。
+- **完整轉換週期**：presence 於 21:15:24 為 `present`（室內尚有殘光），持續
+  變暗後於 21:18:17 轉入 `away`（約 173 秒，與 180 秒 `away_duration_s`
+  吻合），過程中兩顆 channel 全程 `online`、無任何飽和，未再出現重置。
+
+### 結論
+
+- 100 kΩ 解決了本次「presence 偶爾重置、持續刷新不轉白畫面」的直接成因：
+  全暗餘裕從個位數／飽和提升到 80+ counts，觀察窗內雙飽和巧合未再發生。
+- 代價是室內光餘裕變薄、直射光下兩顆同時飽和（此情境下 presence 退化為
+  `unknown`，不會誤觸離席白屏，只是暫時無法判斷在場／離開，見
+  HARDWARE.md 對應段落的風險評估）。
+- **未涵蓋**：本次只驗證了換阻值後的單一次日夜週期，未長時間觀察（例如
+  連續數天、或環境更暗的深夜場景）確認 100 kΩ 的全暗餘裕是否像 47 kΩ
+  一樣會隨時間或環境劣化；HARDWARE.md 已在「已知限制」註記需要持續觀察。
