@@ -7,6 +7,12 @@
   `GET /api/v1/sensors` 的 `light` schema
 - Amends: [ADR-0003](0003-fix-phase2-display-integration.md) 的 G2
   感測器保留腳位表（新增 GPIO7）
+- Superseded in part by:
+  [ADR-0020](0020-light-clip-is-diagnostic-not-presence-gate.md)——
+  `saturated`（下方多處提及的 ADC 飽和不觸發離席）已改為診斷資訊並正常
+  參與判定，`LightSensorStatus::saturated` 拆分為
+  `low_clipped`／`high_clipped`。本文件其餘的雙通道接線、AND 合併規則、
+  `SensorSettings` v2 與 API schema 的其他欄位**均維持有效**。
 
 ## Context
 
@@ -80,10 +86,13 @@ LDR 在上、固定電阻在下的順序是**強制**的：韌體的判定是
 `filtered_raw < threshold → away`，因此必須「亮→讀值高、暗→讀值低」。
 反接會使閾值語意顛倒。
 
-`R_fix` 沒有在本 ADR 固定數值。韌體以 raw ≤ 10 或 ≥ 4085 判為 `saturated`
-並且**不觸發離席**（`SensorTask::kSaturationLowRaw`／`kSaturationHighRaw`），
-所以整個關心的光照範圍都必須落在 raw 11–4084 之間；正確值取決於實際 LDR
-型號與擺放位置，只能實機校正。10 kΩ 為起始建議值，見
+`R_fix` 沒有在本 ADR 固定數值。韌體以 raw ≤ 10 或 ≥ 4085 判為
+`low_clipped`／`high_clipped`（`SensorTask::kSaturationLowRaw`／
+`kSaturationHighRaw`；2026-08-29 前為單一 `saturated` 值，且會**不觸發
+離席**——已被 [ADR-0020](0020-light-clip-is-diagnostic-not-presence-gate.md)
+取代，clip 現在正常參與判定），但貼著極限仍然代表解析度變差，所以整個
+關心的光照範圍最好還是落在 raw 11–4084 之間；正確值取決於實際 LDR 型號
+與擺放位置，只能實機校正。10 kΩ 為起始建議值，見
 [HARDWARE.md](../hardware/HARDWARE.md)。
 
 ### 合併規則
@@ -91,19 +100,39 @@ LDR 在上、固定電阻在下的順序是**強制**的：韌體的判定是
 `pf_sensors::combine_light_channels()` 把兩個通道 reduce 成 presence
 debounce 消費的單一 `(status, raw, threshold)` triple：
 
-- **非 `online` 的通道被忽略**，只要還有其他通道 `online`。未安裝或故障的
+- **沒有可用讀值的通道被忽略**，只要還有其他通道有讀值。未安裝或故障的
   第二顆不得讓正常運作的第一顆失效（AGENTS.md：感測器是可選的，必須降級而非
-  讓功能整個失敗）。
-- **`online` 通道中取 signed margin（`raw - threshold`）最大者**。因為
-  presence 是單一門檻比較，這一個選擇同時決定了兩個方向：**每個通道都低於
-  自己的閾值才算暗，任何一顆看到光就算亮**。換句話說——兩顆都同意暗，面板
-  才休眠；任一顆見光就喚醒。回報的是**最亮的那顆**，也就是目前讓裝置保持
-  清醒的感測器，那正是「為什麼還沒睡」最有用的答案。
-- **完全沒有 `online` 通道時**回報最需要處理的狀態，排序為
-  `error` > `saturated` > `not_detected` > `disabled`，且不附帶任何讀值
+  讓功能整個失敗）。（2026-08-29 更新：原文寫「非 `online` 的通道被忽略」，
+  已被 [ADR-0020](0020-light-clip-is-diagnostic-not-presence-gate.md)
+  取代——判準是 `light_status_is_decision_capable()`，`low_clipped`／
+  `high_clipped` 不算「被忽略」的那一類，只有 `disabled`／`not_detected`／
+  `error` 才會被忽略。）
+- **先分 present／away 兩側，任何通道落在 present 側就必定從 present 側
+  選；margin（`raw - threshold`）只在同一側內部當 tie-break，挑「最有
+  代表性」的那顆**（`low_clipped` 一律 away 側、`high_clipped` 一律
+  present 側、`online` 用 `raw >= threshold` 分側）。因為 presence 是
+  單一門檻比較，這個選擇同時決定了兩個方向：**每個通道都判為暗才算暗，
+  任何一顆判為亮就算亮**。換句話說——兩顆都同意暗，面板才休眠；任一顆見光
+  就喚醒。回報的是**主導判定的那顆**，也就是目前讓裝置保持清醒（或確認
+  全暗）的感測器，那正是「為什麼還沒睡」最有用的答案。
+  （2026-08-29 更新：原文寫「`online` 通道中取 signed margin 最大者」，
+  單純比 margin 對 clipped 通道並不可靠——`high_clipped` 的 margin 可以是
+  很大的負值（例如 threshold 設在 4095），若旁邊有個 margin 沒那麼負但
+  實際是暗的 `online` 通道，單純比 margin 會選到暗的那顆，讓合併結果誤判
+  成 away，即使有一顆通道明明是亮的。2026-08-29 codex-cowork 第 2 輪抓到
+  這個問題，改為上面「先分側」的版本；第 3 輪確認分側規則本身正確、沒有
+  遺漏。詳見 ADR-0020「presence 與合併判定」與
+  `light_sensor.hpp` 的 `light_channel_reads_present()`。）
+- **完全沒有 decision-capable（`online`／`low_clipped`／`high_clipped`）
+  通道時**回報最需要處理的狀態，排序為
+  `error` > `not_detected` > `disabled`，且不附帶任何讀值
   （`channel_index == kLightChannelCount`，`raw`／`threshold` 皆為 `null`）。
   presence 在這種情況下一律塌回 `unknown`——沿用 ADR-0006 的既有規則，
-  浮動／飽和／錯誤的 ADC 不得觸發離席。
+  浮動或錯誤的 ADC 不得觸發離席。（2026-08-29 更新：`saturated` 原本也在
+  這個排序與塌回規則裡，已被
+  [ADR-0020](0020-light-clip-is-diagnostic-not-presence-gate.md) 取代——
+  拆分後的 `low_clipped`／`high_clipped` 改為 decision-capable，不再落入
+  這個分支。）
 
 `update_presence()` 的簽名與 debounce 行為**不變**：合併發生在它之前，
 duration debounce（`away_duration_s`／`return_duration_s`）仍是唯一的抗頻閃
@@ -141,8 +170,10 @@ NVS blob 版本由 1 升為 2，欄位改為每通道獨立：
 ```
 
 - 頂層 `status`／`raw`／`threshold` 是合併結果，`deciding_channel` 指出來源
-  （1-based）。沒有任何通道 `online` 時三者皆為 `null`——0 會看起來像真的設定
-  值。原本頂層的 `"gpio":5` 移除，GPIO 改由每個 channel 自報。
+  （1-based）。沒有任何 decision-capable（`online`／`low_clipped`／
+  `high_clipped`，2026-08-29 由 ADR-0020 從單純的 `online` 放寬）通道時
+  三者皆為 `null`——0 會看起來像真的設定值。原本頂層的 `"gpio":5` 移除，
+  GPIO 改由每個 channel 自報。
 - 每通道的 `threshold` **即使該通道停用或故障也照常回報**：那是使用者設定的
   值，也是校正過程中唯一的參照。只有 snapshot 整個讀不到時才是 `null`。
 

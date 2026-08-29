@@ -36,8 +36,10 @@ private:
     static constexpr UBaseType_t kTaskPriority = 3U;
     static constexpr TickType_t kLoopIntervalTicks = pdMS_TO_TICKS(2000U);
     static constexpr std::size_t kLightFilterCapacity = 8U;
-    // Near-rail raw ADC readings (12-bit: 0-4095) are treated as a stuck
-    // or disconnected photoresistor rather than genuine darkness/glare.
+    // Near-rail raw ADC readings (12-bit: 0-4095) still get a real reading
+    // (low_clipped/high_clipped, ADR-0020) -- these are the boundaries past
+    // which the ADC can no longer distinguish "very dark/bright" from
+    // "even darker/brighter", not a stuck-or-disconnected marker.
     static constexpr int kSaturationLowRaw = 10;
     static constexpr int kSaturationHighRaw = 4085;
 

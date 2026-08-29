@@ -6,8 +6,12 @@
 - Superseded in part by: [ADR-0018](0018-dual-photoresistor-channels.md)
   ——光敏電阻擴充為兩個獨立通道後，本 ADR 的
   「溫濕度與光敏電阻在本階段维持各自獨立判定，不合併」條款與
-  `GET /api/v1/sensors` 的 `light` schema 已失效。濾波方式（moving
-  average）、duration-based debounce、非 `online` ADC 不得觸發離席、
+  `GET /api/v1/sensors` 的 `light` schema 已失效；以及
+  [ADR-0020](0020-light-clip-is-diagnostic-not-presence-gate.md)——
+  `saturated`（ADC 頂到量測極限）不再視為「不得觸發離席」的一員，改為
+  診斷資訊並正常參與判定，`LightSensorStatus::saturated` 拆分為
+  `low_clipped`／`high_clipped`。濾波方式（moving average）、
+  duration-based debounce、未偵測到／讀取錯誤／通道停用不得觸發離席、
   presence 經 snapshot setter 傳遞等其餘決策**均維持有效**。
 
 ## Context
@@ -88,7 +92,14 @@ log`）：上游的 esp8266 分支已移除，`driver` 改用本專案既有慣�
 時**一律不推進候選判定**，直接視為 `PresenceState::unknown`——對應
 原始需求草案 4.9「不把 ADC 浮動值視為離席」與十一節「浮動、saturated 或
 error ADC 不得觸發離席」。只有 `LightSensorStatus::online` 時才進行
-threshold 比較與 debounce。
+threshold 比較與 debounce。（2026-08-29 更新：`saturated` 這一項已被
+[ADR-0020](0020-light-clip-is-diagnostic-not-presence-gate.md) 取代——
+拆分為 `low_clipped`／`high_clipped`，兩者現在都正常參與 debounce，只有
+`disabled`／`not_detected`／`error` 才維持本段原意「一律不推進候選判定」。
+但兩者**不透過 threshold 比較**決定方向——方向由 status 直接決定
+（`low_clipped` 一律 away、`high_clipped` 一律 present），只有 `online`
+才用 raw 與 threshold 比較；threshold 是 0–4095 的可調欄位，沒有保證落在
+飽和門檻內，直接比較會有方向反轉風險，詳見 ADR-0020。）
 
 不額外加入 threshold 之外的 hysteresis band：原始需求草案唯一指定的抗頻閃
 機制就是 duration debounce 本身，額外加窄化/加寬 threshold 屬於超出

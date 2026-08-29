@@ -236,11 +236,12 @@ void test_sensors_report_null_readings_when_disabled_or_not_online()
 {
     pf_runtime::RuntimeSnapshot data = snapshot();
     data.environment_status = pf_sensors::SensorStatus::disabled;
-    // A saturated channel outranks a disabled one, so the combined status
-    // reports the fault rather than hiding it behind "disabled".
+    // An error channel outranks a disabled one, so the combined status
+    // reports the fault rather than hiding it behind "disabled". Neither
+    // status is decision-capable (ADR-0020), so light_adc stays null.
     set_light(
         data,
-        {pf_sensors::LightSensorStatus::saturated, 0U, 2000U},
+        {pf_sensors::LightSensorStatus::error, 0U, 2000U},
         {pf_sensors::LightSensorStatus::disabled, 0U, 2000U});
     data.presence = pf_sensors::PresenceState::unknown;
 
@@ -254,9 +255,31 @@ void test_sensors_report_null_readings_when_disabled_or_not_online()
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"temperature_c\":null"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"humidity_percent\":null"));
     TEST_ASSERT_NOT_NULL(
-        std::strstr(output, "\"light_status\":\"saturated\""));
+        std::strstr(output, "\"light_status\":\"error\""));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light_adc\":null"));
     TEST_ASSERT_NOT_NULL(std::strstr(output, "\"presence\":\"unknown\""));
+}
+
+// A channel pinned against a rail still has a real reading (ADR-0020): the
+// compact status endpoint must serve it rather than null, unlike a genuinely
+// unavailable channel.
+void test_sensors_report_reading_when_light_clipped()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    set_light(
+        data,
+        {pf_sensors::LightSensorStatus::low_clipped, 5U, 2000U},
+        {pf_sensors::LightSensorStatus::disabled, 0U, 2000U});
+    data.presence = pf_sensors::PresenceState::away;
+
+    char output[2048]{};
+    const pf_web::SerializeResult result = pf_web::serialize_status(
+        data, true, 123456, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(output, "\"light_status\":\"low_clipped\""));
+    TEST_ASSERT_NOT_NULL(std::strstr(output, "\"light_adc\":5"));
 }
 
 void test_serialize_sensors_reports_readings_and_daily_stats()
@@ -326,6 +349,34 @@ void test_serialize_sensors_lets_one_lit_channel_win()
         "\"light\":{\"status\":\"online\",\"raw\":3000,"
         "\"threshold\":2000,\"saturated\":false,"
         "\"deciding_channel\":1"));
+}
+
+// A channel pinned against a rail is decision-capable (ADR-0020): the full
+// sensors endpoint must serve its raw value and flag `saturated` rather than
+// hiding the reading behind null the way a genuinely unavailable channel
+// does.
+void test_serialize_sensors_reports_reading_when_light_clipped()
+{
+    pf_runtime::RuntimeSnapshot data = snapshot();
+    set_light(
+        data,
+        {pf_sensors::LightSensorStatus::high_clipped, 4090U, 2000U},
+        {pf_sensors::LightSensorStatus::disabled, 0U, 2000U});
+
+    char output[1024]{};
+    const pf_web::SerializeResult result = pf_web::serialize_sensors(
+        data, true, 1700000000U, output, sizeof(output));
+
+    TEST_ASSERT_TRUE(result.ok);
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "\"light\":{\"status\":\"high_clipped\",\"raw\":4090,"
+        "\"threshold\":2000,\"saturated\":true,"
+        "\"deciding_channel\":1"));
+    TEST_ASSERT_NOT_NULL(std::strstr(
+        output,
+        "{\"channel\":1,\"gpio\":5,\"status\":\"high_clipped\","
+        "\"raw\":4090,\"threshold\":2000}"));
 }
 
 // A readable snapshot whose sensor task has not published yet (still
@@ -787,8 +838,10 @@ int main(int, char**)
     RUN_TEST(test_weather_reports_last_failure_reason_when_unavailable);
     RUN_TEST(test_sensors_report_readings_when_online);
     RUN_TEST(test_sensors_report_null_readings_when_disabled_or_not_online);
+    RUN_TEST(test_sensors_report_reading_when_light_clipped);
     RUN_TEST(test_serialize_sensors_reports_readings_and_daily_stats);
     RUN_TEST(test_serialize_sensors_lets_one_lit_channel_win);
+    RUN_TEST(test_serialize_sensors_reports_reading_when_light_clipped);
     RUN_TEST(test_serialize_sensors_reports_null_threshold_before_first_sample);
     RUN_TEST(test_serialize_sensors_ignores_a_missing_second_channel);
     RUN_TEST(test_serialize_sensors_reports_null_when_never_read);

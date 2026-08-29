@@ -68,3 +68,4 @@ NNNN-short-imperative-title.md
 - [ADR-0017：設定載入的降級邊界與中央記錄的寫入規則](0017-config-degradation-boundaries.md)
 - [ADR-0018：光敏電阻擴充為兩個獨立通道，兩顆都變暗才判定為暗](0018-dual-photoresistor-channels.md)（取代 ADR-0006 的單一光敏判定與 `light` schema；增修 ADR-0003 的 G2 保留腳位表）
 - [ADR-0019：把「畫面已上到面板」與「面板已進入 deep sleep」分開回報](0019-separate-frame-displayed-from-panel-slept.md)（取代 ADR-0003 Verification 的「成功 result 只能在 driver 回報 deep sleep 後發布」；driver 行為本身不變）
+- [ADR-0020：光敏電阻 ADC 飽和只是診斷資訊，不再排除離席判定](0020-light-clip-is-diagnostic-not-presence-gate.md)（取代 ADR-0006／ADR-0018 的「saturated 不得觸發離席」條款，`saturated` 列舉值拆分為 `low_clipped`／`high_clipped`）

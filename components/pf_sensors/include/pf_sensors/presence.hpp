@@ -41,11 +41,30 @@ struct PresenceUpdateResult {
     bool transitioned = false;
 };
 
-// Feeds one filtered light sample in. `light_status` other than `online`
-// (disabled/not_detected/error/saturated) never advances a candidate
-// toward `away`; presence collapses to `unknown` immediately in that
-// case, matching Guild.md's "浮動、saturated 或 error ADC 不得觸發離席".
-// Below `threshold` reads as away (dark), at/above reads as present.
+// Feeds one filtered light sample in. A `light_status` with no usable
+// reading (disabled/not_detected/error -- light_status_is_decision_capable()
+// is false) never advances a candidate toward `away`; presence collapses to
+// `unknown` immediately in that case, matching Guild.md's "浮動、saturated
+// 或 error ADC 不得觸發離席" for a genuinely absent reading.
+//
+// A channel pinned against a rail (low_clipped/high_clipped) is *not*
+// treated as absent (docs/adr/0020-light-clip-is-diagnostic-not-presence-gate.md):
+// low_clipped always reads as away (dark) and high_clipped always reads as
+// present (light), decided directly from the status rather than by
+// comparing the clipped raw against `threshold`. `threshold` is a
+// user-editable 0-4095 field (SensorSettings, WebUI) with nothing pinning
+// it inside the 11-4084 band ADR-0018 only recommends for the *achievable
+// raw range* -- a threshold a user set at or beyond a rail (0, or
+// 4085-4095) would otherwise flip the comparison against what the rail
+// actually means (e.g. threshold=4095 would read a high_clipped/brightest-
+// possible raw=4085 as "away"). Deciding by status sidesteps that entirely.
+// Treating clip as unknown was the shipped bug this ADR fixes: both
+// channels clipping dark at once (measured 2026-08-27, see HARDWARE.md)
+// collapsed presence to `unknown` and reset an in-progress away countdown,
+// leaving the panel refreshing instead of blanking.
+//
+// For `online`, below `threshold` reads as away (dark), at/above reads as
+// present.
 inline PresenceUpdateResult update_presence(
     PresenceTracker& tracker,
     const LightSensorStatus light_status,
@@ -57,16 +76,23 @@ inline PresenceUpdateResult update_presence(
 {
     const PresenceState previous_state = tracker.state;
 
-    if (light_status != LightSensorStatus::online) {
+    if (!light_status_is_decision_capable(light_status)) {
         tracker.candidate = PresenceState::unknown;
         tracker.candidate_since_ms = now_ms;
         tracker.state = PresenceState::unknown;
         return {tracker.state, tracker.state != previous_state};
     }
 
-    const PresenceState instantaneous = light_raw_filtered < threshold
-                                             ? PresenceState::away
-                                             : PresenceState::present;
+    PresenceState instantaneous;
+    if (light_status == LightSensorStatus::low_clipped) {
+        instantaneous = PresenceState::away;
+    } else if (light_status == LightSensorStatus::high_clipped) {
+        instantaneous = PresenceState::present;
+    } else {
+        instantaneous = light_raw_filtered < threshold
+                             ? PresenceState::away
+                             : PresenceState::present;
+    }
     if (instantaneous != tracker.candidate) {
         tracker.candidate = instantaneous;
         tracker.candidate_since_ms = now_ms;

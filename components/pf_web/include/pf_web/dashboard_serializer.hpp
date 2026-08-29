@@ -252,8 +252,8 @@ inline SerializeResult serialize_status(
             environment_humidity, sizeof(environment_humidity), "null");
     }
     if (snapshot_valid &&
-        snapshot.light_decision.status ==
-            pf_sensors::LightSensorStatus::online) {
+        pf_sensors::light_status_is_decision_capable(
+            snapshot.light_decision.status)) {
         std::snprintf(
             light_adc,
             sizeof(light_adc),
@@ -624,14 +624,23 @@ inline SerializeResult serialize_sensors(
     const bool environment_stale_flag =
         environment_has_reading &&
         snapshot.environment_status == pf_sensors::SensorStatus::stale;
-    const bool light_online =
+    // "Decision-capable" (online, or clipped against a rail -- ADR-0020)
+    // covers every status that carries a real raw_filtered; only a channel
+    // with no reading at all serves null here.
+    const bool light_has_reading =
         snapshot_valid &&
-        snapshot.light_decision.status ==
-            pf_sensors::LightSensorStatus::online;
+        pf_sensors::light_status_is_decision_capable(
+            snapshot.light_decision.status);
+    // `saturated` stays a plain boolean field rather than growing a new key:
+    // it is true for either clip direction, and the direction itself is
+    // already visible in `status` (and per-channel `status`) as
+    // "low_clipped"/"high_clipped".
     const bool light_saturated =
         snapshot_valid &&
-        snapshot.light_decision.status ==
-            pf_sensors::LightSensorStatus::saturated;
+        (snapshot.light_decision.status ==
+             pf_sensors::LightSensorStatus::low_clipped ||
+         snapshot.light_decision.status ==
+             pf_sensors::LightSensorStatus::high_clipped);
 
     char temperature_c[16]{};
     char humidity_percent[16]{};
@@ -712,14 +721,15 @@ inline SerializeResult serialize_sensors(
     }
 
     // The top-level raw/threshold/deciding_channel describe the one
-    // channel presence debouncing acted on; with no channel online there
-    // is no such channel, and 0 would look like a genuinely configured
-    // value rather than "nothing is reporting". Per-channel thresholds are
-    // reported separately below and stay visible while calibrating.
+    // channel presence debouncing acted on; with no decision-capable
+    // channel (light_has_reading false) there is no such channel, and 0
+    // would look like a genuinely configured value rather than "nothing is
+    // reporting". Per-channel thresholds are reported separately below and
+    // stay visible while calibrating.
     char light_raw[16]{};
     char light_threshold[16]{};
     char light_deciding_channel[16]{};
-    if (light_online) {
+    if (light_has_reading) {
         std::snprintf(
             light_raw,
             sizeof(light_raw),
@@ -753,7 +763,7 @@ inline SerializeResult serialize_sensors(
             snapshot_valid ? snapshot.light_channels[index]
                             : pf_sensors::LightChannelState{};
         char channel_raw[16]{};
-        if (channel.status == pf_sensors::LightSensorStatus::online) {
+        if (pf_sensors::light_status_is_decision_capable(channel.status)) {
             std::snprintf(
                 channel_raw,
                 sizeof(channel_raw),

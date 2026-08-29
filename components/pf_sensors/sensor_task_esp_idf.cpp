@@ -147,25 +147,40 @@ void SensorTask::sample_light(const pf_config::SensorSettings& settings)
                 adc_handle_, kLightAdcChannels[index], &raw);
             if (result != ESP_OK) {
                 channel.status = pf_sensors::LightSensorStatus::error;
-            } else if (
-                raw <= kSaturationLowRaw || raw >= kSaturationHighRaw) {
-                channel.status = pf_sensors::LightSensorStatus::saturated;
             } else {
-                // Only an `online` sample feeds the filter; raw_filtered
-                // stays 0 otherwise so a bad reading never pollutes the
-                // moving average with a spurious value.
-                channel.status = pf_sensors::LightSensorStatus::online;
+                // A clipped raw gets a status distinct from `online`
+                // (ADR-0020) and is still fed to the filter, carrying a
+                // real raw_filtered just like `online`. Its direction
+                // (away for low_clipped, present for high_clipped) is
+                // decided from this status alone rather than by comparing
+                // raw_filtered against the configured threshold --
+                // threshold is a user-editable 0-4095 field with no
+                // guarantee it sits inside the achievable-raw band, so that
+                // comparison is not reliable for a clipped reading (see
+                // pf_sensors::light_channel_reads_present()).
+                if (raw <= kSaturationLowRaw) {
+                    channel.status = pf_sensors::LightSensorStatus::low_clipped;
+                } else if (raw >= kSaturationHighRaw) {
+                    channel.status = pf_sensors::LightSensorStatus::high_clipped;
+                } else {
+                    channel.status = pf_sensors::LightSensorStatus::online;
+                }
                 channel.raw_filtered = light_filters_[index].push(
                     static_cast<std::uint16_t>(raw));
             }
         }
-        if (channel.status != pf_sensors::LightSensorStatus::online) {
+        if (!pf_sensors::light_status_is_decision_capable(channel.status)) {
             // Drop the accumulated history too. Keeping it would average
             // the first sample after recovery together with readings from
             // before the channel was switched off, unplugged or faulty --
             // exactly the "reuse a historical value" the optional-sensor
             // contract forbids. The cost is a few seconds of ramp-up on
             // recovery, well inside the presence debounce window.
+            //
+            // A clipped channel does NOT hit this branch: it keeps feeding
+            // the filter every tick above, so the moving average stays
+            // continuous while the ADC sits against a rail instead of
+            // resetting every sample.
             light_filters_[index].reset();
         }
     }

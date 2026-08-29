@@ -79,7 +79,8 @@
       "enum.sensor.stale": "資料過舊",
       "enum.sensor.not_detected": "未偵測到",
       "enum.sensor.error": "錯誤",
-      "enum.sensor.saturated": "訊號飽和",
+      "enum.sensor.low_clipped": "偏暗飽和",
+      "enum.sensor.high_clipped": "偏亮飽和",
       "enum.sensor.present": "在場",
       "enum.sensor.away": "離席",
 
@@ -447,7 +448,8 @@
       "enum.sensor.stale": "Stale",
       "enum.sensor.not_detected": "Not detected",
       "enum.sensor.error": "Error",
-      "enum.sensor.saturated": "Saturated",
+      "enum.sensor.low_clipped": "Low clipped",
+      "enum.sensor.high_clipped": "High clipped",
       "enum.sensor.present": "Present",
       "enum.sensor.away": "Away",
 

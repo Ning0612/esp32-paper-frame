@@ -130,7 +130,6 @@ void test_a_working_channel_survives_a_dead_one()
     const LightChannelState statuses[] = {
         {LightSensorStatus::disabled, 0U, 2000U},
         {LightSensorStatus::not_detected, 0U, 2000U},
-        {LightSensorStatus::saturated, 0U, 2000U},
         {LightSensorStatus::error, 0U, 2000U},
     };
     for (const LightChannelState& dead : statuses) {
@@ -145,6 +144,107 @@ void test_a_working_channel_survives_a_dead_one()
         TEST_ASSERT_EQUAL_UINT(1U, decision.channel_index);
         TEST_ASSERT_EQUAL_UINT16(900U, decision.raw_filtered);
     }
+}
+
+// A channel pinned against a rail still carries a usable reading
+// (ADR-0020): it decides against a disabled peer just like `online` would,
+// and the winning status is reported as the clipped value rather than
+// forced to `online`.
+void test_a_clipped_channel_decides_like_an_online_one()
+{
+    const LightChannelState channels[kLightChannelCount] = {
+        {LightSensorStatus::low_clipped, 5U, 1400U},
+        {LightSensorStatus::disabled, 0U, 1400U},
+    };
+    const LightDecision decision = combine_light_channels(channels);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LightSensorStatus::low_clipped),
+        static_cast<int>(decision.status));
+    TEST_ASSERT_EQUAL_UINT(0U, decision.channel_index);
+    TEST_ASSERT_EQUAL_UINT16(5U, decision.raw_filtered);
+    TEST_ASSERT_TRUE(decision.raw_filtered < decision.threshold);
+}
+
+// Regression, measured on hardware 2026-08-27 (see HARDWARE.md): both
+// channels clipping dark at once used to report `saturated` and drop out of
+// the decision entirely, collapsing presence to `unknown` mid-away-countdown.
+// Now both stay decision-capable, the brighter (less clipped) one still
+// wins the margin comparison, and the result reads unambiguously dark.
+void test_both_channels_clipped_dark_still_decides()
+{
+    const LightChannelState channels[kLightChannelCount] = {
+        {LightSensorStatus::low_clipped, 8U, 1400U},
+        {LightSensorStatus::low_clipped, 3U, 1400U},
+    };
+    const LightDecision decision = combine_light_channels(channels);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LightSensorStatus::low_clipped),
+        static_cast<int>(decision.status));
+    TEST_ASSERT_EQUAL_UINT(0U, decision.channel_index);
+    TEST_ASSERT_TRUE(decision.raw_filtered < decision.threshold);
+}
+
+// Regression, caught by codex-cowork round 2 (2026-08-29): the reducer used
+// to pick the winner purely by signed margin (raw - threshold), which is
+// not a reliable present/away indicator for a clipped channel once
+// threshold sits at or beyond a rail (SensorSettings/WebUI allow the full
+// 0-4095 range). A high_clipped(4085, threshold=4095) channel is
+// unambiguously present but had margin -10; a genuinely away
+// online(0, threshold=1) channel had the less-negative margin -1 and used
+// to win, flipping the combined decision to away even though a channel was
+// definitely lit. A channel that reads present must always beat one that
+// reads away, regardless of margin.
+void test_a_present_channel_always_beats_an_away_one_regardless_of_margin()
+{
+    const LightChannelState channels[kLightChannelCount] = {
+        // high_clipped: definitely present, but the most negative margin.
+        {LightSensorStatus::high_clipped, 4085U, 4095U},
+        // online, genuinely away, but a less-negative margin than above.
+        {LightSensorStatus::online, 0U, 1U},
+    };
+    const LightDecision decision = combine_light_channels(channels);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LightSensorStatus::high_clipped),
+        static_cast<int>(decision.status));
+    TEST_ASSERT_EQUAL_UINT(0U, decision.channel_index);
+}
+
+// Mirror case with low_clipped: its margin can be *higher* than a
+// genuinely present online channel's when its threshold happens to sit
+// near 0 (still a legal SensorSettings value) -- raw=10 against
+// threshold=0 gives margin +10, versus an online channel sitting right at
+// its own threshold (margin 0). The old margin-only reducer would have
+// picked the low_clipped (away) channel and reported the combined result
+// as away even though the online channel is genuinely lit.
+void test_an_online_present_channel_beats_a_low_clipped_away_one()
+{
+    const LightChannelState channels[kLightChannelCount] = {
+        // low_clipped: definitely away regardless of margin.
+        {LightSensorStatus::low_clipped, 10U, 0U},
+        // online, genuinely present (raw >= threshold), smaller margin.
+        {LightSensorStatus::online, 100U, 100U},
+    };
+    const LightDecision decision = combine_light_channels(channels);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LightSensorStatus::online),
+        static_cast<int>(decision.status));
+    TEST_ASSERT_EQUAL_UINT(1U, decision.channel_index);
+}
+
+// When both channels are on the present side, the tie-break still falls
+// back to the largest margin -- the "most representative" one -- exactly
+// as it did before the present/away split was introduced.
+void test_two_present_channels_break_ties_by_margin()
+{
+    const LightChannelState channels[kLightChannelCount] = {
+        {LightSensorStatus::online, 3000U, 2000U},  // present, margin 1000
+        {LightSensorStatus::high_clipped, 4085U, 500U},  // present, margin 3585
+    };
+    const LightDecision decision = combine_light_channels(channels);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(LightSensorStatus::high_clipped),
+        static_cast<int>(decision.status));
+    TEST_ASSERT_EQUAL_UINT(1U, decision.channel_index);
 }
 
 // With nothing online the aggregate reports the most actionable fault --
@@ -186,6 +286,11 @@ int main(int, char**)
     RUN_TEST(test_all_channels_dark_reads_as_dark);
     RUN_TEST(test_each_channel_is_compared_against_its_own_threshold);
     RUN_TEST(test_a_working_channel_survives_a_dead_one);
+    RUN_TEST(test_a_clipped_channel_decides_like_an_online_one);
+    RUN_TEST(test_both_channels_clipped_dark_still_decides);
+    RUN_TEST(test_a_present_channel_always_beats_an_away_one_regardless_of_margin);
+    RUN_TEST(test_an_online_present_channel_beats_a_low_clipped_away_one);
+    RUN_TEST(test_two_present_channels_break_ties_by_margin);
     RUN_TEST(test_no_online_channel_reports_the_worst_status_and_no_reading);
     return UNITY_END();
 }

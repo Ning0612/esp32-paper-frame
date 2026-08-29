@@ -837,7 +837,8 @@
     const labels = {
       disabled: t("enum.sensor.disabled"), probing: t("enum.sensor.probing"), online: t("enum.sensor.online"),
       stale: t("enum.sensor.stale"), not_detected: t("enum.sensor.not_detected"), error: t("enum.sensor.error"),
-      saturated: t("enum.sensor.saturated"), unknown: t("common.unknown"), present: t("enum.sensor.present"), away: t("enum.sensor.away"),
+      low_clipped: t("enum.sensor.low_clipped"), high_clipped: t("enum.sensor.high_clipped"),
+      unknown: t("common.unknown"), present: t("enum.sensor.present"), away: t("enum.sensor.away"),
     };
     return labels[status] || status || t("common.unknown");
   }

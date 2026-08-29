@@ -66,7 +66,8 @@ for (const status of [
   "disabled",
   "online",
   "not_detected",
-  "saturated",
+  "low_clipped",
+  "high_clipped",
   "error",
 ]) {
   assert.ok(

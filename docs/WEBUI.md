@@ -167,7 +167,7 @@ node --check data\web\image_pfr1.js
 
 - WebUI 支援繁體中文（`zh-Hant`，預設）與英文（`en`），純前端切換，後端 API
   不涉入——`GET /api/v1/sensors` 等端點回傳的一律是語意化 enum 字串（如
-  `"online"`／`"saturated"`），從來不是人話文字，翻譯全部發生在瀏覽器端。
+  `"online"`／`"low_clipped"`），從來不是人話文字，翻譯全部發生在瀏覽器端。
 - 字典與套用邏輯集中在 `data/web/i18n.js`（獨立的內嵌 asset，比照 `ui.js`／
   `style.css` 走 `StaticAsset`＋route 的三步驟接線），暴露
   `window.PaperFrameI18n = { t, setLang, getLang, applyI18n, STORAGE_KEY }`。

@@ -121,11 +121,10 @@ void test_flickering_candidate_resets_the_debounce_timer()
         static_cast<int>(result.state));
 }
 
-void test_not_detected_saturated_and_error_never_trigger_away()
+void test_not_detected_error_and_disabled_never_trigger_away()
 {
     for (const LightSensorStatus status : {
              LightSensorStatus::not_detected,
-             LightSensorStatus::saturated,
              LightSensorStatus::error,
              LightSensorStatus::disabled,
          }) {
@@ -136,6 +135,86 @@ void test_not_detected_saturated_and_error_never_trigger_away()
             tracker, status, 0U, kThreshold, 1000000U, kAwayMs, kReturnMs);
         TEST_ASSERT_EQUAL_INT(
             static_cast<int>(PresenceState::unknown),
+            static_cast<int>(result.state));
+    }
+}
+
+// Regression, measured on hardware 2026-08-27 (see HARDWARE.md): a channel
+// pinned at the low rail used to be reported `saturated`, which collapsed
+// presence to `unknown` and reset an in-progress away countdown. ADR-0020
+// makes low_clipped/high_clipped decision-capable, so the away candidate
+// must accumulate normally instead of resetting on every clipped sample.
+void test_low_clipped_reading_advances_the_away_candidate()
+{
+    PresenceTracker tracker{};
+    tracker.state = PresenceState::present;
+    tracker.candidate = PresenceState::present;
+
+    update_presence(
+        tracker, LightSensorStatus::low_clipped, 5U, kThreshold, 0U, kAwayMs,
+        kReturnMs);
+    const auto result = update_presence(
+        tracker, LightSensorStatus::low_clipped, 5U, kThreshold, kAwayMs,
+        kAwayMs, kReturnMs);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(PresenceState::away),
+        static_cast<int>(result.state));
+}
+
+// The high rail is unambiguously light: a channel pinned there must be able
+// to establish (and hold) `present`, not fall back to `unknown`.
+void test_high_clipped_reading_advances_the_present_candidate()
+{
+    PresenceTracker tracker{};
+    tracker.state = PresenceState::away;
+    tracker.candidate = PresenceState::away;
+
+    update_presence(
+        tracker, LightSensorStatus::high_clipped, 4090U, kThreshold, 0U,
+        kAwayMs, kReturnMs);
+    const auto result = update_presence(
+        tracker, LightSensorStatus::high_clipped, 4090U, kThreshold,
+        kReturnMs, kAwayMs, kReturnMs);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(PresenceState::present),
+        static_cast<int>(result.state));
+}
+
+// Regression: SensorSettings/WebUI allow threshold anywhere in 0-4095
+// (pf_config::kMinLightThreshold/kMaxLightThreshold), with nothing pinning
+// it inside the 11-4084 band ADR-0018 only recommends for the *achievable
+// raw range*. A threshold sitting at or beyond a rail used to invert a
+// clipped comparison (e.g. threshold=4095 read a high_clipped, brightest-
+// possible raw=4085 as "away") when the comparison was a plain
+// `raw < threshold`. The clip direction must hold regardless of threshold.
+void test_clipped_direction_holds_even_at_pathological_thresholds()
+{
+    {
+        PresenceTracker tracker{};
+        tracker.state = PresenceState::away;
+        tracker.candidate = PresenceState::away;
+        update_presence(
+            tracker, LightSensorStatus::high_clipped, 4085U, 4095U, 0U,
+            kAwayMs, kReturnMs);
+        const auto result = update_presence(
+            tracker, LightSensorStatus::high_clipped, 4085U, 4095U,
+            kReturnMs, kAwayMs, kReturnMs);
+        TEST_ASSERT_EQUAL_INT(
+            static_cast<int>(PresenceState::present),
+            static_cast<int>(result.state));
+    }
+    {
+        PresenceTracker tracker{};
+        tracker.state = PresenceState::present;
+        tracker.candidate = PresenceState::present;
+        update_presence(
+            tracker, LightSensorStatus::low_clipped, 10U, 0U, 0U, kAwayMs,
+            kReturnMs);
+        const auto result = update_presence(
+            tracker, LightSensorStatus::low_clipped, 10U, 0U, kAwayMs,
+            kAwayMs, kReturnMs);
+        TEST_ASSERT_EQUAL_INT(
+            static_cast<int>(PresenceState::away),
             static_cast<int>(result.state));
     }
 }
@@ -250,7 +329,10 @@ int main(int, char**)
     RUN_TEST(test_away_requires_the_full_debounce_duration);
     RUN_TEST(test_return_requires_its_own_shorter_duration);
     RUN_TEST(test_flickering_candidate_resets_the_debounce_timer);
-    RUN_TEST(test_not_detected_saturated_and_error_never_trigger_away);
+    RUN_TEST(test_not_detected_error_and_disabled_never_trigger_away);
+    RUN_TEST(test_low_clipped_reading_advances_the_away_candidate);
+    RUN_TEST(test_high_clipped_reading_advances_the_present_candidate);
+    RUN_TEST(test_clipped_direction_holds_even_at_pathological_thresholds);
     RUN_TEST(
         test_unknown_light_sensor_status_leaves_state_unknown_immediately);
     RUN_TEST(test_unknown_to_present_is_not_a_return);
