@@ -59,6 +59,10 @@ function testTransparentPixelsFlattenToWhite() {
   assert.deepEqual(pixel(result, 0, 1), [177, 202, 227, 255]);
 }
 
+function testFitModesAreExactlyContainCoverFill() {
+  assert.deepEqual(pipeline.FIT_MODES, ["contain", "cover", "fill"]);
+}
+
 function testEveryFitModeProducesTheRequestedDimensions() {
   const source = makeLabeledRaster(3, 2);
   for (const fit of pipeline.FIT_MODES) {
@@ -71,29 +75,12 @@ function testEveryFitModeProducesTheRequestedDimensions() {
   assert.notDeepEqual(pixel(fill, 0, 0), [255, 255, 255, 255, 255]);
 }
 
-function testCropAnchorSelectsTheExpectedHorizontalWindow() {
-  const source = makeLabeledRaster(4, 2);
-  const left = pipeline.fitRaster(source, 2, 2, "crop", undefined, { x: 0, y: 0.5 });
-  const right = pipeline.fitRaster(source, 2, 2, "crop", undefined, { x: 1, y: 0.5 });
-  assert.deepEqual(pixel(left, 0, 0), pixel(source, 0, 0));
-  assert.deepEqual(pixel(left, 1, 0), pixel(source, 1, 0));
-  assert.deepEqual(pixel(right, 0, 0), pixel(source, 2, 0));
-  assert.deepEqual(pixel(right, 1, 0), pixel(source, 3, 0));
-}
-
 function testCoverAnchorSelectsTheExpectedVerticalWindow() {
   const source = makeLabeledRaster(2, 4);
   const top = pipeline.fitRaster(source, 2, 2, "cover", undefined, { x: 0.5, y: 0 });
   const bottom = pipeline.fitRaster(source, 2, 2, "cover", undefined, { x: 0.5, y: 1 });
   assert.deepEqual(pixel(top, 0, 0), pixel(source, 0, 0));
   assert.deepEqual(pixel(bottom, 0, 0), pixel(source, 0, 2));
-}
-
-function testCropZoomNarrowsTheSelectedWindow() {
-  const source = makeLabeledRaster(8, 2);
-  const result = pipeline.fitRaster(source, 4, 2, "crop", undefined, { x: 0.5, y: 0.5 }, 2);
-  assert.deepEqual(pixel(result, 0, 0), pixel(source, 3, 0));
-  assert.deepEqual(pixel(result, 3, 0), pixel(source, 4, 0));
 }
 
 function testCoverZoomMagnifiesTheSelectedTarget() {
@@ -134,10 +121,14 @@ function testProcessOrderNormalizesExifBeforeUserOperations() {
 function testInvalidInputsFailClosed() {
   assert.throws(() => pipeline.orientExif(makeLabeledRaster(1, 1), 9), RangeError);
   assert.throws(() => pipeline.fitRaster(makeLabeledRaster(1, 1), 2, 2, "unknown"), RangeError);
+  assert.throws(() => pipeline.fitRaster(makeLabeledRaster(1, 1), 2, 2, "crop"), RangeError);
   assert.throws(() => pipeline.makeRaster(2, 2, new Uint8ClampedArray(3)), RangeError);
   assert.throws(() => pipeline.normalizeCropPosition({ x: 2, y: 0.5 }), RangeError);
   assert.throws(() => pipeline.normalizeCropPosition({ x: 0.5, y: -1 }), RangeError);
   assert.throws(() => pipeline.normalizeCropZoom(0.99), RangeError);
+  assert.equal(pipeline.MAX_CROP_ZOOM, 4);
+  assert.throws(() => pipeline.normalizeCropZoom(pipeline.MAX_CROP_ZOOM + 0.01), RangeError);
+  assert.equal(pipeline.normalizeCropZoom(pipeline.MAX_CROP_ZOOM), pipeline.MAX_CROP_ZOOM);
 }
 
 function testExifReaderExtractsJpegOrientationAndFailsClosed() {
@@ -163,13 +154,12 @@ testExifOrientationSixRotatesClockwise();
 testMirrorAndRotateAreSeparateOperations();
 testRepeatedButtonOperationsApplyOneTransformPerClick();
 testTransparentPixelsFlattenToWhite();
+testFitModesAreExactlyContainCoverFill();
 testEveryFitModeProducesTheRequestedDimensions();
-testCropAnchorSelectsTheExpectedHorizontalWindow();
 testCoverAnchorSelectsTheExpectedVerticalWindow();
-testCropZoomNarrowsTheSelectedWindow();
 testCoverZoomMagnifiesTheSelectedTarget();
 testCoverZoomKeepsNearestSamplingWithoutIntermediateRaster();
 testProcessOrderNormalizesExifBeforeUserOperations();
 testInvalidInputsFailClosed();
 testExifReaderExtractsJpegOrientationAndFailsClosed();
-console.log("image_pipeline: 13 tests passed");
+console.log("image_pipeline: 12 tests passed");

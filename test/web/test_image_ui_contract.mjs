@@ -82,6 +82,12 @@ assert.ok(html.includes('id="image-carousel-refresh-minutes" type="number" min="
 assert.ok(ui.includes('refresh_minutes: String(refreshMinutes)'));
 assert.ok(ui.includes('const defaultCarouselRefreshMinutes = 30;'));
 assert.ok(ui.includes("64 * 1024 * 1024"));
+const fitSelectMatch = html.match(/<select id="image-fit">[\s\S]*?<\/select>/);
+assert.ok(fitSelectMatch, "expected an #image-fit select in index.html");
+const fitOptionValues = [...fitSelectMatch[0].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+assert.deepEqual(fitOptionValues, ["contain", "cover", "fill"],
+  "crop fit mode was removed: cover produces an equivalent result with the same controls");
+assert.ok(html.includes('id="image-crop-zoom" type="range" min="1" max="4"'));
 assert.ok(html.includes('value="floyd-steinberg"'));
 assert.ok(html.includes('value="atkinson"'));
 assert.ok(!html.includes('value="nearest"'));

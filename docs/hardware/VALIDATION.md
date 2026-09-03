@@ -3397,3 +3397,50 @@ channel `online` 就會忽略另一個非 `online` 的 channel，所以單一顆
 - **未涵蓋**：本次只驗證了換阻值後的單一次日夜週期，未長時間觀察（例如
   連續數天、或環境更暗的深夜場景）確認 100 kΩ 的全暗餘裕是否像 47 kΩ
   一樣會隨時間或環境劣化；HARDWARE.md 已在「已知限制」註記需要持續觀察。
+
+## 2026-09-03 — WebUI crop fit 模式移除／裁切縮放放寬至 400% 實機驗證
+
+### 背景
+
+移除 image fit 的 `crop` 選項（僅保留 `contain`／`cover`／`fill`；實測
+`crop` 與 `cover` 在相同 anchor／zoom 下輸出幾乎逐像素等價，且兩者操作
+方式完全相同，保留形同贅選項），並把裁切縮放上限由 300% 放寬到 400%。
+本次為純 WebUI（瀏覽器端 JS/HTML）異動，未觸及感測器、OTA、partition
+等硬體邏輯。燒錄用於本次驗證的建置暫定 `kFirmwareVersion="v0.11.3"`，
+正式對外 release 的版本號另定，屆時會重新燒錄。
+
+### 驗證（COM17 native USB console 監看 + 瀏覽器對 192.168.1.169 操作）
+
+- WebUI 內容：登入後 `#image-fit` 下拉選單確認恰為
+  `["contain", "cover", "fill"]`，無殘留 `crop`；`#image-crop-zoom` 的
+  `min="1" max="4"` 已生效。
+- 全新開機／reboot persistence：透過 WebUI「重新啟動裝置」觸發軟重開機
+  兩次，確認網路憑證、管理密碼、天氣設定、目前輪播圖片（`#68`）、
+  imagefs 內容（1.4 MB／9.8 MB）皆完整保留；`reboot_reason=software_reset`
+  正確反映觸發方式。
+- Boot validation：序列埠擷取到完整開機 log，含
+  `rollback_confirmed=ESP_OK`。
+- System 頁操作：「重新啟動裝置」（兩次）、「檢查更新」（回報「已是
+  最新」，正確——本機建置版本號高於目前 GitHub 上的 `v0.11.2` release）
+  皆正常；「立即更新」因無可用更新正確維持 disabled，未實際觸發（尚未
+  推送新 release，屬預期，非缺陷）。「重設管理密碼」未實測（會讓目前
+  session 失效，中斷後續驗證；該路徑已有 `test_management_password`
+  host test 覆蓋）。
+
+### 未涵蓋（沿用既有驗證紀錄，未重新測試）
+
+本次變更未觸及 bootloader、rollback、partition table，也未變動
+`app_main.cpp` 呼叫 `esp_ota_mark_app_valid_cancel_rollback()` 的位置或
+時機，依 `docs/RELEASE_CHECKLIST.md` 條件不需重跑：
+
+- Rollback fault injection：沿用「2026-08-20 — OTA rollback fault
+  injection」段落的驗證紀錄。
+- STA 已連線時不提供手動 Recovery AP：本次未觸及網路邏輯，沿用既有紀錄。
+- OTA 完整下載流程（實際抓一個更新版本來裝）：驗證當下尚未推送新 tag，
+  沒有可拉取的更新版本可測；留待正式 tag／release 推送後，另外驗證一次
+  「檢查更新 → 立即更新 → 自動重開機」全流程。
+
+### 結論
+
+本次 WebUI 異動在實機上行為正確、與 host test 結果一致，未觀察到回歸；
+OTA 全流程最後一段（實際下載安裝）需等正式 tag 推送後才能補完整驗證。

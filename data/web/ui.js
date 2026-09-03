@@ -1284,7 +1284,7 @@
   }
 
   function cropInteractionEnabled() {
-    return Boolean(imageWorkingRaster) && (imageFit.value === "crop" || imageFit.value === "cover");
+    return Boolean(imageWorkingRaster) && imageFit.value === "cover";
   }
 
   function invalidateImageOutput() {
@@ -1318,31 +1318,17 @@
   }
 
   function cropDragGeometry(profile) {
-    if (imageFit.value === "cover") {
-      const geometry = window.PaperFrameImage.cropGeometry(
-        imageWorkingRaster,
-        profile.width,
-        profile.height,
-        imageCropZoom,
-      );
-      return {
-        overflowX: geometry.overflowX,
-        overflowY: geometry.overflowY,
-        viewportWidth: profile.width,
-        viewportHeight: profile.height,
-      };
-    }
-    const cropWindow = window.PaperFrameImage.cropWindow(
+    const geometry = window.PaperFrameImage.cropGeometry(
       imageWorkingRaster,
       profile.width,
       profile.height,
       imageCropZoom,
     );
     return {
-      overflowX: imageWorkingRaster.width - cropWindow.width,
-      overflowY: imageWorkingRaster.height - cropWindow.height,
-      viewportWidth: cropWindow.width,
-      viewportHeight: cropWindow.height,
+      overflowX: geometry.overflowX,
+      overflowY: geometry.overflowY,
+      viewportWidth: profile.width,
+      viewportHeight: profile.height,
     };
   }
 

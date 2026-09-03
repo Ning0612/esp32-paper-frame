@@ -444,12 +444,11 @@
                       <option value="portrait" data-i18n="image.orientation.portrait">直向 480 × 760</option>
                     </select>
                   </label>
-                  <label class="field"><span data-i18n="image.fit_label">Fit / Crop</span>
+                  <label class="field"><span data-i18n="image.fit_label">Fit</span>
                     <select id="image-fit">
                       <option value="contain" data-i18n="image.fit.contain">Contain／留白</option>
                       <option value="cover" data-i18n="image.fit.cover">Cover／覆蓋裁切</option>
                       <option value="fill" data-i18n="image.fit.fill">Fill／填滿</option>
-                      <option value="crop" data-i18n="image.fit.crop">Crop／比例裁切</option>
                     </select>
                   </label>
                   <label class="field"><span data-i18n="image.dither_label">六色量化</span>
@@ -474,7 +473,7 @@
                 <div id="image-crop-controls" class="image-crop-controls" hidden>
                   <label class="field" for="image-crop-zoom">
                     <span><span data-i18n="image.crop_zoom_label">裁切縮放</span> <output id="image-crop-zoom-value" for="image-crop-zoom">100%</output></span>
-                    <input id="image-crop-zoom" type="range" min="1" max="3" step="0.01" value="1" disabled data-i18n-aria-label="image.crop_zoom_label_plain" aria-label="裁切縮放">
+                    <input id="image-crop-zoom" type="range" min="1" max="4" step="0.01" value="1" disabled data-i18n-aria-label="image.crop_zoom_label_plain" aria-label="裁切縮放">
                   </label>
                   <p id="image-crop-zoom-hint" class="field-hint" data-i18n="image.crop_zoom_hint">100% 保留最大的裁切範圍；放大後可在預覽中拖曳選擇目標。</p>
                 </div>
@@ -502,7 +501,7 @@
 
             <section class="preview-grid" data-i18n-aria-label="image.preview_grid_aria" aria-label="圖片預覽">
               <article class="panel preview-card"><div class="preview-heading"><h3 data-i18n="image.preview.original">原圖</h3><span>EXIF normalized</span></div><canvas id="preview-original" data-i18n-aria-label="image.preview.original_aria" aria-label="原圖預覽"></canvas></article>
-              <article id="image-processed-card" class="panel preview-card crop-interactive"><div class="preview-heading"><h3 data-i18n="image.preview.processed">處理後</h3><span>fit / crop</span></div><canvas id="preview-processed" aria-describedby="image-crop-hint image-crop-position image-crop-zoom-hint" data-i18n-aria-label="image.preview.processed_aria" aria-label="處理後預覽；Crop 或 Cover 模式可拖曳圖片調整位置"></canvas><p id="image-crop-hint" class="field-hint" hidden data-i18n="image.crop_hint">Crop／Cover 模式：拖曳圖片調整裁切位置。</p><p id="image-crop-position" class="field-hint" data-i18n="image.crop_position_center">目前裁切位置：中央（x 0.50，y 0.50）</p></article>
+              <article id="image-processed-card" class="panel preview-card crop-interactive"><div class="preview-heading"><h3 data-i18n="image.preview.processed">處理後</h3><span>fit</span></div><canvas id="preview-processed" aria-describedby="image-crop-hint image-crop-position image-crop-zoom-hint" data-i18n-aria-label="image.preview.processed_aria" aria-label="處理後預覽；Cover 模式可拖曳圖片調整位置"></canvas><p id="image-crop-hint" class="field-hint" hidden data-i18n="image.crop_hint">Cover 模式：拖曳圖片調整裁切位置。</p><p id="image-crop-position" class="field-hint" data-i18n="image.crop_position_center">目前裁切位置：中央（x 0.50，y 0.50）</p></article>
               <article class="panel preview-card"><div class="preview-heading"><h3 data-i18n="image.preview.frame">面板畫面</h3><span>status bar</span></div><canvas id="preview-frame" data-i18n-aria-label="image.preview.frame_aria" aria-label="含狀態列的面板預覽"></canvas></article>
             </section>
 

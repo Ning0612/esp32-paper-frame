@@ -7,13 +7,14 @@
 })(typeof globalThis === "object" ? globalThis : this, function () {
   "use strict";
 
-  const FIT_MODES = Object.freeze(["contain", "cover", "fill", "crop"]);
+  const FIT_MODES = Object.freeze(["contain", "cover", "fill"]);
   const ORIENTATION_PROFILES = Object.freeze({
     landscape: Object.freeze({ orientation: 0, width: 800, height: 440 }),
     portrait: Object.freeze({ orientation: 1, width: 480, height: 760 }),
   });
   const DEFAULT_CROP_POSITION = Object.freeze({ x: 0.5, y: 0.5 });
   const DEFAULT_CROP_ZOOM = 1;
+  const MAX_CROP_ZOOM = 4;
 
   function assertInteger(value, name) {
     if (!Number.isInteger(value) || value <= 0) {
@@ -245,8 +246,10 @@
 
   function normalizeCropZoom(zoom) {
     const value = zoom == null ? DEFAULT_CROP_ZOOM : Number(zoom);
-    if (!Number.isFinite(value) || value < DEFAULT_CROP_ZOOM) {
-      throw new RangeError("crop zoom must be a finite number greater than or equal to 1");
+    if (!Number.isFinite(value) || value < DEFAULT_CROP_ZOOM || value > MAX_CROP_ZOOM) {
+      throw new RangeError(
+        `crop zoom must be a finite number between ${DEFAULT_CROP_ZOOM} and ${MAX_CROP_ZOOM}`,
+      );
     }
     return value;
   }
@@ -266,26 +269,6 @@
       scaledHeight,
       overflowX: scaledWidth - width,
       overflowY: scaledHeight - height,
-    });
-  }
-
-  function cropWindow(raster, width, height, cropZoom) {
-    const source = validateRaster(raster);
-    assertInteger(width, "crop target width");
-    assertInteger(height, "crop target height");
-    const zoom = normalizeCropZoom(cropZoom);
-    const targetAspect = width / height;
-    const sourceAspect = source.width / source.height;
-    let cropWidth = source.width;
-    let cropHeight = source.height;
-    if (sourceAspect > targetAspect) {
-      cropWidth = Math.max(1, Math.round(source.height * targetAspect));
-    } else if (sourceAspect < targetAspect) {
-      cropHeight = Math.max(1, Math.round(source.width / targetAspect));
-    }
-    return Object.freeze({
-      width: Math.max(1, Math.round(cropWidth / zoom)),
-      height: Math.max(1, Math.round(cropHeight / zoom)),
     });
   }
 
@@ -401,16 +384,8 @@
     }
     const anchor = normalizeCropPosition(cropPosition);
     const zoom = normalizeCropZoom(cropZoom);
-    if (fit === "cover") {
-      const geometry = cropGeometry(source, width, height, zoom);
-      return resizeCropNearest(source, width, height, geometry, anchor);
-    }
-    const cropWindowSize = cropWindow(source, width, height, zoom);
-    return resizeNearest(
-      cropRaster(source, cropWindowSize.width, cropWindowSize.height, anchor),
-      width,
-      height,
-    );
+    const geometry = cropGeometry(source, width, height, zoom);
+    return resizeCropNearest(source, width, height, geometry, anchor);
   }
 
   function processRaster(raster, options) {
@@ -443,6 +418,7 @@
     ORIENTATION_PROFILES,
     DEFAULT_CROP_POSITION,
     DEFAULT_CROP_ZOOM,
+    MAX_CROP_ZOOM,
     makeRaster,
     readExifOrientation,
     flattenOnWhite,
@@ -452,7 +428,6 @@
     normalizeCropPosition,
     normalizeCropZoom,
     cropGeometry,
-    cropWindow,
     cropRaster,
     cropCenter,
     resizeNearest,

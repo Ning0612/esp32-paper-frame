@@ -98,14 +98,16 @@ RuntimeCoordinator 發出模式與間隔變更請求，carousel 正在刷新時�
 `data/web/image_pipeline.js` 是離線可載入、也可由 Node host test 驗證的純
 RGBA raster helper。`processRaster()` 固定依序正規化 EXIF orientation 1–8、
 水平鏡像、垂直鏡像、順時針 90°、fit/crop 與 nearest-neighbor resize；透明
-像素先以白色背景合成。四種 fit 語意如下：
+像素先以白色背景合成。三種 fit 語意如下：
 
 - `contain`：等比縮放並在目標畫布留白。
 - `cover`：等比放大到覆蓋目標後裁切；處理後預覽可拖曳影像調整位置，並以裁切縮放滑桿放大目標。
 - `fill`：直接縮放到目標尺寸，不保持比例。
-- `crop`：先以目標比例裁切原圖，再等比縮放；預設置中，可拖曳調整位置並以裁切縮放滑桿放大目標。
 
-Crop 與 Cover 的裁切縮放範圍為 100%–300%；100% 代表最大的裁切範圍。滑鼠或觸控拖曳
+（原本另有 `crop`——先以目標比例裁切原圖再等比縮放——但實測其操作方式與輸出結果
+皆與 `cover` 幾乎等價，已移除以簡化介面。）
+
+Cover 的裁切縮放範圍為 100%–400%；100% 代表最大的裁切範圍。滑鼠或觸控拖曳
 處理後預覽可調整裁切 anchor，縮放與位置都會即時更新預覽，放開縮放控制後才重新量化與打包。
 
 輸出目標必須由 landscape `800×440` 或 portrait `480×760` profile 指定；
