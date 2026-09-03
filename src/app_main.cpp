@@ -319,10 +319,12 @@ pf_display::StatusBarContent build_status_bar_content()
         content.icon_code[sizeof(content.icon_code) - 1U] = '\0';
     }
 
-    content.indoor_available =
-        snapshot.environment_status == pf_sensors::SensorStatus::online &&
-        snapshot.environment.has_reading;
+    const pf_sensors::EnvironmentDisplayDecision indoor_decision =
+        pf_sensors::environment_display_decision(
+            snapshot.environment.has_reading, snapshot.environment_status);
+    content.indoor_available = indoor_decision.available;
     if (content.indoor_available) {
+        content.indoor_stale = indoor_decision.stale;
         const float indoor_temperature =
             snapshot.environment.reading.temperature_c;
         content.indoor_temperature_rounded = static_cast<int>(

@@ -132,12 +132,21 @@ struct EnvironmentCache {
 // avoids self-heating error and bus noise accumulation from back-to-back
 // reads.
 inline constexpr std::uint64_t kEnvironmentUpdateIntervalMs =
-    60U * 1000U;
+    120U * 1000U;
 inline constexpr std::uint64_t kEnvironmentInitialRetryMs = 10U * 1000U;
 inline constexpr std::uint64_t kEnvironmentMaximumRetryMs =
     30U * 60U * 1000U;
+// Matches pf_weather::kDefaultCacheMaxAgeSeconds. A single failed read (or a
+// short run of them while the retry backoff climbs) used to make the whole
+// indoor block disappear for however long the next carousel refresh was away
+// -- up to the full 30-minute default interval -- even though the sensor
+// typically recovers within a minute or two. Widening this to match the
+// outdoor weather tolerance means a display refresh landing mid-hiccup still
+// has a reading to show; environment_reading_current()'s stale flag (see
+// below) is what keeps that reading from being presented as if it were
+// fresh.
 inline constexpr std::uint64_t kEnvironmentDefaultCacheMaxAgeSeconds =
-    300U;
+    3600U;
 
 // Callers must pass an already-validated reading (see
 // environment_reading_in_range); this does not re-validate.
@@ -231,6 +240,37 @@ inline SensorStatus environment_cached_status(
     return environment_reading_current(cache, now_epoch_s, max_age_seconds)
                ? SensorStatus::online
                : SensorStatus::stale;
+}
+
+// Whether the status bar should show the cached indoor reading, and whether
+// it should be marked stale while doing so.
+//
+// `EnvironmentCache::has_reading` is sticky: record_environment_success()
+// sets it once and nothing ever clears it back to false for the rest of the
+// boot cycle, even if the sensor is later disabled in settings or never
+// answers again. Gating display on `has_reading` alone would therefore keep
+// showing a stale-marked reading forever after either of those -- exactly
+// the "沿用歷史值" the optional-sensor contract forbids, just delayed
+// instead of avoided. Restricting display to the `online`/`stale` statuses
+// (never `disabled`, `not_detected` or `probing`) is what makes "sensor
+// briefly stopped answering" (show cached value, mark it stale -- the
+// 2026-09-03 fix) and "sensor turned off/never worked" (hide entirely --
+// unchanged from before that fix) both come out correctly from the same
+// cache state.
+struct EnvironmentDisplayDecision {
+    bool available = false;
+    bool stale = false;
+};
+
+inline EnvironmentDisplayDecision environment_display_decision(
+    const bool has_reading,
+    const SensorStatus status)
+{
+    EnvironmentDisplayDecision decision{};
+    decision.available = has_reading &&
+        (status == SensorStatus::online || status == SensorStatus::stale);
+    decision.stale = decision.available && status == SensorStatus::stale;
+    return decision;
 }
 
 }  // namespace pf_sensors

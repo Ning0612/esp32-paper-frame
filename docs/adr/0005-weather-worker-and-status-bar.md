@@ -169,3 +169,19 @@ reading 時，右側室內欄位改顯示天氣圖示與室外溫度。IP 由 `N
 在同一個 40px 高度內保持可讀。日期、天氣（圖示／室外溫度）、IP、
 室內溫度／溼度現在以內容寬度排列，存在的群組之間使用相同的可用空白；
 缺少天氣或室內 reading 時只移除對應群組，不改變其他資訊的等距分配。
+
+## Update (2026-09-03)
+
+本段取代 2026-08-03 段落中「環境感測器狀態為 `online` 且有有效 reading
+時才顯示室內溫濕度」的條件。使用者回報：全刷間隔（預設 30 分鐘）遠長於
+原本的過期門檻（5 分鐘），單次 DHT22 讀取失敗、進入重試退避時，剛好被
+全刷抓到就會讓室內欄位整個消失一輪。修正比照既有的 `weather_available`／
+`weather_stale` 模式，新增 `indoor_stale`：室內欄位現在只要「已有成功讀值
+（`has_reading`）且 `SensorStatus` 為 `online` **或** `stale`」就顯示
+（過期門檻同時放寬到 3600 秒，比照 `pf_weather` 的門檻），過期時在數值
+後方加一個紅色 `*` 標記；其餘狀態（`disabled`／`not_detected`／
+`probing`／`error`，以及尚未成功讀過任何一次的情況）一律整個隱藏
+（判斷邏輯集中在 `pf_sensors::environment_display_decision()`，見
+`components/pf_sensors/include/pf_sensors/environment_sensor.hpp`）。
+`kEnvironmentUpdateIntervalMs` 同時由 60 秒調整為 120 秒，是獨立的
+DHT22 自熱誤差考量，與本次過期顯示的修正無直接關聯。

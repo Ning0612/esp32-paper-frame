@@ -48,6 +48,23 @@ bool region_has_non_white(
     return false;
 }
 
+// Unlike region_has_non_white, this checks the whole view for one exact
+// color -- comparing entire framebuffers only proves *something* about the
+// layout changed, not that the stale marker itself (as opposed to some
+// unrelated width shift) is what changed it.
+bool view_has_color(PackedFramebufferView& view, const Color target)
+{
+    for (std::size_t y = 0U; y < view.height(); ++y) {
+        for (std::size_t x = 0U; x < view.width(); ++x) {
+            Color color{};
+            if (view.get_pixel(x, y, color) && color == target) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void test_unsynced_time_renders_placeholder_not_epoch_date()
 {
     StatusBuffer buffer = make_white_buffer();
@@ -318,6 +335,47 @@ void test_stale_weather_draws_marker_that_fresh_weather_does_not()
     TEST_ASSERT_FALSE(fresh_buffer == stale_buffer);
 }
 
+void test_stale_indoor_draws_marker_that_fresh_indoor_does_not()
+{
+    StatusBarContent content{};
+    content.time_valid = true;
+    content.year = 2026;
+    content.month = 7;
+    content.day = 31;
+    content.iso_weekday = 5;
+    content.indoor_available = true;
+    content.indoor_temperature_rounded = 26;
+    content.indoor_humidity_rounded = 55;
+
+    StatusBuffer fresh_buffer = make_white_buffer();
+    PackedFramebufferView fresh_view{
+        fresh_buffer.data(),
+        fresh_buffer.size(),
+        pf_display::kPanelWidth,
+        pf_display::kStatusBarHeight};
+    content.indoor_stale = false;
+    TEST_ASSERT_TRUE(pf_display::render_status_bar(content, fresh_view));
+
+    StatusBuffer stale_buffer = make_white_buffer();
+    PackedFramebufferView stale_view{
+        stale_buffer.data(),
+        stale_buffer.size(),
+        pf_display::kPanelWidth,
+        pf_display::kStatusBarHeight};
+    content.indoor_stale = true;
+    TEST_ASSERT_TRUE(pf_display::render_status_bar(content, stale_view));
+
+    // A read failure must not blank the indoor group -- the last known
+    // reading keeps rendering (see kEnvironmentDefaultCacheMaxAgeSeconds'
+    // comment for why) -- it must only gain a stale marker.
+    TEST_ASSERT_FALSE(fresh_buffer == stale_buffer);
+    // The buffer-diff check alone would also pass if the marker were dropped
+    // and only the indoor group's width shifted for some unrelated reason;
+    // this pins the difference to the red stale marker specifically.
+    TEST_ASSERT_FALSE(view_has_color(fresh_view, Color::red));
+    TEST_ASSERT_TRUE(view_has_color(stale_view, Color::red));
+}
+
 void test_render_status_bar_rejects_invalid_view()
 {
     PackedFramebufferView invalid_view{nullptr, 0U, 0U, 0U};
@@ -341,6 +399,7 @@ int main(int, char**)
     RUN_TEST(test_portrait_layout_uses_compact_scale_and_keeps_right_values);
     RUN_TEST(test_portrait_long_content_falls_back_without_overlapping_groups);
     RUN_TEST(test_stale_weather_draws_marker_that_fresh_weather_does_not);
+    RUN_TEST(test_stale_indoor_draws_marker_that_fresh_indoor_does_not);
     RUN_TEST(test_render_status_bar_rejects_invalid_view);
     return UNITY_END();
 }

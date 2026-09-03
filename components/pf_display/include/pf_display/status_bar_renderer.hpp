@@ -66,6 +66,7 @@ struct StatusBarContent {
     char icon_code[8]{};
 
     bool indoor_available = false;
+    bool indoor_stale = false;
     int indoor_temperature_rounded = 0;
     int indoor_humidity_rounded = 0;
 };
@@ -166,6 +167,8 @@ inline bool render_status_bar(
         std::size_t stale = 0U;
         std::size_t weather = 0U;
         std::size_t ip = 0U;
+        std::size_t indoor_text = 0U;
+        std::size_t indoor_stale = 0U;
         std::size_t indoor = 0U;
         std::size_t total = 0U;
     };
@@ -185,8 +188,17 @@ inline bool render_status_bar(
                        : 0U)
             : 0U;
         widths.ip = text_width(std::strlen(ip_text), scale);
-        widths.indoor = content.indoor_available
+        widths.indoor_text = content.indoor_available
             ? text_width(std::strlen(indoor_text), scale)
+            : 0U;
+        widths.indoor_stale = content.indoor_available && content.indoor_stale
+            ? text_width(1U, scale)
+            : 0U;
+        widths.indoor = content.indoor_available
+            ? widths.indoor_text +
+                  (content.indoor_stale
+                       ? content_gap + widths.indoor_stale
+                       : 0U)
             : 0U;
         widths.total = widths.date + widths.weather + widths.ip +
             widths.indoor;
@@ -286,13 +298,28 @@ inline bool render_status_bar(
 
     if (content.indoor_available) {
         cursor_x += equal_gap;
+        const long indoor_x = cursor_x;
         draw_text(
             view,
-            cursor_x < 0L ? 0U : static_cast<std::size_t>(cursor_x),
+            indoor_x < 0L ? 0U : static_cast<std::size_t>(indoor_x),
             text_y,
             indoor_text,
             Color::black,
             text_scale);
+
+        if (content.indoor_stale) {
+            const long indoor_stale_x = indoor_x +
+                static_cast<long>(widths.indoor_text) +
+                static_cast<long>(content_gap);
+            draw_text(
+                view,
+                indoor_stale_x < 0L ? 0U
+                                     : static_cast<std::size_t>(indoor_stale_x),
+                text_y,
+                "*",
+                Color::red,
+                text_scale);
+        }
     }
 
     return true;

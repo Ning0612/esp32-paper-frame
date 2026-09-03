@@ -188,6 +188,99 @@ void test_empty_cache_reports_probing()
             pf_sensors::environment_cached_status(cache, 1700000000U)));
 }
 
+// Every other test here references these constants symbolically, so a
+// regression that silently reverted them (e.g. back to the old 60s poll /
+// 300s staleness window) would still pass. Pin the actual values the
+// 2026-09-03 indoor-staleness fix settled on.
+void test_update_interval_and_stale_window_match_the_tuned_values()
+{
+    TEST_ASSERT_EQUAL_UINT64(
+        120U * 1000U, pf_sensors::kEnvironmentUpdateIntervalMs);
+    TEST_ASSERT_EQUAL_UINT64(
+        3600U, pf_sensors::kEnvironmentDefaultCacheMaxAgeSeconds);
+}
+
+// EnvironmentCache::has_reading never resets to false once a read has ever
+// succeeded (record_environment_success only ever sets it), so this
+// decision must key off SensorStatus -- not has_reading alone -- to hide the
+// indoor block once the sensor is disabled or was never detected, even with
+// a sticky-true has_reading left over from an earlier success.
+void test_display_decision_hides_on_disabled_or_never_read()
+{
+    const pf_sensors::EnvironmentDisplayDecision disabled_after_success =
+        pf_sensors::environment_display_decision(
+            true, SensorStatus::disabled);
+    TEST_ASSERT_FALSE(disabled_after_success.available);
+    TEST_ASSERT_FALSE(disabled_after_success.stale);
+
+    const pf_sensors::EnvironmentDisplayDecision never_read =
+        pf_sensors::environment_display_decision(
+            false, SensorStatus::not_detected);
+    TEST_ASSERT_FALSE(never_read.available);
+
+    const pf_sensors::EnvironmentDisplayDecision probing =
+        pf_sensors::environment_display_decision(
+            false, SensorStatus::probing);
+    TEST_ASSERT_FALSE(probing.available);
+}
+
+void test_display_decision_shows_fresh_without_a_stale_marker()
+{
+    const pf_sensors::EnvironmentDisplayDecision decision =
+        pf_sensors::environment_display_decision(true, SensorStatus::online);
+    TEST_ASSERT_TRUE(decision.available);
+    TEST_ASSERT_FALSE(decision.stale);
+}
+
+void test_display_decision_shows_cached_reading_marked_stale()
+{
+    const pf_sensors::EnvironmentDisplayDecision decision =
+        pf_sensors::environment_display_decision(true, SensorStatus::stale);
+    TEST_ASSERT_TRUE(decision.available);
+    TEST_ASSERT_TRUE(decision.stale);
+}
+
+// Every one of the six SensorStatus values, crossed with both has_reading
+// states -- a codex-cowork review (2026-09-03, round 2) pointed out the
+// three tests above only sample five status/has_reading combinations and
+// skip `error` entirely, which would leave a widened allow-list or a
+// dropped has_reading gate undetected. `online`/`stale` are the only two
+// that should ever show, and only when has_reading is true; every other
+// combination -- including ones the sensor task itself would never
+// actually produce, like has_reading=false with status=online -- must
+// still come out hidden, since this is a pure function with no right to
+// assume its caller upholds that invariant for it.
+void test_display_decision_only_shows_when_read_and_online_or_stale()
+{
+    const SensorStatus all_statuses[] = {
+        SensorStatus::disabled,
+        SensorStatus::probing,
+        SensorStatus::online,
+        SensorStatus::stale,
+        SensorStatus::not_detected,
+        SensorStatus::error,
+    };
+    for (const bool has_reading : {false, true}) {
+        for (const SensorStatus status : all_statuses) {
+            const pf_sensors::EnvironmentDisplayDecision decision =
+                pf_sensors::environment_display_decision(
+                    has_reading, status);
+            const bool should_show = has_reading &&
+                (status == SensorStatus::online ||
+                 status == SensorStatus::stale);
+            TEST_ASSERT_EQUAL_INT(
+                should_show ? 1 : 0, decision.available ? 1 : 0);
+            if (!should_show) {
+                TEST_ASSERT_FALSE(decision.stale);
+            } else {
+                TEST_ASSERT_EQUAL_INT(
+                    status == SensorStatus::stale ? 1 : 0,
+                    decision.stale ? 1 : 0);
+            }
+        }
+    }
+}
+
 }  // namespace
 
 int main(int, char**)
@@ -202,5 +295,10 @@ int main(int, char**)
     RUN_TEST(test_a_successful_read_restores_current);
     RUN_TEST(test_age_alone_still_makes_a_reading_not_current);
     RUN_TEST(test_empty_cache_reports_probing);
+    RUN_TEST(test_update_interval_and_stale_window_match_the_tuned_values);
+    RUN_TEST(test_display_decision_hides_on_disabled_or_never_read);
+    RUN_TEST(test_display_decision_shows_fresh_without_a_stale_marker);
+    RUN_TEST(test_display_decision_shows_cached_reading_marked_stale);
+    RUN_TEST(test_display_decision_only_shows_when_read_and_online_or_stale);
     return UNITY_END();
 }
